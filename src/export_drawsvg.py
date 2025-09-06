@@ -20,6 +20,9 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
     lines.append("")
     lines.append("def build_drawing():")
     lines.append(f"    d = draw.Drawing({width}, {height}, origin=({ox}, {oy}))")
+    lines.append(
+        f"    d.append(draw.Rectangle({ox}, {oy}, {width}, {height}, fill='white', stroke='none'))"
+    )
     lines.append("")
 
     for it in items:
