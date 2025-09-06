@@ -203,7 +203,11 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 lines.append("    d.append(_path)")
                 lines.append("")
             else:
-                attr_str = f"stroke='{pen.color().name()}', stroke_width={pen.widthF():.2f}"
+                attr_str = (
+                    f"stroke='{pen.color().name()}', "
+                    f"stroke_width={pen.widthF():.2f}, "
+                    "fill='none'"
+                )
                 if len(abs_pts) == 4:
                     x1, y1, x2, y2 = abs_pts
                     if abs(ang) > 1e-6:
@@ -220,11 +224,11 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     coord_str = ", ".join(f"{v:.2f}" for v in abs_pts)
                     if abs(ang) > 1e-6:
                         lines.append(
-                            f"    _line = draw.Lines({coord_str}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
+                    f"    _line = draw.Lines({coord_str}, close=False, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
                         )
                     else:
                         lines.append(
-                            f"    _line = draw.Lines({coord_str}, {attr_str})"
+                    f"    _line = draw.Lines({coord_str}, close=False, {attr_str})"
                         )
                     lines.append("    d.append(_line)")
                     lines.append("")
