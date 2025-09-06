@@ -54,6 +54,10 @@ def _apply_style(item: QtWidgets.QGraphicsItem, kwargs: dict[str, Any]) -> None:
             if "fill_opacity" in kwargs:
                 color.setAlphaF(float(kwargs["fill_opacity"]))
             item.setDefaultTextColor(color)
+        if "font_family" in kwargs:
+            font = item.font()
+            font.setFamily(str(kwargs["font_family"]))
+            item.setFont(font)
 
 
 def _parse_rotate(val: str) -> float:
@@ -216,6 +220,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 font.setPointSizeF(size)
                 item.setFont(font)
                 _apply_style(item, kwargs)
+                font = item.font()
                 fm = QtGui.QFontMetrics(font)
                 y = baseline - fm.ascent()
                 item.setPos(x, y)
