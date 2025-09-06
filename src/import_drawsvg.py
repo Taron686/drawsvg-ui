@@ -216,9 +216,10 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 font.setPointSizeF(size)
                 item.setFont(font)
                 _apply_style(item, kwargs)
-                br = item.boundingRect()
-                y = baseline - br.height()
+                fm = QtGui.QFontMetrics(font)
+                y = baseline - fm.ascent()
                 item.setPos(x, y)
+                br = item.boundingRect()
                 item.setTransformOriginPoint(br.width() / 2.0, br.height() / 2.0)
                 if "transform" in kwargs:
                     item.setRotation(_parse_rotate(kwargs["transform"]))
