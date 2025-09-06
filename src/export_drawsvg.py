@@ -253,7 +253,8 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             if color.alphaF() < 1.0:
                 attrs.append(f"fill_opacity={color.alphaF():.2f}")
             attr_str = ", ".join(attrs)
-            baseline = y + br.height()
+            fm = QtGui.QFontMetrics(font)
+            baseline = y + fm.ascent()
             if abs(ang) > 1e-6:
                 lines.append(
                     f"    _text = draw.Text('{text}', {size:.2f}, {x:.2f}, {baseline:.2f}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
