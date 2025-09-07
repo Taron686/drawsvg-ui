@@ -237,23 +237,26 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     lines.append("")
 
         elif shape == "Text" and isinstance(it, QtWidgets.QGraphicsTextItem):
-            x = it.pos().x()
-            y = it.pos().y()
             br = it.boundingRect()
-            cx = x + br.width() / 2.0
-            cy = y + br.height() / 2.0
+            cx = it.pos().x() + br.width() / 2.0
+            cy = it.pos().y() + br.height() / 2.0
+            s = it.scale()
+            x = cx - br.width() * s / 2.0
+            y = cy - br.height() * s / 2.0
             ang = it.rotation()
             font = it.font()
             size = font.pointSizeF()
             if size <= 0:  # fall back to pixel size when point size is unset
                 size = float(font.pixelSize())
-            text = it.toPlainText().replace("'", "\'")
+            size *= s
+            text = repr(it.toPlainText())[1:-1]
             color = it.defaultTextColor()
-            attrs = [f"fill='{color.name()}'"]
+            attrs = [f"fill='{color.name()}'", f"font_family='{font.family()}'"]
             if color.alphaF() < 1.0:
                 attrs.append(f"fill_opacity={color.alphaF():.2f}")
             attr_str = ", ".join(attrs)
-            baseline = y + br.height()
+            fm = QtGui.QFontMetrics(font)
+            baseline = y + fm.ascent() * s
             if abs(ang) > 1e-6:
                 lines.append(
                     f"    _text = draw.Text('{text}', {size:.2f}, {x:.2f}, {baseline:.2f}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"

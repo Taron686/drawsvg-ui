@@ -677,11 +677,12 @@ class LineItem(QtWidgets.QGraphicsPathItem):
             painter.restore()
 
 
-class TextItem(QtWidgets.QGraphicsTextItem):
+class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
     def __init__(self, x, y, w, h):
-        super().__init__("Text")
+        QtWidgets.QGraphicsTextItem.__init__(self, "Text")
+        ResizableItem.__init__(self)
         self.setPos(x, y)
-        font = QtGui.QFont()
+        font = QtGui.QFont("Arial")
         font.setPointSizeF(24.0)
         self.setFont(font)
         self.setDefaultTextColor(QtGui.QColor("#222"))
@@ -690,17 +691,17 @@ class TextItem(QtWidgets.QGraphicsTextItem):
             QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
-            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
+            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable,
         )
         br = self.boundingRect()
         self.setTransformOriginPoint(br.width() / 2.0, br.height() / 2.0)
 
-    def itemChange(self, change, value):  # type: ignore[override]
-        if change == QtWidgets.QGraphicsItem.GraphicsItemChange.ItemPositionChange:
-            mods = QtWidgets.QApplication.keyboardModifiers()
-            if not mods & QtCore.Qt.KeyboardModifier.AltModifier:
-                value = snap_to_grid(self, value)
-        return super().itemChange(change, value)  # type: ignore[misc]
+    def setPlainText(self, text: str) -> None:  # type: ignore[override]
+        super().setPlainText(text)
+        br = self.boundingRect()
+        self.setTransformOriginPoint(br.width() / 2.0, br.height() / 2.0)
+        if self.isSelected():
+            self.update_handles()
 
     def paint(self, painter, option, widget=None):
         super().paint(painter, option, widget)
@@ -710,3 +711,4 @@ class TextItem(QtWidgets.QGraphicsTextItem):
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
             painter.drawRect(self.boundingRect())
             painter.restore()
+

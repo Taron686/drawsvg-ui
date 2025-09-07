@@ -340,6 +340,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             clone.setDefaultTextColor(item.defaultTextColor())
             br = clone.boundingRect()
             clone.setTransformOriginPoint(br.width() / 2.0, br.height() / 2.0)
+            clone.setScale(item.scale())
         else:
             return None
         clone.setRotation(item.rotation())
