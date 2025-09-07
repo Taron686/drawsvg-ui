@@ -37,6 +37,8 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
         self._start_pos = None
         self._parent_start_pos = None
         self._parent_was_movable = False
+        self._start_rx = 0.0
+        self._start_ry = 0.0
 
     @staticmethod
     def _cursor_for_direction(direction: str) -> QtCore.Qt.CursorShape:
@@ -60,6 +62,8 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
         else:
             self._start_rect = QtCore.QRectF(parent.boundingRect())
         self._parent_start_pos = QtCore.QPointF(parent.pos())
+        self._start_rx = getattr(parent, "rx", 0.0)
+        self._start_ry = getattr(parent, "ry", 0.0)
         flags = parent.flags()
         self._parent_was_movable = bool(
             flags & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
@@ -94,12 +98,13 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
         if isinstance(parent, QtWidgets.QGraphicsRectItem):
             parent.setRect(0, 0, rect.width(), rect.height())
             parent.setTransformOriginPoint(rect.width() / 2.0, rect.height() / 2.0)
-            if hasattr(parent, "rx"):
+            if hasattr(parent, "rx") and hasattr(parent, "ry"):
                 sx = rect.width() / self._start_rect.width() if self._start_rect.width() else 1.0
-                parent.rx = min(parent.rx * sx, 50.0)
-            if hasattr(parent, "ry"):
                 sy = rect.height() / self._start_rect.height() if self._start_rect.height() else 1.0
-                parent.ry = min(parent.ry * sy, 50.0)
+                scale = min(sx, sy)
+                max_r = min(rect.width(), rect.height()) / 2.0
+                new_r = min(self._start_rx, self._start_ry) * scale
+                parent.rx = parent.ry = min(new_r, max_r, 50.0)
         elif isinstance(parent, QtWidgets.QGraphicsEllipseItem):
             parent.setRect(0, 0, rect.width(), rect.height())
             parent.setTransformOriginPoint(rect.width() / 2.0, rect.height() / 2.0)
@@ -127,6 +132,8 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
             self._parent_was_movable = False
         self._start_pos = None
         self._start_rect = None
+        self._start_rx = 0.0
+        self._start_ry = 0.0
         event.accept()
 
 
