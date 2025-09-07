@@ -196,6 +196,9 @@ class RotationHandle(QtWidgets.QGraphicsPixmapItem):
 
         super().__init__(pix, parent)
         self.setOffset(-pix.width() / 2.0, -pix.height() / 2.0)
+        self.setShapeMode(
+            QtWidgets.QGraphicsPixmapItem.ShapeMode.BoundingRectShape
+        )
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
         self.setCursor(QtCore.Qt.CursorShape.OpenHandCursor)
         self._start_angle = None
@@ -344,7 +347,7 @@ class ResizableItem:
         for pt, h in zip(points, self._handles):
             h.setPos(pt)
         if self._rotation_handle:
-            rot_offset = QtCore.QPointF(o + 10.0, -o - 10.0)
+            rot_offset = QtCore.QPointF(o + 15.0, -o - 15.0)
             self._rotation_handle.setPos(rect.topRight() + rot_offset)
 
     def show_handles(self):
