@@ -249,7 +249,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             if size <= 0:  # fall back to pixel size when point size is unset
                 size = float(font.pixelSize())
             size *= s
-            text = it.toPlainText().replace("'", "\'")
+            text = repr(it.toPlainText())[1:-1]
             color = it.defaultTextColor()
             attrs = [f"fill='{color.name()}'", f"font_family='{font.family()}'"]
             if color.alphaF() < 1.0:
