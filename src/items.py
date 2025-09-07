@@ -79,45 +79,80 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
         if self._start_pos is None:
             event.ignore()
             return
-        delta = event.scenePos() - self._start_pos
+        mods = event.modifiers()
+        snap = not mods & QtCore.Qt.KeyboardModifier.AltModifier
+        scene_pos = event.scenePos()
+        if snap:
+            scene_pos = snap_to_grid(self, scene_pos)
+
         parent = self.parentItem()
-        rect = QtCore.QRectF(self._start_rect)
-        pos = QtCore.QPointF(self._parent_start_pos)
+        start_left = self._parent_start_pos.x()
+        start_top = self._parent_start_pos.y()
+        start_right = start_left + self._start_rect.width()
+        start_bottom = start_top + self._start_rect.height()
+
+        new_left = start_left
+        new_right = start_right
+        new_top = start_top
+        new_bottom = start_bottom
 
         if "left" in self._direction:
-            rect.setWidth(max(10.0, rect.width() - delta.x()))
-            pos.setX(self._parent_start_pos.x() + delta.x())
+            new_left = min(scene_pos.x(), start_right - 10.0)
         if "right" in self._direction:
-            rect.setWidth(max(10.0, rect.width() + delta.x()))
+            new_right = max(scene_pos.x(), new_left + 10.0)
         if "top" in self._direction:
-            rect.setHeight(max(10.0, rect.height() - delta.y()))
-            pos.setY(self._parent_start_pos.y() + delta.y())
+            new_top = min(scene_pos.y(), start_bottom - 10.0)
         if "bottom" in self._direction:
-            rect.setHeight(max(10.0, rect.height() + delta.y()))
+            new_bottom = max(scene_pos.y(), new_top + 10.0)
+
+        if snap:
+            scene = parent.scene()
+            grid = 20
+            if scene:
+                views = scene.views()
+                if views:
+                    grid = getattr(views[0], "_grid_size", 20)
+            new_left = round(new_left / grid) * grid
+            new_right = round(new_right / grid) * grid
+            new_top = round(new_top / grid) * grid
+            new_bottom = round(new_bottom / grid) * grid
+            if new_right - new_left < 10.0:
+                if "left" in self._direction:
+                    new_left = new_right - 10.0
+                else:
+                    new_right = new_left + 10.0
+            if new_bottom - new_top < 10.0:
+                if "top" in self._direction:
+                    new_top = new_bottom - 10.0
+                else:
+                    new_bottom = new_top + 10.0
+
+        width = new_right - new_left
+        height = new_bottom - new_top
 
         if isinstance(parent, QtWidgets.QGraphicsRectItem):
-            parent.setRect(0, 0, rect.width(), rect.height())
-            parent.setTransformOriginPoint(rect.width() / 2.0, rect.height() / 2.0)
+            parent.setRect(0, 0, width, height)
+            parent.setTransformOriginPoint(width / 2.0, height / 2.0)
             if hasattr(parent, "rx") and hasattr(parent, "ry"):
-                sx = rect.width() / self._start_rect.width() if self._start_rect.width() else 1.0
-                sy = rect.height() / self._start_rect.height() if self._start_rect.height() else 1.0
+                sx = width / self._start_rect.width() if self._start_rect.width() else 1.0
+                sy = height / self._start_rect.height() if self._start_rect.height() else 1.0
                 scale = min(sx, sy)
-                max_r = min(rect.width(), rect.height()) / 2.0
+                max_r = min(width, height) / 2.0
                 new_r = min(self._start_rx, self._start_ry) * scale
                 parent.rx = parent.ry = min(new_r, max_r, 50.0)
         elif isinstance(parent, QtWidgets.QGraphicsEllipseItem):
-            parent.setRect(0, 0, rect.width(), rect.height())
-            parent.setTransformOriginPoint(rect.width() / 2.0, rect.height() / 2.0)
+            parent.setRect(0, 0, width, height)
+            parent.setTransformOriginPoint(width / 2.0, height / 2.0)
         elif isinstance(parent, TriangleItem):
-            parent.set_size(rect.width(), rect.height())
-            parent.setTransformOriginPoint(rect.width() / 2.0, rect.height() / 2.0)
+            parent.set_size(width, height)
+            parent.setTransformOriginPoint(width / 2.0, height / 2.0)
         else:  # fallback for other items using boundingRect
             br = parent.boundingRect()
-            sx = rect.width() / br.width() if br.width() else 1.0
-            sy = rect.height() / br.height() if br.height() else 1.0
+            sx = width / br.width() if br.width() else 1.0
+            sy = height / br.height() if br.height() else 1.0
             parent.setScale(max(sx, sy))
 
-        parent.setPos(pos)
+        parent.setPos(QtCore.QPointF(new_left, new_top))
         if hasattr(parent, "update_handles"):
             parent.update_handles()
         event.accept()
