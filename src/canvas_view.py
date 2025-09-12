@@ -70,6 +70,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         self.setScene(scene)
         self.setBackgroundBrush(QtGui.QColor("#fafafa"))
         self._grid_size = 20
+        self._show_grid = True
 
         self._panning = False
         self._pan_start = QtCore.QPointF()
@@ -84,6 +85,8 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     def drawBackground(self, painter: QtGui.QPainter, rect: QtCore.QRectF):
         super().drawBackground(painter, rect)
+        if not self._show_grid:
+            return
         left = int(rect.left()) - int(rect.left()) % self._grid_size
         top = int(rect.top()) - int(rect.top()) % self._grid_size
         lines = []
@@ -98,6 +101,10 @@ class CanvasView(QtWidgets.QGraphicsView):
         pen = QtGui.QPen(QtGui.QColor("#D0D0D0"))
         painter.setPen(pen)
         painter.drawLines(lines)
+
+    def set_grid_visible(self, visible: bool):
+        self._show_grid = visible
+        self.viewport().update()
 
     def _update_scene_rect(self):
         scene = self.scene()

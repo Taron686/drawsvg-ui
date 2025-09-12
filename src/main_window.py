@@ -53,6 +53,12 @@ class MainWindow(QtWidgets.QMainWindow):
         act_clear_canvas.triggered.connect(self.canvas.clear_canvas)
         edit_menu.addAction(act_clear_canvas)
 
+        act_show_grid = QtGui.QAction("Show grid", self)
+        act_show_grid.setCheckable(True)
+        act_show_grid.setChecked(True)
+        act_show_grid.toggled.connect(self.canvas.set_grid_visible)
+        edit_menu.addAction(act_show_grid)
+
     def export_drawsvg_py(self):
         export_drawsvg_py(self.canvas.scene(), self)
 
