@@ -757,3 +757,26 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
             painter.drawRect(self.boundingRect())
             painter.restore()
 
+
+class GroupItem(ResizableItem, QtWidgets.QGraphicsItemGroup):
+    """Group of multiple items that can be moved together."""
+
+    def __init__(self):
+        QtWidgets.QGraphicsItemGroup.__init__(self)
+        ResizableItem.__init__(self)
+        self.setFlags(
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
+        )
+        self.setData(0, "Group")
+
+    def paint(self, painter, option, widget=None):
+        # Only draw a dashed rectangle when the group itself is selected.
+        if self.isSelected():
+            painter.save()
+            painter.setPen(PEN_SELECTED)
+            painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+            painter.drawRect(self.boundingRect())
+            painter.restore()
