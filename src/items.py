@@ -32,6 +32,9 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
         self.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
         self.setCursor(self._cursor_for_direction(direction))
+        self.setFlag(
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
+        )
         self._direction = direction
         self._start_rect = None
         self._start_pos = None
@@ -201,6 +204,9 @@ class RotationHandle(QtWidgets.QGraphicsPixmapItem):
         )
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
         self.setCursor(QtCore.Qt.CursorShape.OpenHandCursor)
+        self.setFlag(
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
+        )
         self._start_angle = None
         self._start_rotation = 0.0
         self._center = QtCore.QPointF()
@@ -397,6 +403,9 @@ class LineHandle(QtWidgets.QGraphicsEllipseItem):
         self.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
         self.setCursor(QtCore.Qt.CursorShape.SizeAllCursor)
+        self.setFlag(
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
+        )
         self.index = index
         self.is_mid = is_mid
         self._parent_was_movable = False
