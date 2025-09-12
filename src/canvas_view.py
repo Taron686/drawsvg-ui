@@ -9,6 +9,8 @@ from items import (
     TriangleItem,
     GroupItem,
     ResizableItem,
+    ResizeHandle,
+    RotationHandle,
 )
 
 # Minimum mouse movement (in scene coordinates) required before
@@ -401,7 +403,12 @@ class CanvasView(QtWidgets.QGraphicsView):
         changed = False
         for it in selected:
             if isinstance(it, GroupItem):
-                children = list(it.childItems())
+                it.setSelected(False)
+                children = [
+                    c
+                    for c in it.childItems()
+                    if not isinstance(c, (ResizeHandle, RotationHandle))
+                ]
                 for child in children:
                     it.removeFromGroup(child)
                     child.setFlag(
