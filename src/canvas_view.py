@@ -391,11 +391,15 @@ class CanvasView(QtWidgets.QGraphicsView):
             it.setFlag(
                 QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False
             )
+            it.setFlag(
+                QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False
+            )
             if isinstance(it, ResizableItem):
                 it.hide_handles()
         br = group.boundingRect()
         group.setTransformOriginPoint(br.center())
         group.setSelected(True)
+        group.update_handles()
         self._update_scene_rect()
 
     def _ungroup_selected_items(self):
@@ -415,10 +419,15 @@ class CanvasView(QtWidgets.QGraphicsView):
                         QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
                         True,
                     )
-                    child.setSelected(True)
+                    child.setFlag(
+                        QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
+                        True,
+                    )
+                    child.setSelected(False)
                 self.scene().removeItem(it)
                 changed = True
         if changed:
+            self.scene().clearSelection()
             self._update_scene_rect()
 
     # --- Keyboard shortcut to delete selected items ---

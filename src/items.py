@@ -772,6 +772,10 @@ class GroupItem(ResizableItem, QtWidgets.QGraphicsItemGroup):
         )
         self.setData(0, "Group")
 
+    def update_handles(self):  # type: ignore[override]
+        self.setTransformOriginPoint(self.boundingRect().center())
+        super().update_handles()
+
     def paint(self, painter, option, widget=None):
         # Only draw a dashed rectangle when the group itself is selected.
         if self.isSelected():
