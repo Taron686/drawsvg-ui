@@ -52,6 +52,10 @@ class CanvasView(QtWidgets.QGraphicsView):
         super().__init__(parent)
         self.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
         self.setDragMode(QtWidgets.QGraphicsView.DragMode.RubberBandDrag)
+        # Style the selection rubber band with a blue dashed outline
+        self.viewport().setStyleSheet(
+            "QRubberBand { border: 1px dashed #14b5ff; }"
+        )
         self.setAcceptDrops(True)
         self.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
         self.setViewportUpdateMode(
