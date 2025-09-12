@@ -32,6 +32,9 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
         self.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
         self.setCursor(self._cursor_for_direction(direction))
+        self.setFlag(
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
+        )
         self._direction = direction
         self._start_rect = None
         self._start_pos = None
@@ -201,6 +204,9 @@ class RotationHandle(QtWidgets.QGraphicsPixmapItem):
         )
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
         self.setCursor(QtCore.Qt.CursorShape.OpenHandCursor)
+        self.setFlag(
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
+        )
         self._start_angle = None
         self._start_rotation = 0.0
         self._center = QtCore.QPointF()
@@ -333,7 +339,8 @@ class ResizableItem:
     def update_handles(self):
         self._ensure_handles()
         rect = self.boundingRect()
-        o = HANDLE_OFFSET
+        scale = self.scale() or 1.0
+        o = HANDLE_OFFSET / scale
         points = [
             rect.topLeft() - QtCore.QPointF(o, o),
             QtCore.QPointF(rect.center().x(), rect.top() - o),
@@ -347,7 +354,8 @@ class ResizableItem:
         for pt, h in zip(points, self._handles):
             h.setPos(pt)
         if self._rotation_handle:
-            rot_offset = QtCore.QPointF(o + 15.0, -o - 15.0)
+            rot_o = (HANDLE_OFFSET + 15.0) / scale
+            rot_offset = QtCore.QPointF(rot_o, -rot_o)
             self._rotation_handle.setPos(rect.topRight() + rot_offset)
 
     def show_handles(self):
@@ -397,6 +405,9 @@ class LineHandle(QtWidgets.QGraphicsEllipseItem):
         self.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
         self.setCursor(QtCore.Qt.CursorShape.SizeAllCursor)
+        self.setFlag(
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
+        )
         self.index = index
         self.is_mid = is_mid
         self._parent_was_movable = False
