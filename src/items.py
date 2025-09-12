@@ -464,12 +464,14 @@ class RectItem(ResizableItem, QtWidgets.QGraphicsRectItem):
         self.ry = ry
 
     def paint(self, painter, option, widget=None):
+        opt = QtWidgets.QStyleOptionGraphicsItem(option)
+        opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
         if self.rx or self.ry:
             painter.setPen(self.pen())
             painter.setBrush(self.brush())
             painter.drawRoundedRect(self.rect(), self.rx, self.ry)
         else:
-            super().paint(painter, option, widget)
+            super().paint(painter, opt, widget)
         if self.isSelected():
             painter.save()
             painter.setPen(PEN_SELECTED)
@@ -497,7 +499,9 @@ class EllipseItem(ResizableItem, QtWidgets.QGraphicsEllipseItem):
         self.setBrush(QtCore.Qt.BrushStyle.NoBrush)
 
     def paint(self, painter, option, widget=None):
-        super().paint(painter, option, widget)
+        opt = QtWidgets.QStyleOptionGraphicsItem(option)
+        opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
+        super().paint(painter, opt, widget)
         if self.isSelected():
             painter.save()
             painter.setPen(PEN_SELECTED)
@@ -541,7 +545,9 @@ class TriangleItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
         self.setTransformOriginPoint(w / 2.0, h / 2.0)
 
     def paint(self, painter, option, widget=None):
-        super().paint(painter, option, widget)
+        opt = QtWidgets.QStyleOptionGraphicsItem(option)
+        opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
+        super().paint(painter, opt, widget)
         if self.isSelected():
             painter.save()
             painter.setPen(PEN_SELECTED)
@@ -710,7 +716,9 @@ class LineItem(QtWidgets.QGraphicsPathItem):
         painter.drawPolygon(QtGui.QPolygonF([end, p1, p2]))
 
     def paint(self, painter, option, widget=None):
-        super().paint(painter, option, widget)
+        opt = QtWidgets.QStyleOptionGraphicsItem(option)
+        opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
+        super().paint(painter, opt, widget)
         pts = self._points
         if self.arrow_start or self.arrow_end:
             painter.save()
@@ -761,7 +769,9 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
             self.update_handles()
 
     def paint(self, painter, option, widget=None):
-        super().paint(painter, option, widget)
+        opt = QtWidgets.QStyleOptionGraphicsItem(option)
+        opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
+        super().paint(painter, opt, widget)
         if self.isSelected():
             painter.save()
             painter.setPen(PEN_SELECTED)
