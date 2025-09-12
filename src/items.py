@@ -339,7 +339,8 @@ class ResizableItem:
     def update_handles(self):
         self._ensure_handles()
         rect = self.boundingRect()
-        o = HANDLE_OFFSET
+        scale = self.scale() or 1.0
+        o = HANDLE_OFFSET / scale
         points = [
             rect.topLeft() - QtCore.QPointF(o, o),
             QtCore.QPointF(rect.center().x(), rect.top() - o),
@@ -353,7 +354,8 @@ class ResizableItem:
         for pt, h in zip(points, self._handles):
             h.setPos(pt)
         if self._rotation_handle:
-            rot_offset = QtCore.QPointF(o + 15.0, -o - 15.0)
+            rot_o = (HANDLE_OFFSET + 15.0) / scale
+            rot_offset = QtCore.QPointF(rot_o, -rot_o)
             self._rotation_handle.setPos(rect.topRight() + rot_offset)
 
     def show_handles(self):
