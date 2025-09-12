@@ -731,7 +731,8 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
         font.setPointSizeF(24.0)
         self.setFont(font)
         self.setDefaultTextColor(QtGui.QColor("#222"))
-        self.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextEditorInteraction)
+        # Start with editing disabled so a single click only selects the item
+        self.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.NoTextInteraction)
         self.setFlags(
             QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
@@ -756,4 +757,19 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
             painter.drawRect(self.boundingRect())
             painter.restore()
+
+    def mouseDoubleClickEvent(self, event):
+        # Enable editing only on double click
+        self.setTextInteractionFlags(
+            QtCore.Qt.TextInteractionFlag.TextEditorInteraction
+        )
+        self.setFocus()
+        super().mouseDoubleClickEvent(event)
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        # Disable editing when focus is lost and update origin/handles
+        self.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.NoTextInteraction)
+        # Update bounding box and handles after text changes
+        self.setPlainText(self.toPlainText())
 
