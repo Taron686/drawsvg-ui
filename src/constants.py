@@ -22,4 +22,6 @@ DEFAULTS = {
 }
 
 PEN_NORMAL = QtGui.QPen(QtGui.QColor("#222"), 2)
-PEN_SELECTED = QtGui.QPen(QtGui.QColor("#1e88e5"), 2, QtCore.Qt.PenStyle.DashLine)
+SELECTED_COLOR = QtGui.QColor("#14b5ff")
+SELECTED_COLOR.setAlphaF(0.5)
+PEN_SELECTED = QtGui.QPen(SELECTED_COLOR, 2, QtCore.Qt.PenStyle.DashLine)
