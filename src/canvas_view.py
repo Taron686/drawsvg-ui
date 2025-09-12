@@ -1,7 +1,17 @@
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from constants import PALETTE_MIME, SHAPES, DEFAULTS
-from items import RectItem, EllipseItem, LineItem, TextItem, TriangleItem
+from items import (
+    RectItem,
+    EllipseItem,
+    LineItem,
+    TextItem,
+    TriangleItem,
+    GroupItem,
+    ResizableItem,
+    ResizeHandle,
+    RotationHandle,
+)
 
 # Minimum mouse movement (in scene coordinates) required before
 # showing duplicates when Ctrl+dragging selected items.
@@ -369,6 +379,57 @@ class CanvasView(QtWidgets.QGraphicsView):
             return
         super().wheelEvent(event)
 
+    def _group_selected_items(self):
+        selected = self.scene().selectedItems()
+        if len(selected) < 2:
+            return
+        group = GroupItem()
+        self.scene().addItem(group)
+        for it in selected:
+            group.addToGroup(it)
+            it.setSelected(False)
+            it.setFlag(
+                QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False
+            )
+            it.setFlag(
+                QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False
+            )
+            if isinstance(it, ResizableItem):
+                it.hide_handles()
+        br = group.boundingRect()
+        group.setTransformOriginPoint(br.center())
+        group.setSelected(True)
+        group.update_handles()
+        self._update_scene_rect()
+
+    def _ungroup_selected_items(self):
+        selected = self.scene().selectedItems()
+        changed = False
+        for it in selected:
+            if isinstance(it, GroupItem):
+                it.setSelected(False)
+                children = [
+                    c
+                    for c in it.childItems()
+                    if not isinstance(c, (ResizeHandle, RotationHandle))
+                ]
+                for child in children:
+                    it.removeFromGroup(child)
+                    child.setFlag(
+                        QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
+                        True,
+                    )
+                    child.setFlag(
+                        QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
+                        True,
+                    )
+                    child.setSelected(False)
+                self.scene().removeItem(it)
+                changed = True
+        if changed:
+            self.scene().clearSelection()
+            self._update_scene_rect()
+
     # --- Keyboard shortcut to delete selected items ---
     def keyPressEvent(self, event: QtGui.QKeyEvent):
         if event.key() == QtCore.Qt.Key.Key_Delete:
@@ -378,6 +439,25 @@ class CanvasView(QtWidgets.QGraphicsView):
                     self.scene().removeItem(it)
                 event.accept()
                 return
+        mods = event.modifiers()
+        if (
+            event.key() == QtCore.Qt.Key.Key_G
+            and mods == QtCore.Qt.KeyboardModifier.ControlModifier
+        ):
+            self._group_selected_items()
+            event.accept()
+            return
+        if (
+            event.key() == QtCore.Qt.Key.Key_G
+            and mods
+            == (
+                QtCore.Qt.KeyboardModifier.ControlModifier
+                | QtCore.Qt.KeyboardModifier.ShiftModifier
+            )
+        ):
+            self._ungroup_selected_items()
+            event.accept()
+            return
         super().keyPressEvent(event)
 
     # --- Alignment helpers ---
@@ -439,6 +519,14 @@ class CanvasView(QtWidgets.QGraphicsView):
         start_arrow_act = end_arrow_act = None
 
         selected = self.scene().selectedItems()
+        group_act = ungroup_act = None
+        if len(selected) >= 2:
+            group_act = menu.addAction("Group")
+        if any(isinstance(it, GroupItem) for it in selected):
+            ungroup_act = menu.addAction("Ungroup")
+        if group_act or ungroup_act:
+            menu.addSeparator()
+
         align_actions = {}
         if len(selected) >= 2:
             align_menu = menu.addMenu("Align")
@@ -500,6 +588,10 @@ class CanvasView(QtWidgets.QGraphicsView):
 
         if action in align_actions:
             self._align_items(selected, align_actions[action])
+        elif action is group_act:
+            self._group_selected_items()
+        elif action is ungroup_act:
+            self._ungroup_selected_items()
         elif action is fill_act:
             brush = item.brush()
             color = QtWidgets.QColorDialog.getColor(brush.color(), self, "Fill color")
@@ -551,7 +643,11 @@ class CanvasView(QtWidgets.QGraphicsView):
                 item.setTransformOriginPoint(br.width() / 2.0, br.height() / 2.0)
         elif action in (back1_act, front1_act, back_act, front_act):
             scene = self.scene()
-            items = [it for it in scene.items() if it.data(0) in SHAPES]
+            items = [
+                it
+                for it in scene.items()
+                if it.data(0) in SHAPES or isinstance(it, GroupItem)
+            ]
             items.sort(key=lambda it: it.zValue())
             idx = items.index(item)
             if action == back1_act and idx > 0:
