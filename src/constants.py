@@ -22,6 +22,7 @@ DEFAULTS = {
 }
 
 PEN_NORMAL = QtGui.QPen(QtGui.QColor("#222"), 2)
-SELECTED_COLOR = QtGui.QColor("#14b5ff")
-SELECTED_COLOR.setAlphaF(0.5)
-PEN_SELECTED = QtGui.QPen(SELECTED_COLOR, 2, QtCore.Qt.PenStyle.SolidLine)
+SELECTED_COLOR = QtGui.QColor("#16CCFA")
+PEN_SELECTED = QtGui.QPen(SELECTED_COLOR, 1, QtCore.Qt.PenStyle.DashLine)
+PEN_SELECTED.setCosmetic(True)
+DEFAULT_FILL = QtGui.QBrush(QtCore.Qt.white)

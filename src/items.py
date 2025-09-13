@@ -2,7 +2,7 @@ import math
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from constants import PEN_NORMAL, PEN_SELECTED
+from constants import PEN_NORMAL, PEN_SELECTED,DEFAULT_FILL
 
 
 HANDLE_COLOR = QtGui.QColor("#14b5ff")
@@ -459,17 +459,19 @@ class RectItem(ResizableItem, QtWidgets.QGraphicsRectItem):
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
         )
         self.setPen(PEN_NORMAL)
-        self.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+        self.setBrush(DEFAULT_FILL)
         self.rx = rx
         self.ry = ry
 
     def paint(self, painter, option, widget=None):
+        opt = QtWidgets.QStyleOptionGraphicsItem(option)
+        opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
         if self.rx or self.ry:
             painter.setPen(self.pen())
             painter.setBrush(self.brush())
             painter.drawRoundedRect(self.rect(), self.rx, self.ry)
         else:
-            super().paint(painter, option, widget)
+            super().paint(painter, opt, widget)
         if self.isSelected():
             painter.save()
             painter.setPen(PEN_SELECTED)
@@ -494,15 +496,17 @@ class EllipseItem(ResizableItem, QtWidgets.QGraphicsEllipseItem):
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
         )
         self.setPen(PEN_NORMAL)
-        self.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+        self.setBrush(DEFAULT_FILL)
 
     def paint(self, painter, option, widget=None):
-        super().paint(painter, option, widget)
+        opt = QtWidgets.QStyleOptionGraphicsItem(option)
+        opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
+        super().paint(painter, opt, widget)
         if self.isSelected():
             painter.save()
             painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(self.rect())
+            painter.drawRect(self.rect())
             painter.restore()
 
 
@@ -522,7 +526,7 @@ class TriangleItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
         )
         self.setPen(PEN_NORMAL)
-        self.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+        self.setBrush(DEFAULT_FILL)
 
     def _update_polygon(self):
         poly = QtGui.QPolygonF(
@@ -541,7 +545,9 @@ class TriangleItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
         self.setTransformOriginPoint(w / 2.0, h / 2.0)
 
     def paint(self, painter, option, widget=None):
-        super().paint(painter, option, widget)
+        opt = QtWidgets.QStyleOptionGraphicsItem(option)
+        opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
+        super().paint(painter, opt, widget)
         if self.isSelected():
             painter.save()
             painter.setPen(PEN_SELECTED)
@@ -710,7 +716,9 @@ class LineItem(QtWidgets.QGraphicsPathItem):
         painter.drawPolygon(QtGui.QPolygonF([end, p1, p2]))
 
     def paint(self, painter, option, widget=None):
-        super().paint(painter, option, widget)
+        opt = QtWidgets.QStyleOptionGraphicsItem(option)
+        opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
+        super().paint(painter, opt, widget)
         pts = self._points
         if self.arrow_start or self.arrow_end:
             painter.save()
@@ -761,7 +769,9 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
             self.update_handles()
 
     def paint(self, painter, option, widget=None):
-        super().paint(painter, option, widget)
+        opt = QtWidgets.QStyleOptionGraphicsItem(option)
+        opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
+        super().paint(painter, opt, widget)
         if self.isSelected():
             painter.save()
             painter.setPen(PEN_SELECTED)
