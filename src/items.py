@@ -552,7 +552,8 @@ class TriangleItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
             painter.save()
             painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-            painter.drawPolygon(self.polygon())
+            rect = self.polygon().boundingRect()
+            painter.drawRect(rect)
             painter.restore()
 
 
