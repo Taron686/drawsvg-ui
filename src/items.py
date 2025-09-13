@@ -2,7 +2,7 @@ import math
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from constants import PEN_NORMAL, PEN_SELECTED
+from constants import PEN_NORMAL, PEN_SELECTED,DEFAULT_FILL
 
 
 HANDLE_COLOR = QtGui.QColor("#14b5ff")
@@ -459,7 +459,7 @@ class RectItem(ResizableItem, QtWidgets.QGraphicsRectItem):
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
         )
         self.setPen(PEN_NORMAL)
-        self.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+        self.setBrush(DEFAULT_FILL)
         self.rx = rx
         self.ry = ry
 
@@ -496,7 +496,7 @@ class EllipseItem(ResizableItem, QtWidgets.QGraphicsEllipseItem):
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
         )
         self.setPen(PEN_NORMAL)
-        self.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+        self.setBrush(DEFAULT_FILL)
 
     def paint(self, painter, option, widget=None):
         opt = QtWidgets.QStyleOptionGraphicsItem(option)
@@ -506,7 +506,7 @@ class EllipseItem(ResizableItem, QtWidgets.QGraphicsEllipseItem):
             painter.save()
             painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(self.rect())
+            painter.drawRect(self.rect())
             painter.restore()
 
 
@@ -526,7 +526,7 @@ class TriangleItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
         )
         self.setPen(PEN_NORMAL)
-        self.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+        self.setBrush(DEFAULT_FILL)
 
     def _update_polygon(self):
         poly = QtGui.QPolygonF(
