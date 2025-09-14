@@ -809,16 +809,37 @@ class GroupItem(ResizableItem, QtWidgets.QGraphicsItemGroup):
         )
         self.setData(0, "Group")
 
+        # WICHTIG: damit Resize-/Rotation-Handles Maus-Events bekommen
+        self.setHandlesChildEvents(False)
+
+    def _contentRect(self) -> QtCore.QRectF:
+        r = QtCore.QRectF()
+        first = True
+        for c in self.childItems():
+            if isinstance(c, (ResizeHandle, RotationHandle)):
+                continue
+            cr = c.mapToParent(c.boundingRect()).boundingRect()
+            r = cr if first else r.united(cr)
+            first = False
+        return r
+
     def update_handles(self):  # type: ignore[override]
-        self.setTransformOriginPoint(self.boundingRect().center())
+        tight = self._contentRect()
+        self.setTransformOriginPoint(tight.center() if not tight.isNull()
+                                    else self.boundingRect().center())
         super().update_handles()
 
-    def paint(self, painter, option, widget=None):
-        # Only draw a dashed rectangle when the group itself is selected.
+    def paint(self, p, opt, w=None):
         if self.isSelected():
-            painter.save()
-            painter.setPen(PEN_SELECTED)
-            painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-            painter.drawRect(self.boundingRect())
-            painter.restore()
+            p.save()
+            p.setPen(PEN_SELECTED)
+            p.setBrush(QtCore.Qt.NoBrush)
+            tight = self._contentRect()
+            if not tight.isNull():
+                half = PEN_SELECTED.widthF() * 0.5
+                p.drawRect(tight.adjusted(half, half, -half, -half))
+            else:
+                p.drawRect(self.boundingRect())
+            p.restore()
+
 
