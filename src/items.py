@@ -236,8 +236,19 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
     def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
         parent = self.parentItem()
         # Origin zurück in die Mitte (optisch angenehmer)
+        # Dabei die aktuelle Position in der Szene beibehalten, da eine
+        # Veränderung des Transform-Origins bei rotierten Items sonst zu
+        # einem sichtbaren "Springen" führt.
         br = parent.boundingRect()
+        # Szene-Position der aktuellen linken oberen Ecke merken
+        old_tl = parent.mapToScene(QtCore.QPointF(0, 0))
+        # Origin auf die neue Mitte setzen
         parent.setTransformOriginPoint(br.center())
+        # Nach dem Ändern des Transform-Origins hat sich die Szene-Position
+        # der linken oberen Ecke verändert. Wir verschieben das Item um den
+        # Unterschied, sodass es visuell an Ort und Stelle bleibt.
+        new_tl = parent.mapToScene(QtCore.QPointF(0, 0))
+        parent.setPos(parent.pos() + (old_tl - new_tl))
 
         if self._parent_was_movable:
             parent.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
