@@ -394,8 +394,15 @@ class CanvasView(QtWidgets.QGraphicsView):
         selected = self.scene().selectedItems()
         if len(selected) < 2:
             return
+
+        br = QtCore.QRectF()
+        for it in selected:
+            br = br.united(it.sceneBoundingRect())
+
         group = GroupItem()
+        group.setPos(br.topLeft())
         self.scene().addItem(group)
+
         for it in selected:
             group.addToGroup(it)
             it.setSelected(False)
@@ -407,12 +414,8 @@ class CanvasView(QtWidgets.QGraphicsView):
             )
             if isinstance(it, ResizableItem):
                 it.hide_handles()
-        br = group.childrenBoundingRect()
-        tl = br.topLeft()
-        group.setPos(tl)
-        for child in group.childItems():
-            child.moveBy(-tl.x(), -tl.y())
-        group.setTransformOriginPoint(br.center() - tl)
+
+        group.setTransformOriginPoint(group.boundingRect().center())
         group.setSelected(True)
         group.update_handles()
         self._update_scene_rect()
