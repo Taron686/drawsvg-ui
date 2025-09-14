@@ -407,8 +407,12 @@ class CanvasView(QtWidgets.QGraphicsView):
             )
             if isinstance(it, ResizableItem):
                 it.hide_handles()
-        br = group.boundingRect()
-        group.setTransformOriginPoint(br.center())
+        br = group.childrenBoundingRect()
+        tl = br.topLeft()
+        group.setPos(tl)
+        for child in group.childItems():
+            child.moveBy(-tl.x(), -tl.y())
+        group.setTransformOriginPoint(br.center() - tl)
         group.setSelected(True)
         group.update_handles()
         self._update_scene_rect()
