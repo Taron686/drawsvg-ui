@@ -1,9 +1,7 @@
+# items.py
 import math
-
 from PySide6 import QtCore, QtGui, QtWidgets
-
-from constants import PEN_NORMAL, PEN_SELECTED,DEFAULT_FILL
-
+from constants import PEN_NORMAL, PEN_SELECTED, DEFAULT_FILL
 
 HANDLE_COLOR = QtGui.QColor("#14b5ff")
 HANDLE_SIZE = 8.0
@@ -11,7 +9,6 @@ HANDLE_OFFSET = 10.0
 
 
 def snap_to_grid(item: QtWidgets.QGraphicsItem, pos: QtCore.QPointF) -> QtCore.QPointF:
-    """Return pos aligned to the view's grid, if available."""
     scene = item.scene()
     if scene:
         views = scene.views()
@@ -23,163 +20,237 @@ def snap_to_grid(item: QtWidgets.QGraphicsItem, pos: QtCore.QPointF) -> QtCore.Q
     return pos
 
 
+def _local_axis_units(item: QtWidgets.QGraphicsItem) -> tuple[QtCore.QPointF, QtCore.QPointF]:
+    """Unit-Vektoren der lokalen +X und +Y-Achse im SCENE-Raum."""
+    T = item.sceneTransform()
+    ex = T.map(QtCore.QPointF(1, 0)) - T.map(QtCore.QPointF(0, 0))
+    ey = T.map(QtCore.QPointF(0, 1)) - T.map(QtCore.QPointF(0, 0))
+    ex_len = math.hypot(ex.x(), ex.y())
+    ey_len = math.hypot(ey.x(), ey.y())
+    if ex_len == 0 or ey_len == 0:
+        return QtCore.QPointF(1, 0), QtCore.QPointF(0, 1)
+    return QtCore.QPointF(ex.x() / ex_len, ex.y() / ex_len), QtCore.QPointF(ey.x() / ey_len, ey.y() / ey_len)
+
+
+def _cursor_for_dir_rotated(direction: str, angle_deg: float) -> QtCore.Qt.CursorShape:
+    """Passendes Cursor-Icon je Handle-Richtung + Item-Rotation."""
+    a = (angle_deg % 180.0 + 180.0) % 180.0
+    swap_hv = 45.0 <= a < 135.0  # ~90°: H/V tauschen
+
+    if direction in ("left", "right"):
+        return QtCore.Qt.CursorShape.SizeVerCursor if swap_hv else QtCore.Qt.CursorShape.SizeHorCursor
+    if direction in ("top", "bottom"):
+        return QtCore.Qt.CursorShape.SizeHorCursor if swap_hv else QtCore.Qt.CursorShape.SizeVerCursor
+
+    # Diagonale tauschen wir bei ~90°
+    if direction in ("top_left", "bottom_right"):
+        return QtCore.Qt.CursorShape.SizeBDiagCursor if swap_hv else QtCore.Qt.CursorShape.SizeFDiagCursor
+    else:  # top_right, bottom_left
+        return QtCore.Qt.CursorShape.SizeFDiagCursor if swap_hv else QtCore.Qt.CursorShape.SizeBDiagCursor
+
+
 class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
-    """Small circular handle used for interactive resizing."""
+    """Handle zum interaktiven Resizen."""
 
     def __init__(self, parent: QtWidgets.QGraphicsItem, direction: str):
         super().__init__(-HANDLE_SIZE / 2.0, -HANDLE_SIZE / 2.0, HANDLE_SIZE, HANDLE_SIZE, parent)
         self.setBrush(HANDLE_COLOR)
         self.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
-        self.setCursor(self._cursor_for_direction(direction))
-        self.setFlag(
-            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
-        )
         self._direction = direction
-        self._start_rect = None
-        self._start_pos = None
-        self._parent_start_pos = None
+        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+
+        # Startzustand (bei press)
+        self._start_pos_scene: QtCore.QPointF | None = None
+        self._parent_start_pos: QtCore.QPointF | None = None
         self._parent_was_movable = False
         self._start_rx = 0.0
         self._start_ry = 0.0
+        self._w0 = 0.0
+        self._h0 = 0.0
+        self._ex_u = QtCore.QPointF(1, 0)  # lokale X-Achse in Szene
+        self._ey_u = QtCore.QPointF(0, 1)  # lokale Y-Achse in Szene
 
-    @staticmethod
-    def _cursor_for_direction(direction: str) -> QtCore.Qt.CursorShape:
-        mapping = {
-            "top_left": QtCore.Qt.CursorShape.SizeFDiagCursor,
-            "top_right": QtCore.Qt.CursorShape.SizeBDiagCursor,
-            "bottom_left": QtCore.Qt.CursorShape.SizeBDiagCursor,
-            "bottom_right": QtCore.Qt.CursorShape.SizeFDiagCursor,
-            "left": QtCore.Qt.CursorShape.SizeHorCursor,
-            "right": QtCore.Qt.CursorShape.SizeHorCursor,
-            "top": QtCore.Qt.CursorShape.SizeVerCursor,
-            "bottom": QtCore.Qt.CursorShape.SizeVerCursor,
-        }
-        return mapping[direction]
+        # Anfangscursor
+        self.setCursor(_cursor_for_dir_rotated(direction, getattr(parent, "rotation", lambda: 0.0)()))
 
     def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
-        self._start_pos = event.scenePos()
         parent = self.parentItem()
-        if isinstance(parent, (QtWidgets.QGraphicsRectItem, QtWidgets.QGraphicsEllipseItem)):
-            self._start_rect = QtCore.QRectF(parent.rect())
-        else:
-            self._start_rect = QtCore.QRectF(parent.boundingRect())
+        self._start_pos_scene = event.scenePos()
         self._parent_start_pos = QtCore.QPointF(parent.pos())
-        self._start_rx = getattr(parent, "rx", 0.0)
-        self._start_ry = getattr(parent, "ry", 0.0)
+        self._ex_u, self._ey_u = _local_axis_units(parent)
+
+        # Startbreite/-höhe pro Typ
+        if isinstance(parent, (QtWidgets.QGraphicsRectItem, QtWidgets.QGraphicsEllipseItem)):
+            r = parent.rect()
+            self._w0, self._h0 = r.width(), r.height()
+            self._start_rx = getattr(parent, "rx", 0.0)
+            self._start_ry = getattr(parent, "ry", 0.0)
+        elif isinstance(parent, TriangleItem):
+            # TriangleItem hält w/h intern
+            self._w0, self._h0 = parent._w, parent._h
+        else:
+            br = parent.boundingRect()
+            self._w0, self._h0 = br.width(), br.height()
+
+        # Parent während Drag nicht verschiebbar
         flags = parent.flags()
-        self._parent_was_movable = bool(
-            flags & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-        )
+        self._parent_was_movable = bool(flags & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
         if self._parent_was_movable:
-            parent.setFlag(
-                QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
-                False,
-            )
+            parent.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
         event.accept()
 
     def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
-        if self._start_pos is None:
+        if self._start_pos_scene is None:
             event.ignore()
             return
-        mods = event.modifiers()
-        snap = not mods & QtCore.Qt.KeyboardModifier.AltModifier
-        scene_pos = event.scenePos()
-        if snap:
-            scene_pos = snap_to_grid(self, scene_pos)
 
         parent = self.parentItem()
-        start_left = self._parent_start_pos.x()
-        start_top = self._parent_start_pos.y()
-        start_right = start_left + self._start_rect.width()
-        start_bottom = start_top + self._start_rect.height()
+        scene_pos = event.scenePos()
+        snap_scene = not (event.modifiers() & QtCore.Qt.KeyboardModifier.AltModifier)
+        if snap_scene:
+            scene_pos = snap_to_grid(self, scene_pos)
 
-        new_left = start_left
-        new_right = start_right
-        new_top = start_top
-        new_bottom = start_bottom
+        # Szene-Delta -> Projektion entlang lokaler Achsen
+        dS = scene_pos - self._start_pos_scene
+        dx_local = dS.x() * self._ex_u.x() + dS.y() * self._ex_u.y()
+        dy_local = dS.x() * self._ey_u.x() + dS.y() * self._ey_u.y()
 
-        if "left" in self._direction:
-            new_left = min(scene_pos.x(), start_right - 10.0)
-        if "right" in self._direction:
-            new_right = max(scene_pos.x(), new_left + 10.0)
-        if "top" in self._direction:
-            new_top = min(scene_pos.y(), start_bottom - 10.0)
-        if "bottom" in self._direction:
-            new_bottom = max(scene_pos.y(), new_top + 10.0)
+        MIN_W, MIN_H = 10.0, 10.0
 
-        if snap:
-            scene = parent.scene()
+        # Zielbreite/-höhe aus Startwerten + projizierter Bewegung
+        new_w, new_h = self._w0, self._h0
+        shift_x = 0.0
+        shift_y = 0.0
+
+        # Nur die relevanten Kanten bewegen und ggf. die Position entlang lokaler Achse schieben
+        if self._direction == "right":
+            new_w = max(MIN_W, self._w0 + dx_local)
+            # pos bleibt
+
+        elif self._direction == "left":
+            new_w_raw = self._w0 - dx_local
+            new_w = max(MIN_W, new_w_raw)
+            # effektive Verschiebung (falls durch clamp geringer als dx_local)
+            dx_eff = self._w0 - new_w
+            shift_x = dx_eff  # lokale +X Richtung
+
+        elif self._direction == "bottom":
+            new_h = max(MIN_H, self._h0 + dy_local)
+
+        elif self._direction == "top":
+            new_h_raw = self._h0 - dy_local
+            new_h = max(MIN_H, new_h_raw)
+            dy_eff = self._h0 - new_h
+            shift_y = dy_eff  # lokale +Y Richtung
+
+        elif self._direction == "top_left":
+            # X
+            new_w_raw = self._w0 - dx_local
+            new_w = max(MIN_W, new_w_raw)
+            dx_eff = self._w0 - new_w
+            shift_x = dx_eff
+            # Y
+            new_h_raw = self._h0 - dy_local
+            new_h = max(MIN_H, new_h_raw)
+            dy_eff = self._h0 - new_h
+            shift_y = dy_eff
+
+        elif self._direction == "top_right":
+            new_w = max(MIN_W, self._w0 + dx_local)  # rechts ohne pos-shift
+            new_h_raw = self._h0 - dy_local
+            new_h = max(MIN_H, new_h_raw)
+            dy_eff = self._h0 - new_h
+            shift_y = dy_eff
+
+        elif self._direction == "bottom_left":
+            new_w_raw = self._w0 - dx_local
+            new_w = max(MIN_W, new_w_raw)
+            dx_eff = self._w0 - new_w
+            shift_x = dx_eff
+            new_h = max(MIN_H, self._h0 + dy_local)
+
+        elif self._direction == "bottom_right":
+            new_w = max(MIN_W, self._w0 + dx_local)
+            new_h = max(MIN_H, self._h0 + dy_local)
+
+        # Optional: lokales Rastern NACH der Geometrie (nur veränderte Dimensionen runden)
+        if snap_scene:
             grid = 20
-            if scene:
-                views = scene.views()
-                if views:
-                    grid = getattr(views[0], "_grid_size", 20)
-            new_left = round(new_left / grid) * grid
-            new_right = round(new_right / grid) * grid
-            new_top = round(new_top / grid) * grid
-            new_bottom = round(new_bottom / grid) * grid
-            if new_right - new_left < 10.0:
-                if "left" in self._direction:
-                    new_left = new_right - 10.0
-                else:
-                    new_right = new_left + 10.0
-            if new_bottom - new_top < 10.0:
-                if "top" in self._direction:
-                    new_top = new_bottom - 10.0
-                else:
-                    new_bottom = new_top + 10.0
+            sc = parent.scene()
+            if sc and sc.views():
+                grid = getattr(sc.views()[0], "_grid_size", 20)
 
-        width = new_right - new_left
-        height = new_bottom - new_top
+            def s(v): return round(v / grid) * grid
+            # Nur die Dimensionen snappen, die wir verändert haben
+            if "left" in self._direction or "right" in self._direction:
+                new_w = max(MIN_W, s(new_w))
+                # shift_x bleibt konsistent zur effektiven Breitenänderung
+                if self._direction in ("left", "top_left", "bottom_left"):
+                    shift_x = self._w0 - new_w
+            if "top" in self._direction or "bottom" in self._direction:
+                new_h = max(MIN_H, s(new_h))
+                if self._direction in ("top", "top_left", "top_right"):
+                    shift_y = self._h0 - new_h
 
+        # Geometrie setzen + Positionsverschiebung entlang lokaler Achsen
         if isinstance(parent, QtWidgets.QGraphicsRectItem):
-            parent.setRect(0, 0, width, height)
-            parent.setTransformOriginPoint(width / 2.0, height / 2.0)
+            parent.setRect(0, 0, new_w, new_h)
             if hasattr(parent, "rx") and hasattr(parent, "ry"):
-                sx = width / self._start_rect.width() if self._start_rect.width() else 1.0
-                sy = height / self._start_rect.height() if self._start_rect.height() else 1.0
+                sx = new_w / (self._w0 or 1.0)
+                sy = new_h / (self._h0 or 1.0)
                 scale = min(sx, sy)
-                max_r = min(width, height) / 2.0
+                max_r = min(new_w, new_h) / 2.0
                 new_r = min(self._start_rx, self._start_ry) * scale
                 parent.rx = parent.ry = min(new_r, max_r, 50.0)
+
         elif isinstance(parent, QtWidgets.QGraphicsEllipseItem):
-            parent.setRect(0, 0, width, height)
-            parent.setTransformOriginPoint(width / 2.0, height / 2.0)
+            parent.setRect(0, 0, new_w, new_h)
+
         elif isinstance(parent, TriangleItem):
-            parent.set_size(width, height)
-            parent.setTransformOriginPoint(width / 2.0, height / 2.0)
-        else:  # fallback for other items using boundingRect
+            parent.set_size(new_w, new_h, adjust_origin=False)
+
+        else:
+            # generischer Fallback: skalieren
             br = parent.boundingRect()
-            sx = width / br.width() if br.width() else 1.0
-            sy = height / br.height() if br.height() else 1.0
+            sx = new_w / (br.width() or 1.0)
+            sy = new_h / (br.height() or 1.0)
             parent.setScale(max(sx, sy))
 
-        parent.setPos(QtCore.QPointF(new_left, new_top))
+        # Positions-Shift (lokale Achsen -> Szene)
+        if shift_x or shift_y:
+            # shift_x entlang +X_local, shift_y entlang +Y_local
+            delta_scene = QtCore.QPointF(
+                shift_x * self._ex_u.x() + shift_y * self._ey_u.x(),
+                shift_x * self._ex_u.y() + shift_y * self._ey_u.y(),
+            )
+            parent.setPos(self._parent_start_pos + delta_scene)
+        else:
+            # rechts/bottom/BR: pos unverändert
+            parent.setPos(self._parent_start_pos)
+
         if hasattr(parent, "update_handles"):
             parent.update_handles()
         event.accept()
 
     def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
         parent = self.parentItem()
+        # Origin zurück in die Mitte (optisch angenehmer)
+        br = parent.boundingRect()
+        parent.setTransformOriginPoint(br.center())
+
         if self._parent_was_movable:
-            parent.setFlag(
-                QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
-                True,
-            )
+            parent.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
             self._parent_was_movable = False
-        self._start_pos = None
-        self._start_rect = None
-        self._start_rx = 0.0
-        self._start_ry = 0.0
+
+        self._start_pos_scene = None
         event.accept()
 
 
 class RotationHandle(QtWidgets.QGraphicsPixmapItem):
-    """Handle used to rotate the parent item when dragged."""
+    """Handle zum Rotieren."""
 
     def __init__(self, parent: QtWidgets.QGraphicsItem):
-        # Create a small pixmap with a circular arrow.
         pix = QtGui.QPixmap(20, 20)
         pix.fill(QtCore.Qt.GlobalColor.transparent)
         painter = QtGui.QPainter(pix)
@@ -190,23 +261,16 @@ class RotationHandle(QtWidgets.QGraphicsPixmapItem):
         rect = QtCore.QRectF(5, 5, 10, 10)
         painter.drawArc(rect, 30 * 16, 300 * 16)
         path = QtGui.QPainterPath()
-        path.moveTo(15, 8)
-        path.lineTo(11, 8)
-        path.lineTo(13, 4)
-        path.closeSubpath()
+        path.moveTo(15, 8); path.lineTo(11, 8); path.lineTo(13, 4); path.closeSubpath()
         painter.fillPath(path, HANDLE_COLOR)
         painter.end()
 
         super().__init__(pix, parent)
         self.setOffset(-pix.width() / 2.0, -pix.height() / 2.0)
-        self.setShapeMode(
-            QtWidgets.QGraphicsPixmapItem.ShapeMode.BoundingRectShape
-        )
+        self.setShapeMode(QtWidgets.QGraphicsPixmapItem.ShapeMode.BoundingRectShape)
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
         self.setCursor(QtCore.Qt.CursorShape.OpenHandCursor)
-        self.setFlag(
-            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
-        )
+        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
         self._start_angle = None
         self._start_rotation = 0.0
         self._center = QtCore.QPointF()
@@ -221,20 +285,14 @@ class RotationHandle(QtWidgets.QGraphicsPixmapItem):
         self._start_angle = math.degrees(math.atan2(pos.y() - self._center.y(), pos.x() - self._center.x()))
         self._start_rotation = parent.rotation()
         flags = parent.flags()
-        self._parent_was_movable = bool(
-            flags & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-        )
+        self._parent_was_movable = bool(flags & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
         if self._parent_was_movable:
-            parent.setFlag(
-                QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False
-            )
+            parent.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
         self.setCursor(QtCore.Qt.CursorShape.ClosedHandCursor)
         if parent.scene():
             scene = parent.scene()
             if self._angle_label is None:
-                self._angle_label = QtWidgets.QGraphicsSimpleTextItem()
-                self._angle_label.setZValue(1001)
-                scene.addItem(self._angle_label)
+                self._angle_label = QtWidgets.QGraphicsSimpleTextItem(); self._angle_label.setZValue(1001); scene.addItem(self._angle_label)
             if self._angle_label_bg is None:
                 self._angle_label_bg = QtWidgets.QGraphicsRectItem()
                 self._angle_label_bg.setBrush(QtGui.QColor(220, 220, 220))
@@ -246,12 +304,9 @@ class RotationHandle(QtWidgets.QGraphicsPixmapItem):
 
     def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
         if self._start_angle is None:
-            event.ignore()
-            return
+            event.ignore(); return
         pos = event.scenePos()
-        angle = math.degrees(
-            math.atan2(pos.y() - self._center.y(), pos.x() - self._center.x())
-        )
+        angle = math.degrees(math.atan2(pos.y() - self._center.y(), pos.x() - self._center.x()))
         delta = angle - self._start_angle
         parent = self.parentItem()
         new_angle = self._start_rotation + delta
@@ -267,68 +322,45 @@ class RotationHandle(QtWidgets.QGraphicsPixmapItem):
     def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
         parent = self.parentItem()
         if self._parent_was_movable:
-            parent.setFlag(
-                QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True
-            )
+            parent.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
             self._parent_was_movable = False
         self._start_angle = None
         if parent.scene():
             scene = parent.scene()
-            if self._angle_label:
-                scene.removeItem(self._angle_label)
-            if self._angle_label_bg:
-                scene.removeItem(self._angle_label_bg)
+            if self._angle_label: scene.removeItem(self._angle_label)
+            if self._angle_label_bg: scene.removeItem(self._angle_label_bg)
         self._angle_label = None
         self._angle_label_bg = None
         self.setCursor(QtCore.Qt.CursorShape.OpenHandCursor)
         event.accept()
 
     def _update_label(self, angle: float) -> None:
-        if not self._angle_label:
-            return
+        if not self._angle_label: return
         self._angle_label.setText(f"{angle:.1f}\N{DEGREE SIGN}")
         parent = self.parentItem()
-        if not parent:
-            return
         scene_rect = parent.mapToScene(parent.boundingRect()).boundingRect()
         pos = QtCore.QPointF(scene_rect.center().x(), scene_rect.bottom() + 25)
         br = self._angle_label.boundingRect()
         self._angle_label.setPos(pos.x() - br.width() / 2.0, pos.y())
         if self._angle_label_bg:
             padding = 2.0
-            rect = QtCore.QRectF(
-                self._angle_label.pos().x() - padding,
-                self._angle_label.pos().y() - padding,
-                br.width() + 2 * padding,
-                br.height() + 2 * padding,
-            )
+            rect = QtCore.QRectF(self._angle_label.pos().x() - padding,
+                                 self._angle_label.pos().y() - padding,
+                                 br.width() + 2 * padding, br.height() + 2 * padding)
             self._angle_label_bg.setRect(rect)
 
 
 class ResizableItem:
-    """Mixin providing 8-direction resize handles for graphics items."""
+    """Mixin mit 8 Resize-Handles + Rotation-Handle."""
 
     def __init__(self):
-        # NOTE: this mixin should not call super().__init__() because concrete
-        # QGraphicsItem subclasses are already initialised explicitly.
-        # Calling super() here would attempt to re-initialise them and triggers
-        # runtime errors like "You can't initialize ... twice".
-        self._handles = []
-        self._rotation_handle = None
+        self._handles: list[ResizeHandle] = []
+        self._rotation_handle: RotationHandle | None = None
 
     def _ensure_handles(self):
         if self._handles:
             return
-        directions = [
-            "top_left",
-            "top",
-            "top_right",
-            "right",
-            "bottom_right",
-            "bottom",
-            "bottom_left",
-            "left",
-        ]
+        directions = ["top_left", "top", "top_right", "right", "bottom_right", "bottom", "bottom_left", "left"]
         for d in directions:
             h = ResizeHandle(self, d)
             h.hide()
@@ -353,6 +385,8 @@ class ResizableItem:
         ]
         for pt, h in zip(points, self._handles):
             h.setPos(pt)
+            # Cursor passend zur aktuellen Rotation
+            h.setCursor(_cursor_for_dir_rotated(h._direction, getattr(self, "rotation", lambda: 0.0)()))
         if self._rotation_handle:
             rot_o = (HANDLE_OFFSET + 15.0) / scale
             rot_offset = QtCore.QPointF(rot_o, -rot_o)
@@ -391,23 +425,14 @@ class ResizableItem:
 
 
 class LineHandle(QtWidgets.QGraphicsEllipseItem):
-    """Handle for editing line/polyline points and midpoints."""
-
+    """Handle für Polyline-Punkte und Midpoints."""
     def __init__(self, parent: "LineItem", index: int, is_mid: bool = False):
-        super().__init__(
-            -HANDLE_SIZE / 2.0,
-            -HANDLE_SIZE / 2.0,
-            HANDLE_SIZE,
-            HANDLE_SIZE,
-            parent,
-        )
+        super().__init__(-HANDLE_SIZE / 2.0, -HANDLE_SIZE / 2.0, HANDLE_SIZE, HANDLE_SIZE, parent)
         self.setBrush(HANDLE_COLOR)
         self.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
         self.setCursor(QtCore.Qt.CursorShape.SizeAllCursor)
-        self.setFlag(
-            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
-        )
+        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
         self.index = index
         self.is_mid = is_mid
         self._parent_was_movable = False
@@ -421,13 +446,9 @@ class LineHandle(QtWidgets.QGraphicsEllipseItem):
             parent._handles.insert(self.index + 1, self)
             parent.update_handles()
         flags = parent.flags()
-        self._parent_was_movable = bool(
-            flags & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-        )
+        self._parent_was_movable = bool(flags & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
         if self._parent_was_movable:
-            parent.setFlag(
-                QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False
-            )
+            parent.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
         parent._moving_index = self.index
         event.accept()
 
@@ -438,9 +459,7 @@ class LineHandle(QtWidgets.QGraphicsEllipseItem):
     def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
         parent: "LineItem" = self.parentItem()  # type: ignore[assignment]
         if self._parent_was_movable:
-            parent.setFlag(
-                QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True
-            )
+            parent.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
             self._parent_was_movable = False
         parent._moving_index = None
         event.accept()
@@ -538,11 +557,12 @@ class TriangleItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
         )
         self.setPolygon(poly)
 
-    def set_size(self, w, h):
+    def set_size(self, w, h, adjust_origin: bool = True):
         self._w = w
         self._h = h
         self._update_polygon()
-        self.setTransformOriginPoint(w / 2.0, h / 2.0)
+        if adjust_origin:
+            self.setTransformOriginPoint(w / 2.0, h / 2.0)
 
     def paint(self, painter, option, widget=None):
         opt = QtWidgets.QStyleOptionGraphicsItem(option)
@@ -590,7 +610,6 @@ class LineItem(QtWidgets.QGraphicsPathItem):
         self.update_handles()
         self.hide_handles()
 
-    # length of entire polyline
     def _update_length(self) -> None:
         total = 0.0
         for i in range(len(self._points) - 1):
@@ -616,9 +635,8 @@ class LineItem(QtWidgets.QGraphicsPathItem):
     def _handle_move(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
         if self._moving_index is None:
             return
-        mods = event.modifiers()
         new_pos = event.scenePos()
-        if not mods & QtCore.Qt.KeyboardModifier.AltModifier:
+        if not (event.modifiers() & QtCore.Qt.KeyboardModifier.AltModifier):
             new_pos = snap_to_grid(self, new_pos)
         self._points[self._moving_index] = self.mapFromScene(new_pos)
         self._update_path()
@@ -645,7 +663,7 @@ class LineItem(QtWidgets.QGraphicsPathItem):
         return br
 
     def update_handles(self) -> None:
-        # vertex handles
+        # Vertex-Handles
         while len(self._handles) < len(self._points):
             h = LineHandle(self, len(self._handles))
             self._handles.append(h)
@@ -657,7 +675,7 @@ class LineItem(QtWidgets.QGraphicsPathItem):
             h.index = i
             h.is_mid = False
             h.setPos(p)
-        # midpoint handles
+        # Mid-Handles
         segs = len(self._points) - 1
         while len(self._mid_handles) < segs:
             h = LineHandle(self, len(self._mid_handles), is_mid=True)
@@ -700,20 +718,12 @@ class LineItem(QtWidgets.QGraphicsPathItem):
                 self.update_handles()
         return super().itemChange(change, value)  # type: ignore[misc]
 
-    def _draw_arrow_head(
-        self, painter: QtGui.QPainter, start: QtCore.QPointF, end: QtCore.QPointF
-    ) -> None:
+    def _draw_arrow_head(self, painter: QtGui.QPainter, start: QtCore.QPointF, end: QtCore.QPointF) -> None:
         line = QtCore.QLineF(start, end)
         angle = math.atan2(-line.dy(), line.dx())
         size = self._arrow_size
-        p1 = end + QtCore.QPointF(
-            math.sin(angle - math.pi / 3) * size,
-            math.cos(angle - math.pi / 3) * size,
-        )
-        p2 = end + QtCore.QPointF(
-            math.sin(angle - math.pi + math.pi / 3) * size,
-            math.cos(angle - math.pi + math.pi / 3) * size,
-        )
+        p1 = end + QtCore.QPointF(math.sin(angle - math.pi / 3) * size, math.cos(angle - math.pi / 3) * size)
+        p2 = end + QtCore.QPointF(math.sin(angle - math.pi + math.pi / 3) * size, math.cos(angle - math.pi + math.pi / 3) * size)
         painter.drawPolygon(QtGui.QPolygonF([end, p1, p2]))
 
     def paint(self, painter, option, widget=None):
@@ -751,7 +761,6 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
         font.setPointSizeF(24.0)
         self.setFont(font)
         self.setDefaultTextColor(QtGui.QColor("#222"))
-        # Start with editing disabled so a single click only selects the item
         self.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.NoTextInteraction)
         self.setFlags(
             QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
@@ -781,22 +790,18 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
             painter.restore()
 
     def mouseDoubleClickEvent(self, event):
-        # Enable editing only on double click
-        self.setTextInteractionFlags(
-            QtCore.Qt.TextInteractionFlag.TextEditorInteraction
-        )
+        self.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextEditorInteraction)
         self.setFocus()
         super().mouseDoubleClickEvent(event)
 
     def focusOutEvent(self, event):
         super().focusOutEvent(event)
-        # Disable editing when focus is lost and update origin/handles
         self.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.NoTextInteraction)
-        # Update bounding box and handles after text changes
         self.setPlainText(self.toPlainText())
 
+
 class GroupItem(ResizableItem, QtWidgets.QGraphicsItemGroup):
-    """Group of multiple items that can be moved together."""
+    """Gruppe mehrerer Items, gemeinsam beweg-/skalier-/rotierbar."""
 
     def __init__(self):
         QtWidgets.QGraphicsItemGroup.__init__(self)
@@ -808,38 +813,34 @@ class GroupItem(ResizableItem, QtWidgets.QGraphicsItemGroup):
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
         )
         self.setData(0, "Group")
-
-        # WICHTIG: damit Resize-/Rotation-Handles Maus-Events bekommen
+        # Wichtig: Handles dürfen Maus-Events bekommen
         self.setHandlesChildEvents(False)
 
     def _contentRect(self) -> QtCore.QRectF:
-        r = QtCore.QRectF()
+        rect = QtCore.QRectF()
         first = True
         for c in self.childItems():
             if isinstance(c, (ResizeHandle, RotationHandle)):
                 continue
-            cr = c.mapToParent(c.boundingRect()).boundingRect()
-            r = cr if first else r.united(cr)
+            r = c.mapToParent(c.boundingRect()).boundingRect()
+            rect = r if first else rect.united(r)
             first = False
-        return r
+        return rect if not first else QtCore.QRectF()
 
     def update_handles(self):  # type: ignore[override]
         tight = self._contentRect()
-        self.setTransformOriginPoint(tight.center() if not tight.isNull()
-                                    else self.boundingRect().center())
+        self.setTransformOriginPoint(tight.center() if not tight.isNull() else self.boundingRect().center())
         super().update_handles()
 
-    def paint(self, p, opt, w=None):
+    def paint(self, painter, option, widget=None):
         if self.isSelected():
-            p.save()
-            p.setPen(PEN_SELECTED)
-            p.setBrush(QtCore.Qt.NoBrush)
+            painter.save()
+            painter.setPen(PEN_SELECTED)
+            painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
             tight = self._contentRect()
             if not tight.isNull():
                 half = PEN_SELECTED.widthF() * 0.5
-                p.drawRect(tight.adjusted(half, half, -half, -half))
+                painter.drawRect(tight.adjusted(half, half, -half, -half))
             else:
-                p.drawRect(self.boundingRect())
-            p.restore()
-
-
+                painter.drawRect(self.boundingRect())
+            painter.restore()
