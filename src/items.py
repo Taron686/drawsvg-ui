@@ -13,7 +13,7 @@ def snap_to_grid(item: QtWidgets.QGraphicsItem, pos: QtCore.QPointF) -> QtCore.Q
     if scene:
         views = scene.views()
         if views:
-            size = getattr(views[0], "_grid_size", 20)
+            size = getattr(views[0], "_grid_size_min", 10)
             x = round(pos.x() / size) * size
             y = round(pos.y() / size) * size
             return QtCore.QPointF(x, y)
@@ -193,10 +193,10 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
 
         # Optional: lokales Rastern NACH der Geometrie (nur veränderte Dimensionen runden)
         if snap_scene:
-            grid = 20
+            grid = 10
             sc = parent.scene()
             if sc and sc.views():
-                grid = getattr(sc.views()[0], "_grid_size", 20)
+                grid = getattr(sc.views()[0], "_grid_size_min", 10)
 
             def s(v): return round(v / grid) * grid
             # Nur die Dimensionen snappen, die wir verändert haben

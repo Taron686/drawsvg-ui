@@ -94,7 +94,8 @@ class CanvasView(QtWidgets.QGraphicsView):
         scene.changed.connect(self._update_scene_rect)
         self.setScene(scene)
         self.setBackgroundBrush(QtGui.QColor("#fafafa"))
-        self._grid_size = 20
+        self._grid_size = 50
+        self._grid_size_min = 10
         self._show_grid = True
 
         self._panning = False
@@ -112,20 +113,41 @@ class CanvasView(QtWidgets.QGraphicsView):
         super().drawBackground(painter, rect)
         if not self._show_grid:
             return
-        left = int(rect.left()) - int(rect.left()) % self._grid_size
-        top = int(rect.top()) - int(rect.top()) % self._grid_size
-        lines = []
+
+        # Draw subgrid lines (every 10 units, lighter and more translucent)
+        subgrid_size = 10
+        left = int(rect.left()) - int(rect.left()) % subgrid_size
+        top = int(rect.top()) - int(rect.top()) % subgrid_size
+        subgrid_lines = []
         x = left
         while x < rect.right():
-            lines.append(QtCore.QLineF(x, rect.top(), x, rect.bottom()))
+            if x % self._grid_size != 0:  # Skip main grid lines
+                subgrid_lines.append(QtCore.QLineF(x, rect.top(), x, rect.bottom()))
+            x += subgrid_size
+        y = top
+        while y < rect.bottom():
+            if y % self._grid_size != 0:  # Skip main grid lines
+                subgrid_lines.append(QtCore.QLineF(rect.left(), y, rect.right(), y))
+            y += subgrid_size
+        subgrid_pen = QtGui.QPen(QtGui.QColor(208, 208, 208, 60))  # More translucent
+        painter.setPen(subgrid_pen)
+        painter.drawLines(subgrid_lines)
+
+        # Draw main grid lines (every 50 units, less translucent)
+        left = int(rect.left()) - int(rect.left()) % self._grid_size
+        top = int(rect.top()) - int(rect.top()) % self._grid_size
+        grid_lines = []
+        x = left
+        while x < rect.right():
+            grid_lines.append(QtCore.QLineF(x, rect.top(), x, rect.bottom()))
             x += self._grid_size
         y = top
         while y < rect.bottom():
-            lines.append(QtCore.QLineF(rect.left(), y, rect.right(), y))
+            grid_lines.append(QtCore.QLineF(rect.left(), y, rect.right(), y))
             y += self._grid_size
-        pen = QtGui.QPen(QtGui.QColor("#D0D0D0"))
-        painter.setPen(pen)
-        painter.drawLines(lines)
+        grid_pen = QtGui.QPen(QtGui.QColor(208, 208, 208, 180))  # Less translucent
+        painter.setPen(grid_pen)
+        painter.drawLines(grid_lines)
 
     def set_grid_visible(self, visible: bool):
         self._show_grid = visible
