@@ -374,6 +374,10 @@ class ResizableItem:
         self._handles: list[ResizeHandle] = []
         self._rotation_handle: RotationHandle | None = None
 
+    def _handle_rect(self) -> QtCore.QRectF:
+        """Bezugsrechteck für die Platzierung der Handles."""
+        return self.boundingRect()
+
     def _ensure_handles(self):
         if self._handles:
             return
@@ -387,7 +391,9 @@ class ResizableItem:
 
     def update_handles(self):
         self._ensure_handles()
-        rect = self.boundingRect()
+        rect = self._handle_rect()
+        if rect.isNull():
+            rect = self.boundingRect()
         scale = self.scale() or 1.0
         o = HANDLE_OFFSET / scale
         points = [
@@ -833,6 +839,12 @@ class GroupItem(ResizableItem, QtWidgets.QGraphicsItemGroup):
         # Wichtig: Handles dürfen Maus-Events bekommen
         self.setHandlesChildEvents(False)
 
+    def _handle_rect(self) -> QtCore.QRectF:  # type: ignore[override]
+        tight = self._contentRect()
+        if not tight.isNull():
+            return tight
+        return QtWidgets.QGraphicsItemGroup.boundingRect(self)
+
     def _contentRect(self) -> QtCore.QRectF:
         rect = QtCore.QRectF()
         first = True
@@ -845,8 +857,11 @@ class GroupItem(ResizableItem, QtWidgets.QGraphicsItemGroup):
         return rect if not first else QtCore.QRectF()
 
     def update_handles(self):  # type: ignore[override]
-        tight = self._contentRect()
-        self.setTransformOriginPoint(tight.center() if not tight.isNull() else self.boundingRect().center())
+        rect = self._handle_rect()
+        if not rect.isNull():
+            self.setTransformOriginPoint(rect.center())
+        else:
+            self.setTransformOriginPoint(QtCore.QPointF())
         super().update_handles()
 
     def paint(self, painter, option, widget=None):
