@@ -50,6 +50,50 @@ class CornerRadiusDialog(QtWidgets.QDialog):
         return self.slider.value()
 
 
+class OpacityDialog(QtWidgets.QDialog):
+    valueChanged = QtCore.Signal(float)
+
+    def __init__(self, value: float, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Fill opacity")
+
+        self._value = value
+
+        layout = QtWidgets.QVBoxLayout(self)
+
+        slider_layout = QtWidgets.QHBoxLayout()
+        self.slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self.slider.setRange(0, 100)
+        self.slider.setValue(round(value * 100))
+        self.slider.setTracking(True)
+        slider_layout.addWidget(self.slider, stretch=1)
+
+        self.display = QtWidgets.QLineEdit(f"{value:.2f}")
+        self.display.setReadOnly(True)
+        self.display.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
+        self.display.setFixedWidth(60)
+        slider_layout.addWidget(self.display)
+
+        layout.addLayout(slider_layout)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self.slider.valueChanged.connect(self._on_slider_value_changed)
+
+    def _on_slider_value_changed(self, slider_value: int) -> None:
+        self._value = slider_value / 100.0
+        self.display.setText(f"{self._value:.2f}")
+        self.valueChanged.emit(self._value)
+
+    def value(self) -> float:
+        return self._value
+
+
 class TrackingScene(QtWidgets.QGraphicsScene):
     """QGraphicsScene that keeps strong refs to added items."""
 
@@ -638,17 +682,22 @@ class CanvasView(QtWidgets.QGraphicsView):
                 color.setAlphaF(value)
                 item.setBrush(color)
 
-            opacity_action, opacity_callback = self._create_double_action(
-                menu,
-                "Set fill opacity…",
-                "Fill opacity",
-                "Opacity:",
-                opacity_getter,
-                opacity_setter,
-                0.0,
-                1.0,
-                2,
-            )
+            opacity_action = menu.addAction("Set fill opacity…")
+
+            def opacity_callback(item=item) -> None:
+                initial_opacity = opacity_getter()
+                dialog = OpacityDialog(initial_opacity, self)
+
+                def handle_value_changed(value: float, item=item) -> None:
+                    opacity_setter(value, item)
+
+                dialog.valueChanged.connect(handle_value_changed)
+                result = dialog.exec()
+                if result == QtWidgets.QDialog.DialogCode.Accepted:
+                    opacity_setter(dialog.value(), item)
+                else:
+                    opacity_setter(initial_opacity, item)
+
             actions[opacity_action] = opacity_callback
 
         def add_stroke_actions() -> None:
