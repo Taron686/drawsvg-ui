@@ -67,9 +67,10 @@ def _painter_path_to_svg(path: QtGui.QPainterPath) -> str:
         if not poly:
             continue
         commands: list[str] = []
-        start = poly[0]
+        points = list(poly)
+        start = points[0]
         commands.append(f"M {start.x():.2f} {start.y():.2f}")
-        for point in poly[1:]:
+        for point in points[1:]:
             commands.append(f"L {point.x():.2f} {point.y():.2f}")
         commands.append("Z")
         segments.append(" ".join(commands))
