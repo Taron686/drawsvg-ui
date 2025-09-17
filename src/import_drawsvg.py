@@ -99,7 +99,8 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 _apply_style(item, kwargs)
                 if "transform" in kwargs:
                     item.setRotation(_parse_rotate(kwargs["transform"]))
-                item.setData(0, "Rectangle")
+                shape_name = "Rounded Rectangle" if (rx or ry) else "Rectangle"
+                item.setData(0, shape_name)
                 scene.addItem(item)
             elif line.startswith("_ell = draw.Ellipse("):
                 args, kwargs = _parse_call(line)

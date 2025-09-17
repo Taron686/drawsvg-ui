@@ -76,7 +76,9 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
     for it in items:
         shape = it.data(0)
-        if shape == "Rectangle" and isinstance(it, QtWidgets.QGraphicsRectItem):
+        if shape in ("Rectangle", "Rounded Rectangle") and isinstance(
+            it, QtWidgets.QGraphicsRectItem
+        ):
             r = it.rect()
             x = it.pos().x()
             y = it.pos().y()
