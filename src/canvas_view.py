@@ -990,6 +990,7 @@ class CanvasView(QtWidgets.QGraphicsView):
 
         back1_act = menu.addAction("Send backward")
         front1_act = menu.addAction("Bring forward")
+        menu.addSeparator()
         back_act = menu.addAction("Send to back")
         front_act = menu.addAction("Bring to front")
 
