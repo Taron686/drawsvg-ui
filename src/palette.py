@@ -1,6 +1,34 @@
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from constants import DEFAULT_FILL, PALETTE_MIME, PEN_NORMAL, SHAPES
+from constants import DEFAULTS, DEFAULT_FILL, PALETTE_MIME, PEN_NORMAL, SHAPES
+
+
+def _fit_rect_to_ratio(rect: QtCore.QRectF, aspect_ratio: float) -> QtCore.QRectF:
+    """Return a copy of *rect* scaled to match the requested aspect ratio."""
+
+    if aspect_ratio <= 0:
+        return QtCore.QRectF(rect)
+
+    width = rect.width()
+    height = rect.height()
+    if width <= 0 or height <= 0:
+        return QtCore.QRectF(rect)
+
+    current_ratio = width / height
+    new_width = width
+    new_height = height
+    if current_ratio > aspect_ratio:
+        new_width = height * aspect_ratio
+    else:
+        new_height = width / aspect_ratio
+
+    fitted = QtCore.QRectF(
+        rect.center().x() - new_width / 2,
+        rect.center().y() - new_height / 2,
+        new_width,
+        new_height,
+    )
+    return fitted
 
 
 def _build_shape_icon(name: str, size: QtCore.QSize) -> QtGui.QPixmap:
@@ -29,10 +57,17 @@ def _build_shape_icon(name: str, size: QtCore.QSize) -> QtGui.QPixmap:
 
     lower_name = name.lower()
     if lower_name == "rectangle":
-        radius = 8 * device_pixel_ratio
-        painter.drawRoundedRect(rect, radius, radius)
+        dims = DEFAULTS.get(name)
+        draw_rect = rect
+        if dims and dims[1]:
+            draw_rect = _fit_rect_to_ratio(rect, dims[0] / dims[1])
+        painter.drawRect(draw_rect)
     elif lower_name == "ellipse":
-        painter.drawEllipse(rect)
+        dims = DEFAULTS.get(name)
+        ellipse_rect = rect
+        if dims and dims[1]:
+            ellipse_rect = _fit_rect_to_ratio(rect, dims[0] / dims[1])
+        painter.drawEllipse(ellipse_rect)
     elif lower_name == "circle":
         diameter = min(rect.width(), rect.height())
         circle_rect = QtCore.QRectF(
