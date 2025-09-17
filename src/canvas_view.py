@@ -22,6 +22,8 @@ DUPLICATE_DRAG_THRESHOLD = 10.0
 
 
 class CornerRadiusDialog(QtWidgets.QDialog):
+    valueChanged = QtCore.Signal(int)
+
     def __init__(self, radius: float, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Corner radius")
@@ -31,9 +33,9 @@ class CornerRadiusDialog(QtWidgets.QDialog):
         self.slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.slider.setRange(0, 50)
         self.slider.setValue(int(radius))
+        self.slider.setTracking(True)
         self.label = QtWidgets.QLabel(str(int(radius)))
         self.label.setFixedWidth(40)
-        self.slider.valueChanged.connect(lambda v: self.label.setText(str(v)))
         radius_layout = QtWidgets.QHBoxLayout()
         radius_layout.addWidget(self.slider)
         radius_layout.addWidget(self.label)
@@ -46,8 +48,14 @@ class CornerRadiusDialog(QtWidgets.QDialog):
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
 
+        self.slider.valueChanged.connect(self._on_slider_value_changed)
+
     def value(self) -> int:
         return self.slider.value()
+
+    def _on_slider_value_changed(self, value: int) -> None:
+        self.label.setText(str(value))
+        self.valueChanged.emit(value)
 
 
 class OpacityDialog(QtWidgets.QDialog):
@@ -739,10 +747,22 @@ class CanvasView(QtWidgets.QGraphicsView):
             corner_action = menu.addAction("Set corner radius…")
 
             def corner_callback(item=item) -> None:
+                initial_rx = item.rx
+                initial_ry = item.ry
                 dlg = CornerRadiusDialog(item.rx, self)
-                if dlg.exec() == QtWidgets.QDialog.DialogCode.Accepted:
-                    val = dlg.value()
-                    item.rx = item.ry = min(float(val), 50.0)
+
+                def handle_value_changed(value: int, item=item) -> None:
+                    radius = min(float(value), 50.0)
+                    item.rx = item.ry = radius
+                    item.update()
+
+                dlg.valueChanged.connect(handle_value_changed)
+                result = dlg.exec()
+                if result == QtWidgets.QDialog.DialogCode.Accepted:
+                    handle_value_changed(dlg.value())
+                else:
+                    item.rx = initial_rx
+                    item.ry = initial_ry
                     item.update()
 
             actions[corner_action] = corner_callback
