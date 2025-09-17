@@ -1,4 +1,5 @@
 from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6.QtGui import QTransform
 
 from constants import PALETTE_MIME, SHAPES, DEFAULTS
 from items import (
@@ -265,6 +266,13 @@ class CanvasView(QtWidgets.QGraphicsView):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QtGui.QMouseEvent):
+        
+        item = self.itemAt(event.position().toPoint())
+        if item and item.flags() & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable:
+            self.viewport().setCursor(QtCore.Qt.CursorShape.SizeAllCursor)
+        else:
+            self.viewport().setCursor(QtCore.Qt.CursorShape.ArrowCursor)
+
         if self._panning or self._right_button_pressed:
             delta = event.position() - self._pan_start
             if (
