@@ -69,6 +69,45 @@ def _build_shape_icon(name: str, size: QtCore.QSize) -> QtGui.QPixmap:
             draw_rect = _fit_rect_to_ratio(rect, dims[0] / dims[1])
         radius = 8.0 * device_pixel_ratio
         painter.drawRoundedRect(draw_rect, radius, radius)
+    elif lower_name == "split rounded rectangle":
+        dims = DEFAULTS.get(name)
+        draw_rect = rect
+        if dims and dims[1]:
+            draw_rect = _fit_rect_to_ratio(rect, dims[0] / dims[1])
+        radius = 8.0 * device_pixel_ratio
+
+        base_path = QtGui.QPainterPath()
+        base_path.addRoundedRect(draw_rect, radius, radius)
+        painter.fillPath(base_path, DEFAULT_FILL)
+
+        header_height = draw_rect.height() / 3.0
+        top_clip = QtGui.QPainterPath()
+        top_clip.addRect(
+            draw_rect.left(),
+            draw_rect.top(),
+            draw_rect.width(),
+            header_height,
+        )
+        header_color = QtGui.QColor("#f6e3b0")
+        painter.fillPath(base_path.intersected(top_clip), header_color)
+
+        painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+        painter.setPen(PEN_NORMAL)
+        painter.drawRoundedRect(draw_rect, radius, radius)
+
+        line_y = draw_rect.top() + header_height
+        divider_pen = QtGui.QPen(QtGui.QColor("#777"))
+        divider_pen.setWidthF(max(1.0, PEN_NORMAL.widthF() * device_pixel_ratio * 0.9))
+        painter.setPen(divider_pen)
+        painter.drawLine(draw_rect.left(), line_y, draw_rect.right(), line_y)
+
+        handle_radius = 3.0 * device_pixel_ratio
+        painter.setBrush(QtGui.QColor("#d28b00"))
+        painter.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
+        painter.drawEllipse(QtCore.QPointF(draw_rect.center().x(), line_y), handle_radius, handle_radius)
+
+        painter.setPen(PEN_NORMAL)
+        painter.setBrush(DEFAULT_FILL)
     elif lower_name == "ellipse":
         dims = DEFAULTS.get(name)
         ellipse_rect = rect
