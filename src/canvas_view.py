@@ -1,3 +1,5 @@
+from typing import Callable
+
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtGui import QTransform
 
@@ -563,6 +565,208 @@ class CanvasView(QtWidgets.QGraphicsView):
             for it, br in zip(items, brs):
                 it.moveBy(0, target - br.bottom())
 
+    def _create_color_action(
+        self,
+        menu: QtWidgets.QMenu,
+        text: str,
+        title: str,
+        color_getter: Callable[[], QtGui.QColor],
+        color_setter: Callable[[QtGui.QColor], None],
+    ) -> tuple[QtGui.QAction, Callable[[], None]]:
+        action = menu.addAction(text)
+
+        def callback() -> None:
+            color = QtWidgets.QColorDialog.getColor(color_getter(), self, title)
+            if color.isValid():
+                color_setter(color)
+
+        return action, callback
+
+    def _create_double_action(
+        self,
+        menu: QtWidgets.QMenu,
+        text: str,
+        dialog_title: str,
+        label: str,
+        value_getter: Callable[[], float],
+        value_setter: Callable[[float], None],
+        minimum: float,
+        maximum: float,
+        decimals: int,
+    ) -> tuple[QtGui.QAction, Callable[[], None]]:
+        action = menu.addAction(text)
+
+        def callback() -> None:
+            value, ok = QtWidgets.QInputDialog.getDouble(
+                self,
+                dialog_title,
+                label,
+                value_getter(),
+                minimum,
+                maximum,
+                decimals,
+            )
+            if ok:
+                value_setter(value)
+
+        return action, callback
+
+    def _create_shape_style_actions(
+        self, menu: QtWidgets.QMenu, item: QtWidgets.QGraphicsItem
+    ) -> dict[QtGui.QAction, Callable[[], None]]:
+        actions: dict[QtGui.QAction, Callable[[], None]] = {}
+
+        def add_fill_actions() -> None:
+            fill_action, fill_callback = self._create_color_action(
+                menu,
+                "Set fill color…",
+                "Fill color",
+                lambda item=item: item.brush().color(),
+                lambda color, item=item: item.setBrush(color),
+            )
+            actions[fill_action] = fill_callback
+
+            def opacity_getter(item=item) -> float:
+                brush = item.brush()
+                if brush.style() == QtCore.Qt.BrushStyle.NoBrush:
+                    return 1.0
+                return brush.color().alphaF()
+
+            def opacity_setter(value: float, item=item) -> None:
+                brush = item.brush()
+                color = brush.color()
+                color.setAlphaF(value)
+                item.setBrush(color)
+
+            opacity_action, opacity_callback = self._create_double_action(
+                menu,
+                "Set fill opacity…",
+                "Fill opacity",
+                "Opacity:",
+                opacity_getter,
+                opacity_setter,
+                0.0,
+                1.0,
+                2,
+            )
+            actions[opacity_action] = opacity_callback
+
+        def add_stroke_actions() -> None:
+            def stroke_color_setter(color: QtGui.QColor, item=item) -> None:
+                pen = item.pen()
+                pen.setColor(color)
+                item.setPen(pen)
+                item.update()
+
+            stroke_action, stroke_callback = self._create_color_action(
+                menu,
+                "Set stroke color…",
+                "Stroke color",
+                lambda item=item: item.pen().color(),
+                stroke_color_setter,
+            )
+            actions[stroke_action] = stroke_callback
+
+            def width_setter(value: float, item=item) -> None:
+                pen = item.pen()
+                pen.setWidthF(value)
+                item.setPen(pen)
+                item.update()
+
+            width_action, width_callback = self._create_double_action(
+                menu,
+                "Set stroke width…",
+                "Stroke width",
+                "Width:",
+                lambda item=item: item.pen().widthF(),
+                width_setter,
+                0.1,
+                50.0,
+                1,
+            )
+            actions[width_action] = width_callback
+
+        def add_corner_action() -> None:
+            corner_action = menu.addAction("Set corner radius…")
+
+            def corner_callback(item=item) -> None:
+                dlg = CornerRadiusDialog(item.rx, self)
+                if dlg.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+                    val = dlg.value()
+                    item.rx = item.ry = min(float(val), 50.0)
+                    item.update()
+
+            actions[corner_action] = corner_callback
+
+        def add_arrow_actions() -> None:
+            start_action = menu.addAction("Show start arrowhead")
+            start_action.setCheckable(True)
+            start_action.setChecked(getattr(item, "arrow_start", False))
+
+            def start_callback(action=start_action, item=item) -> None:
+                item.set_arrow_start(action.isChecked())
+
+            actions[start_action] = start_callback
+
+            end_action = menu.addAction("Show end arrowhead")
+            end_action.setCheckable(True)
+            end_action.setChecked(getattr(item, "arrow_end", False))
+
+            def end_callback(action=end_action, item=item) -> None:
+                item.set_arrow_end(action.isChecked())
+
+            actions[end_action] = end_callback
+
+        def add_text_actions() -> None:
+            text_color_action, text_color_callback = self._create_color_action(
+                menu,
+                "Set text color…",
+                "Text color",
+                lambda item=item: item.defaultTextColor(),
+                lambda color, item=item: item.setDefaultTextColor(color),
+            )
+            actions[text_color_action] = text_color_callback
+
+            def font_size_setter(value: float, item=item) -> None:
+                font = item.font()
+                font.setPointSizeF(value)
+                item.setFont(font)
+                br = item.boundingRect()
+                item.setTransformOriginPoint(br.width() / 2.0, br.height() / 2.0)
+
+            font_size_action, font_size_callback = self._create_double_action(
+                menu,
+                "Set font size…",
+                "Font size",
+                "Size:",
+                lambda item=item: item.font().pointSizeF(),
+                font_size_setter,
+                1.0,
+                500.0,
+                1,
+            )
+            actions[font_size_action] = font_size_callback
+
+        if isinstance(item, RectItem):
+            add_fill_actions()
+            add_corner_action()
+            menu.addSeparator()
+            add_stroke_actions()
+        elif isinstance(item, (QtWidgets.QGraphicsEllipseItem, TriangleItem)):
+            add_fill_actions()
+            menu.addSeparator()
+            add_stroke_actions()
+        elif isinstance(item, LineItem):
+            add_arrow_actions()
+            menu.addSeparator()
+            add_stroke_actions()
+        elif isinstance(item, TextItem):
+            add_text_actions()
+        else:
+            add_stroke_actions()
+
+        return actions
+
     # --- Context menu for adjusting colors and line width ---
     def contextMenuEvent(self, event: QtGui.QContextMenuEvent):
         if self._suppress_context_menu:
@@ -582,9 +786,6 @@ class CanvasView(QtWidgets.QGraphicsView):
             return
 
         menu = QtWidgets.QMenu(self)
-        fill_act = opacity_act = stroke_act = width_act = None
-        color_act = size_act = corner_act = None
-        start_arrow_act = end_arrow_act = None
 
         selected = self.scene().selectedItems()
         group_act = ungroup_act = None
@@ -608,42 +809,11 @@ class CanvasView(QtWidgets.QGraphicsView):
             align_menu.addSeparator()
             align_actions[align_menu.addAction("Snap to grid")] = "grid"
             menu.addSeparator()
-        if isinstance(item, RectItem):
-            fill_act = menu.addAction("Set fill color…")
-            opacity_act = menu.addAction("Set fill opacity…")
-            corner_act = menu.addAction("Set corner radius…")
+
+        style_actions = self._create_shape_style_actions(menu, item)
+        if style_actions:
             menu.addSeparator()
-            stroke_act = menu.addAction("Set stroke color…")
-            width_act = menu.addAction("Set stroke width…")
-        elif isinstance(item, QtWidgets.QGraphicsEllipseItem):
-            fill_act = menu.addAction("Set fill color…")
-            opacity_act = menu.addAction("Set fill opacity…")
-            menu.addSeparator()
-            stroke_act = menu.addAction("Set stroke color…")
-            width_act = menu.addAction("Set stroke width…")
-        elif isinstance(item, TriangleItem):
-            fill_act = menu.addAction("Set fill color…")
-            opacity_act = menu.addAction("Set fill opacity…")
-            menu.addSeparator()
-            stroke_act = menu.addAction("Set stroke color…")
-            width_act = menu.addAction("Set stroke width…")
-        elif isinstance(item, LineItem):
-            start_arrow_act = menu.addAction("Show start arrowhead")
-            start_arrow_act.setCheckable(True)
-            start_arrow_act.setChecked(getattr(item, "arrow_start", False))
-            end_arrow_act = menu.addAction("Show end arrowhead")
-            end_arrow_act.setCheckable(True)
-            end_arrow_act.setChecked(getattr(item, "arrow_end", False))
-            menu.addSeparator()
-            stroke_act = menu.addAction("Set stroke color…")
-            width_act = menu.addAction("Set stroke width…")
-        elif isinstance(item, TextItem):
-            color_act = menu.addAction("Set text color…")
-            size_act = menu.addAction("Set font size…")
-        else:
-            stroke_act = menu.addAction("Set stroke color…")
-            width_act = menu.addAction("Set stroke width…")
-        menu.addSeparator()
+
         back1_act = menu.addAction("Send backward")
         front1_act = menu.addAction("Bring forward")
         back_act = menu.addAction("Send to back")
@@ -660,73 +830,28 @@ class CanvasView(QtWidgets.QGraphicsView):
             self._group_selected_items()
         elif action is ungroup_act:
             self._ungroup_selected_items()
-        elif action is fill_act:
-            brush = item.brush()
-            color = QtWidgets.QColorDialog.getColor(brush.color(), self, "Fill color")
-            if color.isValid():
-                item.setBrush(color)
-        elif action is opacity_act:
-            brush = item.brush()
-            start = brush.color().alphaF() if brush.style() != QtCore.Qt.BrushStyle.NoBrush else 1.0
-            val, ok = QtWidgets.QInputDialog.getDouble(self, "Fill opacity", "Opacity:", start, 0.0, 1.0, 2)
-            if ok:
-                color = brush.color()
-                color.setAlphaF(val)
-                item.setBrush(color)
-        elif action is stroke_act:
-            pen = item.pen()
-            color = QtWidgets.QColorDialog.getColor(pen.color(), self, "Stroke color")
-            if color.isValid():
-                pen.setColor(color)
-                item.setPen(pen)
-                item.update()
-        elif action is width_act:
-            pen = item.pen()
-            val, ok = QtWidgets.QInputDialog.getDouble(self, "Stroke width", "Width:", pen.widthF(), 0.1, 50.0, 1)
-            if ok:
-                pen.setWidthF(val)
-                item.setPen(pen)
-                item.update()
-        elif action is start_arrow_act and isinstance(item, LineItem):
-            item.set_arrow_start(start_arrow_act.isChecked())
-        elif action is end_arrow_act and isinstance(item, LineItem):
-            item.set_arrow_end(end_arrow_act.isChecked())
-        elif action is corner_act and isinstance(item, RectItem):
-            dlg = CornerRadiusDialog(item.rx, self)
-            if dlg.exec() == QtWidgets.QDialog.DialogCode.Accepted:
-                val = dlg.value()
-                item.rx = item.ry = min(float(val), 50.0)
-                item.update()
-        elif action is color_act:
-            color = QtWidgets.QColorDialog.getColor(item.defaultTextColor(), self, "Text color")
-            if color.isValid():
-                item.setDefaultTextColor(color)
-        elif action is size_act:
-            font = item.font()
-            val, ok = QtWidgets.QInputDialog.getDouble(self, "Font size", "Size:", font.pointSizeF(), 1.0, 500.0, 1)
-            if ok:
-                font.setPointSizeF(val)
-                item.setFont(font)
-                br = item.boundingRect()
-                item.setTransformOriginPoint(br.width() / 2.0, br.height() / 2.0)
-        elif action in (back1_act, front1_act, back_act, front_act):
-            scene = self.scene()
-            items = [
-                it
-                for it in scene.items()
-                if it.data(0) in SHAPES or isinstance(it, GroupItem)
-            ]
-            items.sort(key=lambda it: it.zValue())
-            idx = items.index(item)
-            if action == back1_act and idx > 0:
-                items[idx - 1], items[idx] = items[idx], items[idx - 1]
-            elif action == front1_act and idx < len(items) - 1:
-                items[idx + 1], items[idx] = items[idx], items[idx + 1]
-            elif action == back_act:
-                items.insert(0, items.pop(idx))
-            elif action == front_act:
-                items.append(items.pop(idx))
-            for z, it in enumerate(items):
-                it.setZValue(z)
         else:
-            super().contextMenuEvent(event)
+            style_callback = style_actions.get(action)
+            if style_callback:
+                style_callback()
+            elif action in (back1_act, front1_act, back_act, front_act):
+                scene = self.scene()
+                items = [
+                    it
+                    for it in scene.items()
+                    if it.data(0) in SHAPES or isinstance(it, GroupItem)
+                ]
+                items.sort(key=lambda it: it.zValue())
+                idx = items.index(item)
+                if action == back1_act and idx > 0:
+                    items[idx - 1], items[idx] = items[idx], items[idx - 1]
+                elif action == front1_act and idx < len(items) - 1:
+                    items[idx + 1], items[idx] = items[idx], items[idx + 1]
+                elif action == back_act:
+                    items.insert(0, items.pop(idx))
+                elif action == front_act:
+                    items.append(items.pop(idx))
+                for z, it in enumerate(items):
+                    it.setZValue(z)
+            else:
+                super().contextMenuEvent(event)
