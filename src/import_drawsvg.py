@@ -85,10 +85,12 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             lines = f.readlines()
         scene.clear()
         pending_split: dict[str, Any] | None = None
+        pending_line: LineItem | None = None
         for raw in lines:
             line = raw.strip()
             if not line:
                 pending_split = None
+                pending_line = None
                 continue
             if line.startswith("#"):
                 if line.startswith("# SplitRoundedRect"):
@@ -102,6 +104,29 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                             value = value[1:-1]
                         info[key] = value
                     pending_split = info
+                elif line.startswith("# Arrowheads:") and pending_line is not None:
+                    comment = line.split(":", 1)[1]
+                    start_flag = False
+                    end_flag = False
+                    for part in comment.split(","):
+                        if "=" not in part:
+                            continue
+                        key, value = part.split("=", 1)
+                        key = key.strip()
+                        value = value.strip().lower()
+                        flag = value in {"true", "1", "yes"}
+                        if key == "start":
+                            start_flag = flag
+                        elif key == "end":
+                            end_flag = flag
+                    if start_flag:
+                        pending_line.set_arrow_start(True)
+                    if end_flag:
+                        pending_line.set_arrow_end(True)
+                    pending_line.setData(
+                        0, "Arrow" if (start_flag or end_flag) else "Line"
+                    )
+                    pending_line = None
                 continue
             if line.startswith("d = draw.Drawing("):
                 args, kwargs = _parse_call(line)
@@ -238,6 +263,9 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                             item.setRotation(angle)
                             item.setData(0, "Arrow" if arrow_start or arrow_end else "Line")
                             scene.addItem(item)
+                            pending_line = item
+                        else:
+                            pending_line = None
             elif line.startswith("_line = draw.Lines("):
                 args, kwargs = _parse_call(line)
                 coords = list(map(float, args))
@@ -253,6 +281,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 item.setRotation(angle)
                 item.setData(0, "Line")
                 scene.addItem(item)
+                pending_line = item
             elif line.startswith("_line = draw.Line("):
                 args, kwargs = _parse_call(line)
                 x1, y1, x2, y2 = map(float, args[:4])
@@ -268,6 +297,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 item.setRotation(angle)
                 item.setData(0, "Line")
                 scene.addItem(item)
+                pending_line = item
             elif line.startswith("_text = draw.Text("):
                 args, kwargs = _parse_call(line)
                 text = args[0]

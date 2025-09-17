@@ -1,3 +1,4 @@
+import math
 from collections.abc import Iterable
 
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -75,6 +76,29 @@ def _painter_path_to_svg(path: QtGui.QPainterPath) -> str:
         commands.append("Z")
         segments.append(" ".join(commands))
     return " ".join(segments)
+
+
+def _arrowhead_polygon(
+    start: QtCore.QPointF, end: QtCore.QPointF, size: float
+) -> list[QtCore.QPointF]:
+    """Return a list of points describing an arrowhead polygon."""
+
+    line = QtCore.QLineF(start, end)
+    angle = math.atan2(-line.dy(), line.dx())
+    tip = QtCore.QPointF(end)
+    side1 = QtCore.QPointF(
+        math.sin(angle - math.pi / 3.0) * size,
+        math.cos(angle - math.pi / 3.0) * size,
+    )
+    side2 = QtCore.QPointF(
+        math.sin(angle - math.pi + math.pi / 3.0) * size,
+        math.cos(angle - math.pi + math.pi / 3.0) * size,
+    )
+    return [
+        tip,
+        QtCore.QPointF(tip.x() + side1.x(), tip.y() + side1.y()),
+        QtCore.QPointF(tip.x() + side2.x(), tip.y() + side2.y()),
+    ]
 
 
 def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget | None = None):
@@ -290,70 +314,73 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
         elif shape in ("Line", "Arrow") and isinstance(it, LineItem):
             pen = it.pen()
             ang = it.rotation()
-            cx = it.pos().x() + it.transformOriginPoint().x()
-            cy = it.pos().y() + it.transformOriginPoint().y()
-            abs_pts: list[float] = []
-            for p in it._points:
-                abs_pts.extend([it.pos().x() + p.x(), it.pos().y() + p.y()])
+            pos = it.pos()
+            origin = it.transformOriginPoint()
+            cx = pos.x() + origin.x()
+            cy = pos.y() + origin.y()
+            points = [
+                QtCore.QPointF(pos.x() + p.x(), pos.y() + p.y()) for p in it._points
+            ]
+            if not points:
+                continue
+            path_cmd = "M " + " L ".join(f"{pt.x():.2f} {pt.y():.2f}" for pt in points)
+            attrs = [
+                f"stroke='{pen.color().name()}'",
+                f"stroke_width={pen.widthF():.2f}",
+                "fill='none'",
+            ]
+            attr_str = ", ".join(attrs)
+            transform_suffix = ""
+            if abs(ang) > 1e-6:
+                transform_suffix = f", transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})'"
+            lines.append(f"    _path = draw.Path('{path_cmd}', {attr_str}{transform_suffix})")
+            lines.append("    d.append(_path)")
             arrow_start = getattr(it, "arrow_start", False)
             arrow_end = getattr(it, "arrow_end", False)
             if arrow_start or arrow_end:
-                lines.append("    _arrow = draw.Marker(-0.1, -0.51, 0.9, 0.5, scale=4, orient='auto')")
+                start_flag = "true" if arrow_start else "false"
+                end_flag = "true" if arrow_end else "false"
                 lines.append(
-                    f"    _arrow.append(draw.Lines(-0.1, 0.5, -0.1, -0.5, 0.9, 0, fill='{pen.color().name()}', close=True))"
+                    f"    # Arrowheads: start={start_flag}, end={end_flag}"
                 )
-                path_cmd = "M " + " L ".join(
-                    f"{abs_pts[i]:.2f} {abs_pts[i+1]:.2f}" for i in range(0, len(abs_pts), 2)
-                )
-                attrs = [
-                    f"stroke='{pen.color().name()}'",
-                    f"stroke_width={pen.widthF():.2f}",
-                    "fill='none'",
-                ]
-                if arrow_start:
-                    attrs.append("marker_start=_arrow")
-                if arrow_end:
-                    attrs.append("marker_end=_arrow")
-                attr_str = ", ".join(attrs)
-                if abs(ang) > 1e-6:
-                    lines.append(
-                        f"    _path = draw.Path('{path_cmd}', {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
+                arrow_size = float(getattr(it, "_arrow_size", 10.0))
+                local_polys: list[list[QtCore.QPointF]] = []
+                if arrow_start and len(it._points) >= 2:
+                    local_polys.append(
+                        _arrowhead_polygon(it._points[1], it._points[0], arrow_size)
                     )
-                else:
-                    lines.append(f"    _path = draw.Path('{path_cmd}', {attr_str})")
-                lines.append("    d.append(_arrow)")
-                lines.append("    d.append(_path)")
-                lines.append("")
-            else:
-                attr_str = (
-                    f"stroke='{pen.color().name()}', "
-                    f"stroke_width={pen.widthF():.2f}, "
-                    "fill='none'"
-                )
-                if len(abs_pts) == 4:
-                    x1, y1, x2, y2 = abs_pts
-                    if abs(ang) > 1e-6:
-                        lines.append(
-                            f"    _line = draw.Line({x1:.2f}, {y1:.2f}, {x2:.2f}, {y2:.2f}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
+                if arrow_end and len(it._points) >= 2:
+                    local_polys.append(
+                        _arrowhead_polygon(
+                            it._points[-2], it._points[-1], arrow_size
                         )
-                    else:
-                        lines.append(
-                            f"    _line = draw.Line({x1:.2f}, {y1:.2f}, {x2:.2f}, {y2:.2f}, {attr_str})"
+                    )
+                color = pen.color()
+                arrow_attrs = [
+                    f"fill='{color.name()}'",
+                    f"stroke='{color.name()}'",
+                    f"stroke_width={pen.widthF():.2f}",
+                ]
+                if color.alphaF() < 1.0:
+                    arrow_attrs.append(f"fill_opacity={color.alphaF():.2f}")
+                    arrow_attrs.append(f"stroke_opacity={color.alphaF():.2f}")
+                arrow_attr_str = ", ".join(arrow_attrs)
+                for poly in local_polys:
+                    abs_poly = [
+                        QtCore.QPointF(pos.x() + p.x(), pos.y() + p.y()) for p in poly
+                    ]
+                    arrow_cmd = (
+                        "M "
+                        + " L ".join(
+                            f"{pt.x():.2f} {pt.y():.2f}" for pt in abs_poly
                         )
-                    lines.append("    d.append(_line)")
-                    lines.append("")
-                else:
-                    coord_str = ", ".join(f"{v:.2f}" for v in abs_pts)
-                    if abs(ang) > 1e-6:
-                        lines.append(
-                    f"    _line = draw.Lines({coord_str}, close=False, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
-                        )
-                    else:
-                        lines.append(
-                    f"    _line = draw.Lines({coord_str}, close=False, {attr_str})"
-                        )
-                    lines.append("    d.append(_line)")
-                    lines.append("")
+                        + " Z"
+                    )
+                    lines.append(
+                        f"    _arrow_head = draw.Path('{arrow_cmd}', {arrow_attr_str}{transform_suffix})"
+                    )
+                    lines.append("    d.append(_arrow_head)")
+            lines.append("")
 
         elif shape == "Text" and isinstance(it, QtWidgets.QGraphicsTextItem):
             br = it.boundingRect()
