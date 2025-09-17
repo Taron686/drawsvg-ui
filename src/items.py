@@ -49,6 +49,23 @@ def _cursor_for_dir_rotated(direction: str, angle_deg: float) -> QtCore.Qt.Curso
         return QtCore.Qt.CursorShape.SizeFDiagCursor if swap_hv else QtCore.Qt.CursorShape.SizeBDiagCursor
 
 
+def _has_selected_group_parent(item: QtWidgets.QGraphicsItem) -> bool:
+    parent = item.parentItem()
+    while parent is not None:
+        if (
+            isinstance(parent, QtWidgets.QGraphicsItemGroup)
+            and parent.data(0) == "Group"
+            and parent.isSelected()
+        ):
+            return True
+        parent = parent.parentItem()
+    return False
+
+
+def _should_draw_selection(item: QtWidgets.QGraphicsItem) -> bool:
+    return item.isSelected() and not _has_selected_group_parent(item)
+
+
 class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
     """Handle zum interaktiven Resizen."""
 
@@ -368,6 +385,10 @@ class ResizableItem:
         self._handles: list[ResizeHandle] = []
         self._rotation_handle: RotationHandle | None = None
 
+    def _handle_rect(self) -> QtCore.QRectF:
+        """Bezugsrechteck für die Platzierung der Handles."""
+        return self.boundingRect()
+
     def _ensure_handles(self):
         if self._handles:
             return
@@ -381,7 +402,9 @@ class ResizableItem:
 
     def update_handles(self):
         self._ensure_handles()
-        rect = self.boundingRect()
+        rect = self._handle_rect()
+        if rect.isNull():
+            rect = self.boundingRect()
         scale = self.scale() or 1.0
         o = HANDLE_OFFSET / scale
         points = [
@@ -422,7 +445,7 @@ class ResizableItem:
             if not mods & QtCore.Qt.KeyboardModifier.AltModifier:
                 value = snap_to_grid(self, value)
         elif change == QtWidgets.QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
-            if value:
+            if value and not _has_selected_group_parent(self):
                 self.show_handles()
             else:
                 self.hide_handles()
@@ -430,7 +453,7 @@ class ResizableItem:
             QtWidgets.QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged,
             QtWidgets.QGraphicsItem.GraphicsItemChange.ItemTransformHasChanged,
         ):
-            if self.isSelected():
+            if _should_draw_selection(self):
                 self.update_handles()
         return super().itemChange(change, value)  # type: ignore[misc]
 
@@ -502,7 +525,7 @@ class RectItem(ResizableItem, QtWidgets.QGraphicsRectItem):
             painter.drawRoundedRect(self.rect(), self.rx, self.ry)
         else:
             super().paint(painter, opt, widget)
-        if self.isSelected():
+        if _should_draw_selection(self):
             painter.save()
             painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
@@ -532,7 +555,7 @@ class EllipseItem(ResizableItem, QtWidgets.QGraphicsEllipseItem):
         opt = QtWidgets.QStyleOptionGraphicsItem(option)
         opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
         super().paint(painter, opt, widget)
-        if self.isSelected():
+        if _should_draw_selection(self):
             painter.save()
             painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
@@ -579,7 +602,7 @@ class TriangleItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
         opt = QtWidgets.QStyleOptionGraphicsItem(option)
         opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
         super().paint(painter, opt, widget)
-        if self.isSelected():
+        if _should_draw_selection(self):
             painter.save()
             painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
@@ -717,7 +740,7 @@ class LineItem(QtWidgets.QGraphicsPathItem):
             if not mods & QtCore.Qt.KeyboardModifier.AltModifier:
                 value = snap_to_grid(self, value)
         elif change == QtWidgets.QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
-            if value:
+            if value and not _has_selected_group_parent(self):
                 self.show_handles()
             else:
                 self.hide_handles()
@@ -725,7 +748,7 @@ class LineItem(QtWidgets.QGraphicsPathItem):
             QtWidgets.QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged,
             QtWidgets.QGraphicsItem.GraphicsItemChange.ItemTransformHasChanged,
         ):
-            if self.isSelected():
+            if _should_draw_selection(self):
                 self.update_handles()
         return super().itemChange(change, value)  # type: ignore[misc]
 
@@ -751,7 +774,7 @@ class LineItem(QtWidgets.QGraphicsPathItem):
             if self.arrow_end and len(pts) >= 2:
                 self._draw_arrow_head(painter, pts[-2], pts[-1])
             painter.restore()
-        if self.isSelected():
+        if _should_draw_selection(self):
             painter.save()
             painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
@@ -786,14 +809,14 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
         super().setPlainText(text)
         br = self.boundingRect()
         self.setTransformOriginPoint(br.width() / 2.0, br.height() / 2.0)
-        if self.isSelected():
+        if _should_draw_selection(self):
             self.update_handles()
 
     def paint(self, painter, option, widget=None):
         opt = QtWidgets.QStyleOptionGraphicsItem(option)
         opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
         super().paint(painter, opt, widget)
-        if self.isSelected():
+        if _should_draw_selection(self):
             painter.save()
             painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
@@ -827,6 +850,12 @@ class GroupItem(ResizableItem, QtWidgets.QGraphicsItemGroup):
         # Wichtig: Handles dürfen Maus-Events bekommen
         self.setHandlesChildEvents(False)
 
+    def _handle_rect(self) -> QtCore.QRectF:  # type: ignore[override]
+        tight = self._contentRect()
+        if not tight.isNull():
+            return tight
+        return QtWidgets.QGraphicsItemGroup.boundingRect(self)
+
     def _contentRect(self) -> QtCore.QRectF:
         rect = QtCore.QRectF()
         first = True
@@ -839,12 +868,15 @@ class GroupItem(ResizableItem, QtWidgets.QGraphicsItemGroup):
         return rect if not first else QtCore.QRectF()
 
     def update_handles(self):  # type: ignore[override]
-        tight = self._contentRect()
-        self.setTransformOriginPoint(tight.center() if not tight.isNull() else self.boundingRect().center())
+        rect = self._handle_rect()
+        if not rect.isNull():
+            self.setTransformOriginPoint(rect.center())
+        else:
+            self.setTransformOriginPoint(QtCore.QPointF())
         super().update_handles()
 
     def paint(self, painter, option, widget=None):
-        if self.isSelected():
+        if _should_draw_selection(self):
             painter.save()
             painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)

@@ -47,6 +47,26 @@ class CornerRadiusDialog(QtWidgets.QDialog):
         return self.slider.value()
 
 
+class TrackingScene(QtWidgets.QGraphicsScene):
+    """QGraphicsScene that keeps strong refs to added items."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._owned_items: set[QtWidgets.QGraphicsItem] = set()
+
+    def addItem(self, item: QtWidgets.QGraphicsItem) -> None:  # type: ignore[override]
+        super().addItem(item)
+        self._owned_items.add(item)
+
+    def removeItem(self, item: QtWidgets.QGraphicsItem) -> None:  # type: ignore[override]
+        super().removeItem(item)
+        self._owned_items.discard(item)
+
+    def clear(self) -> None:  # type: ignore[override]
+        super().clear()
+        self._owned_items.clear()
+
+
 class CanvasView(QtWidgets.QGraphicsView):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -62,7 +82,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             QtWidgets.QGraphicsView.ViewportUpdateMode.FullViewportUpdate
         )
 
-        scene = QtWidgets.QGraphicsScene(self)
+        scene = TrackingScene(self)
         self._scene_padding = 200
         scene.setSceneRect(
             -self._scene_padding,
