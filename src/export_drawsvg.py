@@ -3,7 +3,7 @@ from collections.abc import Iterable
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from constants import SHAPES
-from items import LineItem
+from items import LineItem, SplitRoundedRectItem
 
 
 def _format_item_attributes(
@@ -51,6 +51,30 @@ def _format_item_attributes(
         attrs.extend(extra_attrs)
 
     return ", ".join(attrs)
+
+
+def _painter_path_to_svg(path: QtGui.QPainterPath) -> str:
+    """Return a compact SVG path string for ``path``.
+
+    The conversion flattens the painter path into polygons and emits
+    ``M/L`` commands for each subpath.  Rounded corners are approximated by
+    straight segments using Qt's internal flattening tolerance which is
+    sufficient for the exported preview rendering.
+    """
+
+    segments: list[str] = []
+    for poly in path.toSubpathPolygons():
+        if not poly:
+            continue
+        commands: list[str] = []
+        points = list(poly)
+        start = points[0]
+        commands.append(f"M {start.x():.2f} {start.y():.2f}")
+        for point in points[1:]:
+            commands.append(f"L {point.x():.2f} {point.y():.2f}")
+        commands.append("Z")
+        segments.append(" ".join(commands))
+    return " ".join(segments)
 
 
 def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget | None = None):
@@ -104,6 +128,93 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     f"    _rect = draw.Rectangle({x:.2f}, {y:.2f}, {w:.2f}, {h:.2f}, {attr_str})"
                 )
             lines.append("    d.append(_rect)")
+            lines.append("")
+
+        elif shape == "Split Rounded Rectangle" and isinstance(it, SplitRoundedRectItem):
+            r = it.rect()
+            x = it.pos().x()
+            y = it.pos().y()
+            w = r.width()
+            h = r.height()
+            cx = x + w / 2.0
+            cy = y + h / 2.0
+            ang = it.rotation()
+            rx_raw = getattr(it, "rx", 0.0)
+            ry_raw = getattr(it, "ry", rx_raw)
+            extra_attrs = []
+            if rx_raw:
+                extra_attrs.append(f"rx={rx_raw:.2f}")
+            if ry_raw:
+                extra_attrs.append(f"ry={ry_raw:.2f}")
+            attr_str = _format_item_attributes(it, extra_attrs=extra_attrs)
+            ratio = it.divider_ratio()
+            top_brush = it.topBrush()
+            if top_brush.style() == QtCore.Qt.BrushStyle.NoBrush:
+                top_fill = "none"
+                top_opacity = 1.0
+            else:
+                top_color = top_brush.color()
+                top_fill = top_color.name()
+                top_opacity = top_color.alphaF()
+            lines.append(
+                f"    # SplitRoundedRect ratio={ratio:.6f} top_fill='{top_fill}' top_opacity={top_opacity:.3f}"
+            )
+            if abs(ang) > 1e-6:
+                lines.append(
+                    f"    _split_rect = draw.Rectangle({x:.2f}, {y:.2f}, {w:.2f}, {h:.2f}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
+                )
+            else:
+                lines.append(
+                    f"    _split_rect = draw.Rectangle({x:.2f}, {y:.2f}, {w:.2f}, {h:.2f}, {attr_str})"
+                )
+            lines.append("    d.append(_split_rect)")
+
+            rect_scene = QtCore.QRectF(x, y, w, h)
+            rx = max(0.0, min(rx_raw, w / 2.0, 50.0))
+            ry = max(0.0, min(ry_raw, h / 2.0, 50.0))
+            base_path = QtGui.QPainterPath()
+            if rx > 0.0 or ry > 0.0:
+                base_path.addRoundedRect(rect_scene, rx, ry)
+            else:
+                base_path.addRect(rect_scene)
+
+            line_y = y + h * ratio
+            line_y = max(y, min(y + h, line_y))
+            top_height = max(0.0, line_y - y)
+            if top_height > 0.0 and top_brush.style() != QtCore.Qt.BrushStyle.NoBrush:
+                top_clip = QtGui.QPainterPath()
+                top_clip.addRect(x, y, w, top_height)
+                top_path = base_path.intersected(top_clip)
+                path_cmd = _painter_path_to_svg(top_path)
+                if path_cmd:
+                    top_attrs = [f"fill='{top_fill}'", "stroke='none'"]
+                    if top_fill != "none" and top_opacity < 1.0:
+                        top_attrs.append(f"fill_opacity={top_opacity:.2f}")
+                    attr = ", ".join(top_attrs)
+                    if abs(ang) > 1e-6:
+                        lines.append(
+                            f"    _split_top = draw.Path('{path_cmd}', {attr}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
+                        )
+                    else:
+                        lines.append(f"    _split_top = draw.Path('{path_cmd}', {attr})")
+                    lines.append("    d.append(_split_top)")
+
+            divider_pen = getattr(it, "_divider_pen", it.pen())
+            divider_attrs = [
+                f"stroke='{divider_pen.color().name()}'",
+                f"stroke_width={divider_pen.widthF():.2f}",
+            ]
+            divider_attr = ", ".join(divider_attrs)
+            x2 = x + w
+            if abs(ang) > 1e-6:
+                lines.append(
+                    f"    _split_div = draw.Line({x:.2f}, {line_y:.2f}, {x2:.2f}, {line_y:.2f}, {divider_attr}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
+                )
+            else:
+                lines.append(
+                    f"    _split_div = draw.Line({x:.2f}, {line_y:.2f}, {x2:.2f}, {line_y:.2f}, {divider_attr})"
+                )
+            lines.append("    d.append(_split_div)")
             lines.append("")
 
         elif shape == "Ellipse" and isinstance(it, QtWidgets.QGraphicsEllipseItem):

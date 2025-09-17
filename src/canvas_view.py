@@ -6,6 +6,7 @@ from PySide6.QtGui import QTransform
 from constants import PALETTE_MIME, SHAPES, DEFAULTS
 from items import (
     RectItem,
+    SplitRoundedRectItem,
     EllipseItem,
     LineItem,
     TextItem,
@@ -279,6 +280,8 @@ class CanvasView(QtWidgets.QGraphicsView):
             item = RectItem(x, y, w, h)
         elif shape == "Rounded Rectangle":
             item = RectItem(x, y, w, h, 15.0, 15.0)
+        elif shape == "Split Rounded Rectangle":
+            item = SplitRoundedRectItem(x, y, w, h, 15.0, 15.0)
         elif shape in ("Circle", "Ellipse"):
             item = EllipseItem(x, y, w, h)
         elif shape == "Triangle":
@@ -439,6 +442,20 @@ class CanvasView(QtWidgets.QGraphicsView):
             r = item.rect()
             clone = RectItem(item.x(), item.y(), r.width(), r.height(), getattr(item, "rx", 0.0), getattr(item, "ry", 0.0))
             clone.setBrush(item.brush())
+            clone.setPen(item.pen())
+        elif isinstance(item, SplitRoundedRectItem):
+            r = item.rect()
+            clone = SplitRoundedRectItem(
+                item.x(),
+                item.y(),
+                r.width(),
+                r.height(),
+                getattr(item, "rx", 0.0),
+                getattr(item, "ry", 0.0),
+            )
+            clone.setTopBrush(item.topBrush())
+            clone.setBottomBrush(item.bottomBrush())
+            clone.set_divider_ratio(item.divider_ratio())
             clone.setPen(item.pen())
         elif isinstance(item, EllipseItem):
             r = item.rect()
@@ -818,8 +835,94 @@ class CanvasView(QtWidgets.QGraphicsView):
             )
             actions[font_size_action] = font_size_callback
 
+        def add_split_rect_fill_actions() -> None:
+            split_item: SplitRoundedRectItem = item  # type: ignore[assignment]
+
+            top_action, top_callback = self._create_color_action(
+                menu,
+                "Set top fill color…",
+                "Top fill color",
+                lambda item=split_item: item.topBrush().color(),
+                lambda color, item=split_item: item.setTopBrush(color),
+            )
+            actions[top_action] = top_callback
+
+            def top_opacity_getter(item=split_item) -> float:
+                brush = item.topBrush()
+                if brush.style() == QtCore.Qt.BrushStyle.NoBrush:
+                    return 1.0
+                return brush.color().alphaF()
+
+            def top_opacity_setter(value: float, item=split_item) -> None:
+                brush = item.topBrush()
+                color = brush.color()
+                color.setAlphaF(value)
+                item.setTopBrush(color)
+
+            top_opacity_action = menu.addAction("Set top fill opacity…")
+
+            def top_opacity_callback(item=split_item) -> None:
+                initial_opacity = top_opacity_getter()
+                dialog = OpacityDialog(initial_opacity, self)
+
+                def handle_value_changed(value: float, item=item) -> None:
+                    top_opacity_setter(value, item)
+
+                dialog.valueChanged.connect(handle_value_changed)
+                result = dialog.exec()
+                if result == QtWidgets.QDialog.DialogCode.Accepted:
+                    top_opacity_setter(dialog.value(), item)
+                else:
+                    top_opacity_setter(initial_opacity, item)
+
+            actions[top_opacity_action] = top_opacity_callback
+
+            bottom_action, bottom_callback = self._create_color_action(
+                menu,
+                "Set bottom fill color…",
+                "Bottom fill color",
+                lambda item=split_item: item.bottomBrush().color(),
+                lambda color, item=split_item: item.setBottomBrush(color),
+            )
+            actions[bottom_action] = bottom_callback
+
+            def bottom_opacity_getter(item=split_item) -> float:
+                brush = item.bottomBrush()
+                if brush.style() == QtCore.Qt.BrushStyle.NoBrush:
+                    return 1.0
+                return brush.color().alphaF()
+
+            def bottom_opacity_setter(value: float, item=split_item) -> None:
+                brush = item.bottomBrush()
+                color = brush.color()
+                color.setAlphaF(value)
+                item.setBottomBrush(color)
+
+            bottom_opacity_action = menu.addAction("Set bottom fill opacity…")
+
+            def bottom_opacity_callback(item=split_item) -> None:
+                initial_opacity = bottom_opacity_getter()
+                dialog = OpacityDialog(initial_opacity, self)
+
+                def handle_value_changed(value: float, item=item) -> None:
+                    bottom_opacity_setter(value, item)
+
+                dialog.valueChanged.connect(handle_value_changed)
+                result = dialog.exec()
+                if result == QtWidgets.QDialog.DialogCode.Accepted:
+                    bottom_opacity_setter(dialog.value(), item)
+                else:
+                    bottom_opacity_setter(initial_opacity, item)
+
+            actions[bottom_opacity_action] = bottom_opacity_callback
+
         if isinstance(item, RectItem):
             add_fill_actions()
+            add_corner_action()
+            menu.addSeparator()
+            add_stroke_actions()
+        elif isinstance(item, SplitRoundedRectItem):
+            add_split_rect_fill_actions()
             add_corner_action()
             menu.addSeparator()
             add_stroke_actions()

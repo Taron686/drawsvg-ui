@@ -4,6 +4,7 @@ PALETTE_MIME = "application/x-drawsvg-shape"
 SHAPES = (
     "Rectangle",
     "Rounded Rectangle",
+    "Split Rounded Rectangle",
     "Ellipse",
     "Circle",
     "Triangle",
@@ -15,6 +16,7 @@ SHAPES = (
 DEFAULTS = {
     "Rectangle": (160.0, 100.0),   # w, h
     "Rounded Rectangle": (160.0, 100.0),   # w, h
+    "Split Rounded Rectangle": (180.0, 120.0),   # w, h
     "Ellipse":   (160.0, 100.0),   # w, h
     "Circle":    (100.0, 100.0),   # diameter, diameter
     "Triangle":  (160.0, 100.0),   # w, h
