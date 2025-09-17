@@ -1,7 +1,56 @@
+from collections.abc import Iterable
+
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from constants import SHAPES
 from items import LineItem
+
+
+def _format_item_attributes(
+    item: QtWidgets.QGraphicsItem,
+    *,
+    include_fill: bool = True,
+    extra_attrs: Iterable[str] | None = None,
+) -> str:
+    """Return a drawsvg-compatible attribute string for ``item``.
+
+    Parameters
+    ----------
+    item:
+        The graphics item whose pen/brush information should be exported.
+    include_fill:
+        Whether fill information should be included (set to ``False`` for
+        stroke-only shapes).
+    extra_attrs:
+        Optional iterable of additional attributes that should be appended to
+        the generated string (e.g., rounded corner radii).
+    """
+
+    attrs: list[str] = []
+
+    if include_fill:
+        brush_getter = getattr(item, "brush", None)
+        if callable(brush_getter):
+            brush = brush_getter()
+            if brush.style() == QtCore.Qt.BrushStyle.NoBrush:
+                attrs.append("fill='none'")
+            else:
+                color = brush.color()
+                attrs.append(f"fill='{color.name()}'")
+                attrs.append(f"fill_opacity={color.alphaF():.2f}")
+        else:
+            attrs.append("fill='none'")
+
+    pen_getter = getattr(item, "pen", None)
+    if callable(pen_getter):
+        pen = pen_getter()
+        attrs.append(f"stroke='{pen.color().name()}'")
+        attrs.append(f"stroke_width={pen.widthF():.2f}")
+
+    if extra_attrs:
+        attrs.extend(extra_attrs)
+
+    return ", ".join(attrs)
 
 
 def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget | None = None):
@@ -36,24 +85,14 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             cx = x + w / 2.0
             cy = y + h / 2.0
             ang = it.rotation()
-            brush = it.brush()
-            pen = it.pen()
-            attrs = []
-            if brush.style() == QtCore.Qt.BrushStyle.NoBrush:
-                attrs.append("fill='none'")
-            else:
-                bcol = brush.color()
-                attrs.append(f"fill='{bcol.name()}'")
-                attrs.append(f"fill_opacity={bcol.alphaF():.2f}")
-            attrs.append(f"stroke='{pen.color().name()}'")
-            attrs.append(f"stroke_width={pen.widthF():.2f}")
             rx = getattr(it, "rx", 0)
             ry = getattr(it, "ry", 0)
+            extra_attrs = []
             if rx:
-                attrs.append(f"rx={rx:.2f}")
+                extra_attrs.append(f"rx={rx:.2f}")
             if ry:
-                attrs.append(f"ry={ry:.2f}")
-            attr_str = ", ".join(attrs)
+                extra_attrs.append(f"ry={ry:.2f}")
+            attr_str = _format_item_attributes(it, extra_attrs=extra_attrs)
             if abs(ang) > 1e-6:
                 lines.append(
                     f"    _rect = draw.Rectangle({x:.2f}, {y:.2f}, {w:.2f}, {h:.2f}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
@@ -76,18 +115,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             rx = w / 2.0
             ry = h / 2.0
             ang = it.rotation()
-            brush = it.brush()
-            pen = it.pen()
-            attrs = []
-            if brush.style() == QtCore.Qt.BrushStyle.NoBrush:
-                attrs.append("fill='none'")
-            else:
-                bcol = brush.color()
-                attrs.append(f"fill='{bcol.name()}'")
-                attrs.append(f"fill_opacity={bcol.alphaF():.2f}")
-            attrs.append(f"stroke='{pen.color().name()}'")
-            attrs.append(f"stroke_width={pen.widthF():.2f}")
-            attr_str = ", ".join(attrs)
+            attr_str = _format_item_attributes(it)
             if abs(ang) > 1e-6:
                 lines.append(
                     f"    _ell = draw.Ellipse({cx:.2f}, {cy:.2f}, {rx:.2f}, {ry:.2f}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
@@ -110,18 +138,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             cx = x + w / 2.0
             cy = y + h / 2.0
             ang = it.rotation()
-            brush = it.brush()
-            pen = it.pen()
-            attrs = []
-            if brush.style() == QtCore.Qt.BrushStyle.NoBrush:
-                attrs.append("fill='none'")
-            else:
-                bcol = brush.color()
-                attrs.append(f"fill='{bcol.name()}'")
-                attrs.append(f"fill_opacity={bcol.alphaF():.2f}")
-            attrs.append(f"stroke='{pen.color().name()}'")
-            attrs.append(f"stroke_width={pen.widthF():.2f}")
-            attr_str = ", ".join(attrs)
+            attr_str = _format_item_attributes(it)
             if abs(ang) > 1e-6:
                 lines.append(
                     f"    _circ = draw.Circle({cx:.2f}, {cy:.2f}, {radius:.2f}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
@@ -144,18 +161,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             cx = x + br.width() / 2.0
             cy = y + br.height() / 2.0
             ang = it.rotation()
-            brush = it.brush()
-            pen = it.pen()
-            attrs = []
-            if brush.style() == QtCore.Qt.BrushStyle.NoBrush:
-                attrs.append("fill='none'")
-            else:
-                bcol = brush.color()
-                attrs.append(f"fill='{bcol.name()}'")
-                attrs.append(f"fill_opacity={bcol.alphaF():.2f}")
-            attrs.append(f"stroke='{pen.color().name()}'")
-            attrs.append(f"stroke_width={pen.widthF():.2f}")
-            attr_str = ", ".join(attrs)
+            attr_str = _format_item_attributes(it)
             coord_str = ", ".join(f"{v:.2f}" for v in pts)
             if abs(ang) > 1e-6:
                 lines.append(
