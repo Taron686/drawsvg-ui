@@ -66,6 +66,36 @@ def _should_draw_selection(item: QtWidgets.QGraphicsItem) -> bool:
     return item.isSelected() and not _has_selected_group_parent(item)
 
 
+class HandleAwareItemMixin:
+    """Shared ``itemChange`` implementation for items with interactive handles."""
+
+    def _snap_position_value(self, value):
+        if isinstance(value, QtCore.QPointF):
+            mods = QtWidgets.QApplication.keyboardModifiers()
+            if not mods & QtCore.Qt.KeyboardModifier.AltModifier:
+                return snap_to_grid(self, value)
+        return value
+
+    def _handle_selection_changed(self, selected: bool) -> None:
+        if selected and not _has_selected_group_parent(self):
+            self.show_handles()
+        else:
+            self.hide_handles()
+
+    def itemChange(self, change, value):  # type: ignore[override]
+        if change == QtWidgets.QGraphicsItem.GraphicsItemChange.ItemPositionChange:
+            value = self._snap_position_value(value)
+        elif change == QtWidgets.QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
+            self._handle_selection_changed(bool(value))
+        elif change in (
+            QtWidgets.QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged,
+            QtWidgets.QGraphicsItem.GraphicsItemChange.ItemTransformHasChanged,
+        ):
+            if _should_draw_selection(self):
+                self.update_handles()
+        return super().itemChange(change, value)  # type: ignore[misc]
+
+
 class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
     """Handle zum interaktiven Resizen."""
 
@@ -378,7 +408,7 @@ class RotationHandle(QtWidgets.QGraphicsPixmapItem):
             self._angle_label_bg.setRect(rect)
 
 
-class ResizableItem:
+class ResizableItem(HandleAwareItemMixin):
     """Mixin mit 8 Resize-Handles + Rotation-Handle."""
 
     def __init__(self):
@@ -438,25 +468,6 @@ class ResizableItem:
             h.hide()
         if self._rotation_handle:
             self._rotation_handle.hide()
-
-    def itemChange(self, change, value):  # type: ignore[override]
-        if change == QtWidgets.QGraphicsItem.GraphicsItemChange.ItemPositionChange:
-            mods = QtWidgets.QApplication.keyboardModifiers()
-            if not mods & QtCore.Qt.KeyboardModifier.AltModifier:
-                value = snap_to_grid(self, value)
-        elif change == QtWidgets.QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
-            if value and not _has_selected_group_parent(self):
-                self.show_handles()
-            else:
-                self.hide_handles()
-        elif change in (
-            QtWidgets.QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged,
-            QtWidgets.QGraphicsItem.GraphicsItemChange.ItemTransformHasChanged,
-        ):
-            if _should_draw_selection(self):
-                self.update_handles()
-        return super().itemChange(change, value)  # type: ignore[misc]
-
 
 class LineHandle(QtWidgets.QGraphicsEllipseItem):
     """Handle für Polyline-Punkte und Midpoints."""
@@ -611,7 +622,7 @@ class TriangleItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
             painter.restore()
 
 
-class LineItem(QtWidgets.QGraphicsPathItem):
+class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
     def __init__(
         self,
         x: float,
@@ -733,24 +744,6 @@ class LineItem(QtWidgets.QGraphicsPathItem):
     def hide_handles(self) -> None:
         for h in self._handles + self._mid_handles:
             h.hide()
-
-    def itemChange(self, change, value):  # type: ignore[override]
-        if change == QtWidgets.QGraphicsItem.GraphicsItemChange.ItemPositionChange:
-            mods = QtWidgets.QApplication.keyboardModifiers()
-            if not mods & QtCore.Qt.KeyboardModifier.AltModifier:
-                value = snap_to_grid(self, value)
-        elif change == QtWidgets.QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
-            if value and not _has_selected_group_parent(self):
-                self.show_handles()
-            else:
-                self.hide_handles()
-        elif change in (
-            QtWidgets.QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged,
-            QtWidgets.QGraphicsItem.GraphicsItemChange.ItemTransformHasChanged,
-        ):
-            if _should_draw_selection(self):
-                self.update_handles()
-        return super().itemChange(change, value)  # type: ignore[misc]
 
     def _draw_arrow_head(self, painter: QtGui.QPainter, start: QtCore.QPointF, end: QtCore.QPointF) -> None:
         line = QtCore.QLineF(start, end)
