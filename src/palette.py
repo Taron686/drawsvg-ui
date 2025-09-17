@@ -62,6 +62,13 @@ def _build_shape_icon(name: str, size: QtCore.QSize) -> QtGui.QPixmap:
         if dims and dims[1]:
             draw_rect = _fit_rect_to_ratio(rect, dims[0] / dims[1])
         painter.drawRect(draw_rect)
+    elif lower_name == "rounded rectangle":
+        dims = DEFAULTS.get(name)
+        draw_rect = rect
+        if dims and dims[1]:
+            draw_rect = _fit_rect_to_ratio(rect, dims[0] / dims[1])
+        radius = 15.0 * device_pixel_ratio
+        painter.drawRoundedRect(draw_rect, radius, radius)
     elif lower_name == "ellipse":
         dims = DEFAULTS.get(name)
         ellipse_rect = rect

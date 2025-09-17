@@ -277,6 +277,8 @@ class CanvasView(QtWidgets.QGraphicsView):
 
         if shape == "Rectangle":
             item = RectItem(x, y, w, h)
+        elif shape == "Rounded Rectangle":
+            item = RectItem(x, y, w, h, 15.0, 15.0)
         elif shape in ("Circle", "Ellipse"):
             item = EllipseItem(x, y, w, h)
         elif shape == "Triangle":
