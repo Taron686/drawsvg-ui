@@ -7,7 +7,14 @@ from typing import Any
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from items import RectItem, EllipseItem, LineItem, TextItem, TriangleItem
+from items import (
+    RectItem,
+    EllipseItem,
+    LineItem,
+    SplitRoundedRectItem,
+    TextItem,
+    TriangleItem,
+)
 
 
 _ROT_RE = re.compile(r"rotate\(([-0-9.]+)\s+([-0-9.]+)\s+([-0-9.]+)\)")
@@ -77,8 +84,25 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
         with open(path, "r", encoding="utf-8") as f:
             lines = f.readlines()
         scene.clear()
+        pending_split: dict[str, Any] | None = None
         for raw in lines:
             line = raw.strip()
+            if not line:
+                pending_split = None
+                continue
+            if line.startswith("#"):
+                if line.startswith("# SplitRoundedRect"):
+                    info: dict[str, Any] = {}
+                    for part in line.split()[2:]:
+                        if "=" not in part:
+                            continue
+                        key, value = part.split("=", 1)
+                        value = value.rstrip(",")
+                        if value.startswith("'") and value.endswith("'"):
+                            value = value[1:-1]
+                        info[key] = value
+                    pending_split = info
+                continue
             if line.startswith("d = draw.Drawing("):
                 args, kwargs = _parse_call(line)
                 if len(args) >= 2:
@@ -86,6 +110,41 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     if "origin" in kwargs and isinstance(kwargs["origin"], (tuple, list)):
                         ox, oy = map(float, kwargs["origin"][:2])
                     scene.setSceneRect(float(ox), float(oy), float(args[0]), float(args[1]))
+            elif line.startswith("_split_rect = draw.Rectangle("):
+                args, kwargs = _parse_call(line)
+                x, y, w, h = map(float, args[:4])
+                rx = min(float(kwargs.get("rx", 0.0)), 50.0)
+                ry = min(float(kwargs.get("ry", rx)), 50.0)
+                if "rx" in kwargs and "ry" not in kwargs:
+                    ry = rx
+                if "ry" in kwargs and "rx" not in kwargs:
+                    rx = ry
+                item = SplitRoundedRectItem(x, y, w, h, rx, ry)
+                _apply_style(item, kwargs)
+                if pending_split is not None:
+                    ratio_val = pending_split.get("ratio")
+                    if ratio_val is not None:
+                        try:
+                            item.set_divider_ratio(float(ratio_val))
+                        except (TypeError, ValueError):
+                            pass
+                    top_fill = pending_split.get("top_fill")
+                    if top_fill == "none":
+                        item.setTopBrush(QtGui.QBrush(QtCore.Qt.BrushStyle.NoBrush))
+                    elif top_fill:
+                        color = QtGui.QColor(str(top_fill))
+                        opacity = pending_split.get("top_opacity")
+                        if opacity is not None:
+                            try:
+                                color.setAlphaF(float(opacity))
+                            except (TypeError, ValueError):
+                                pass
+                        item.setTopBrush(color)
+                if "transform" in kwargs:
+                    item.setRotation(_parse_rotate(kwargs["transform"]))
+                item.setData(0, "Split Rounded Rectangle")
+                scene.addItem(item)
+                pending_split = None
             elif line.startswith("_rect = draw.Rectangle("):
                 args, kwargs = _parse_call(line)
                 x, y, w, h = map(float, args[:4])
