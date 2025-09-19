@@ -1,3 +1,4 @@
+import math
 from typing import Callable
 
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -142,6 +143,7 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
         margin_mm: float = 12.0,
         grid_px: int = 50,
         subgrid_px: int = 10,
+        index: tuple[int, int] = (0, 0),
     ):
         super().__init__(0.0, 0.0, width, height)
         self.setBrush(QtGui.QBrush(QtCore.Qt.GlobalColor.white))
@@ -161,6 +163,7 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
         self._grid_visible = True
         self._grid_px = max(1, grid_px)
         self._subgrid_px = max(1, subgrid_px)
+        self.index: tuple[int, int] = index
 
     def set_grid_spacing(self, grid_px: int, subgrid_px: int) -> None:
         self._grid_px = max(1, grid_px)
@@ -253,9 +256,12 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._grid_size = 50
         self._grid_size_min = 10
         self._show_grid = True
-        self._pages: list[A4PageItem] = []
-        self._page_item = self._create_page_item()
-        self._pages.append(self._page_item)
+        self._page_width = mm_to_px(A4_WIDTH_MM, SCREEN_DPI)
+        self._page_height = mm_to_px(A4_HEIGHT_MM, SCREEN_DPI)
+        self._master_index: tuple[int, int] = (0, 0)
+        self._pages: dict[tuple[int, int], A4PageItem] = {}
+        self._page_item = self._create_page_item(self._master_index)
+        self._pages[self._master_index] = self._page_item
         scene.addItem(self._page_item)
         QtCore.QTimer.singleShot(0, self._fit_view_to_page)
         self._update_scene_rect()
@@ -266,60 +272,107 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._right_button_pressed = False
         self._suppress_context_menu = False
 
-    def _create_page_item(
-        self, center: QtCore.QPointF | None = None
-    ) -> A4PageItem:
-        page_w = mm_to_px(A4_WIDTH_MM, SCREEN_DPI)
-        page_h = mm_to_px(A4_HEIGHT_MM, SCREEN_DPI)
+    def _page_top_left_for_index(self, index: tuple[int, int]) -> QtCore.QPointF:
+        row, col = index
+        base_x = -self._page_width / 2.0
+        base_y = -self._page_height / 2.0
+        return QtCore.QPointF(
+            base_x + col * self._page_width,
+            base_y + row * self._page_height,
+        )
+
+    def _page_index_for_point(self, point: QtCore.QPointF) -> tuple[int, int]:
+        base_x = -self._page_width / 2.0
+        base_y = -self._page_height / 2.0
+        col = math.floor((point.x() - base_x) / self._page_width)
+        row = math.floor((point.y() - base_y) / self._page_height)
+        return (row, col)
+
+    def _create_page_item(self, index: tuple[int, int]) -> A4PageItem:
         page = A4PageItem(
-            page_w,
-            page_h,
+            self._page_width,
+            self._page_height,
             margin_mm=12.0,
             grid_px=self._grid_size,
             subgrid_px=self._grid_size_min,
+            index=index,
         )
-        if center is None:
-            center = QtCore.QPointF(0.0, 0.0)
-        page.setPos(center.x() - page_w / 2.0, center.y() - page_h / 2.0)
+        top_left = self._page_top_left_for_index(index)
+        page.setPos(top_left)
         page.set_grid_visible(self._show_grid)
         return page
 
-    def _add_page(self, center: QtCore.QPointF) -> A4PageItem:
-        page = self._create_page_item(center)
+    def _add_page(self, index: tuple[int, int]) -> A4PageItem:
+        existing = self._pages.get(index)
+        if existing is not None:
+            return existing
+        page = self._create_page_item(index)
         self.scene().addItem(page)
-        self._pages.append(page)
+        self._pages[index] = page
         return page
 
     def _ensure_page_for_item(
         self, item: QtWidgets.QGraphicsItem, drop_reference: QtCore.QPointF | None
     ) -> A4PageItem:
         rect = item.sceneBoundingRect()
-        for page in self._pages:
+        for page in self._pages.values():
             page_rect = page.mapRectToScene(page.rect())
             if page_rect.contains(rect):
                 return page
 
-        center = drop_reference if drop_reference is not None else rect.center()
-        page = self._add_page(center)
-        page_rect = page.mapRectToScene(page.rect())
-        if not page_rect.contains(rect):
-            rect_center = rect.center()
-            page.setPos(
-                rect_center.x() - page.rect().width() / 2.0,
-                rect_center.y() - page.rect().height() / 2.0,
-            )
+        reference = drop_reference if drop_reference is not None else rect.center()
+        index = self._page_index_for_point(reference)
+        page = self._add_page(index)
+        if not page.mapRectToScene(page.rect()).contains(rect):
+            center_index = self._page_index_for_point(rect.center())
+            page = self._add_page(center_index)
+        self._prune_empty_pages()
         self._update_scene_rect()
         return page
+
+    def _collect_canvas_content_items(self) -> list[QtWidgets.QGraphicsItem]:
+        scene = self.scene()
+        if scene is None:
+            return []
+        items: list[QtWidgets.QGraphicsItem] = []
+        for item in scene.items():
+            if isinstance(item, A4PageItem):
+                continue
+            if item.__class__.__name__.endswith("Handle"):
+                continue
+            items.append(item)
+        return items
+
+    def _prune_empty_pages(self) -> bool:
+        scene = self.scene()
+        if scene is None:
+            return False
+        content_items = self._collect_canvas_content_items()
+        removed = False
+        for index, page in list(self._pages.items()):
+            if index == self._master_index:
+                continue
+            page_rect = page.mapRectToScene(page.rect())
+            has_item = any(
+                item.sceneBoundingRect().intersects(page_rect)
+                for item in content_items
+                if item.scene() is scene
+            )
+            if not has_item:
+                self._pages.pop(index, None)
+                scene.removeItem(page)
+                removed = True
+        return removed
 
     def _ensure_pages_for_items(
         self, items: list[QtWidgets.QGraphicsItem]
     ) -> None:
         for item in items:
-            if item in self._pages:
+            if isinstance(item, A4PageItem):
+                continue
+            if item.__class__.__name__.endswith("Handle"):
                 continue
             if item.parentItem() is not None:
-                continue
-            if isinstance(item, (ResizeHandle, RotationHandle)):
                 continue
             self._ensure_page_for_item(item, item.sceneBoundingRect().center())
 
@@ -336,9 +389,14 @@ class CanvasView(QtWidgets.QGraphicsView):
         """Remove all items from the scene."""
         scene = self.scene()
         for item in list(scene.items()):
-            if item in self._pages or item.parentItem() is not None:
+            if isinstance(item, A4PageItem):
+                continue
+            if item.__class__.__name__.endswith("Handle"):
+                continue
+            if item.parentItem() is not None:
                 continue
             scene.removeItem(item)
+        self._prune_empty_pages()
         self._update_scene_rect()
 
     def drawBackground(self, painter: QtGui.QPainter, rect: QtCore.QRectF):
@@ -346,7 +404,7 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     def set_grid_visible(self, visible: bool):
         self._show_grid = visible
-        for page in self._pages:
+        for page in self._pages.values():
             page.set_grid_visible(visible)
         self.viewport().update()
 
@@ -750,6 +808,7 @@ class CanvasView(QtWidgets.QGraphicsView):
                 changed = True
         if changed:
             self.scene().clearSelection()
+            self._prune_empty_pages()
             self._update_scene_rect()
 
     # --- Keyboard shortcut to delete selected items ---
@@ -759,6 +818,8 @@ class CanvasView(QtWidgets.QGraphicsView):
             if selected:
                 for it in selected:
                     self.scene().removeItem(it)
+                self._prune_empty_pages()
+                self._update_scene_rect()
                 event.accept()
                 return
         mods = event.modifiers()
