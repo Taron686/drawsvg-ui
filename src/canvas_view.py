@@ -144,6 +144,7 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
         grid_px: int = 50,
         subgrid_px: int = 10,
         index: tuple[int, int] = (0, 0),
+        master_origin: QtCore.QPointF = QtCore.QPointF(),
     ):
         super().__init__(0.0, 0.0, width, height)
         self.setBrush(QtGui.QBrush(QtCore.Qt.GlobalColor.white))
@@ -158,6 +159,8 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
         self._grid_px = max(1, grid_px)
         self._subgrid_px = max(1, subgrid_px)
         self.index: tuple[int, int] = index
+        self._master_origin = QtCore.QPointF(master_origin)
+        self._transition_edges: set[str] = set()
 
     def set_grid_spacing(self, grid_px: int, subgrid_px: int) -> None:
         self._grid_px = max(1, grid_px)
@@ -166,6 +169,18 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
 
     def set_grid_visible(self, visible: bool) -> None:
         self._grid_visible = visible
+        self.update()
+
+    def set_master_origin(self, origin: QtCore.QPointF) -> None:
+        if self._master_origin == origin:
+            return
+        self._master_origin = QtCore.QPointF(origin)
+        self.update()
+
+    def set_transition_edges(self, edges: set[str]) -> None:
+        if self._transition_edges == edges:
+            return
+        self._transition_edges = set(edges)
         self.update()
 
     def paint(
@@ -183,40 +198,96 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
         page_rect = self.rect()
         painter.setClipRect(page_rect)
 
+        origin_scene = self.scenePos()
+        master_origin = self._master_origin
+
+        def _first_position(
+            spacing: float,
+            orientation: str,
+        ) -> float:
+            if spacing <= 0:
+                return 0.0
+            if orientation == "vertical":
+                start = page_rect.left()
+                offset = (origin_scene.x() - master_origin.x()) % spacing
+            else:
+                start = page_rect.top()
+                offset = (origin_scene.y() - master_origin.y()) % spacing
+            if math.isclose(offset, spacing, abs_tol=1e-6) or math.isclose(offset, 0.0, abs_tol=1e-6):
+                offset = 0.0
+            return start + (spacing - offset) % spacing
+
+        def _draw_lines(spacing: float, orientation: str, skip_main: bool) -> None:
+            if spacing <= 0:
+                return
+            if orientation == "vertical":
+                start = page_rect.left()
+                end = page_rect.right()
+                origin_value = origin_scene.x()
+                first = _first_position(spacing, orientation)
+                pos = first
+                while pos <= end + 0.5:
+                    if skip_main:
+                        scene_value = origin_value + (pos - start)
+                        distance = scene_value - master_origin.x()
+                        nearest = round(distance / self._grid_px) * self._grid_px
+                        if math.isclose(distance, nearest, abs_tol=0.3):
+                            pos += spacing
+                            continue
+                    painter.drawLine(pos, page_rect.top(), pos, page_rect.bottom())
+                    pos += spacing
+            else:
+                start = page_rect.top()
+                end = page_rect.bottom()
+                origin_value = origin_scene.y()
+                first = _first_position(spacing, orientation)
+                pos = first
+                while pos <= end + 0.5:
+                    if skip_main:
+                        scene_value = origin_value + (pos - start)
+                        distance = scene_value - master_origin.y()
+                        nearest = round(distance / self._grid_px) * self._grid_px
+                        if math.isclose(distance, nearest, abs_tol=0.3):
+                            pos += spacing
+                            continue
+                    painter.drawLine(page_rect.left(), pos, page_rect.right(), pos)
+                    pos += spacing
+
         subgrid_pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 30))
         subgrid_pen.setWidthF(0)
         painter.setPen(subgrid_pen)
 
-        left = int(page_rect.left())
-        top = int(page_rect.top())
-        right = int(page_rect.right())
-        bottom = int(page_rect.bottom())
-
-        x = left - (left % self._subgrid_px)
-        while x <= right:
-            if x % self._grid_px != 0:
-                painter.drawLine(x, top, x, bottom)
-            x += self._subgrid_px
-
-        y = top - (top % self._subgrid_px)
-        while y <= bottom:
-            if y % self._grid_px != 0:
-                painter.drawLine(left, y, right, y)
-            y += self._subgrid_px
+        _draw_lines(self._subgrid_px, "vertical", True)
+        _draw_lines(self._subgrid_px, "horizontal", True)
 
         grid_pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 80))
         grid_pen.setWidthF(0)
         painter.setPen(grid_pen)
 
-        x = left - (left % self._grid_px)
-        while x <= right:
-            painter.drawLine(x, top, x, bottom)
-            x += self._grid_px
+        _draw_lines(self._grid_px, "vertical", False)
+        _draw_lines(self._grid_px, "horizontal", False)
 
-        y = top - (top % self._grid_px)
-        while y <= bottom:
-            painter.drawLine(left, y, right, y)
-            y += self._grid_px
+        if self._transition_edges:
+            transition_pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 120))
+            transition_pen.setStyle(QtCore.Qt.PenStyle.DashLine)
+            transition_pen.setWidthF(0)
+            painter.setPen(transition_pen)
+            if "left" in self._transition_edges:
+                painter.drawLine(
+                    page_rect.left(), page_rect.top(), page_rect.left(), page_rect.bottom()
+                )
+            if "right" in self._transition_edges:
+                painter.drawLine(
+                    page_rect.right(), page_rect.top(), page_rect.right(), page_rect.bottom()
+                )
+            if "top" in self._transition_edges:
+                painter.drawLine(
+                    page_rect.left(), page_rect.top(), page_rect.right(), page_rect.top()
+                )
+            if "bottom" in self._transition_edges:
+                painter.drawLine(
+                    page_rect.left(), page_rect.bottom(), page_rect.right(), page_rect.bottom()
+                )
 
         painter.restore()
 
@@ -254,9 +325,11 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._page_height = mm_to_px(A4_HEIGHT_MM, SCREEN_DPI)
         self._master_index: tuple[int, int] = (0, 0)
         self._pages: dict[tuple[int, int], A4PageItem] = {}
+        self._master_origin = self._page_top_left_for_index(self._master_index)
         self._page_item = self._create_page_item(self._master_index)
         self._pages[self._master_index] = self._page_item
         scene.addItem(self._page_item)
+        self._update_transition_edges()
         QtCore.QTimer.singleShot(0, self._fit_view_to_page)
         self._update_scene_rect()
 
@@ -290,6 +363,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             grid_px=self._grid_size,
             subgrid_px=self._grid_size_min,
             index=index,
+            master_origin=self._master_origin,
         )
         top_left = self._page_top_left_for_index(index)
         page.setPos(top_left)
@@ -299,11 +373,40 @@ class CanvasView(QtWidgets.QGraphicsView):
     def _add_page(self, index: tuple[int, int]) -> A4PageItem:
         existing = self._pages.get(index)
         if existing is not None:
+            existing.set_master_origin(self._master_origin)
             return existing
         page = self._create_page_item(index)
         self.scene().addItem(page)
         self._pages[index] = page
+        self._update_transition_edges()
         return page
+
+    def _update_transition_edges(self) -> None:
+        master_page = self._pages.get(self._master_index)
+        if master_page is None:
+            return
+        master_edges: set[str] = set()
+        master_row, master_col = self._master_index
+        for (row, col), page in self._pages.items():
+            if (row, col) == self._master_index:
+                continue
+            edges: set[str] = set()
+            if row == master_row:
+                if col == master_col + 1:
+                    edges.add("left")
+                    master_edges.add("right")
+                elif col == master_col - 1:
+                    edges.add("right")
+                    master_edges.add("left")
+            if col == master_col:
+                if row == master_row + 1:
+                    edges.add("top")
+                    master_edges.add("bottom")
+                elif row == master_row - 1:
+                    edges.add("bottom")
+                    master_edges.add("top")
+            page.set_transition_edges(edges)
+        master_page.set_transition_edges(master_edges)
 
     def _ensure_page_for_item(
         self, item: QtWidgets.QGraphicsItem, drop_reference: QtCore.QPointF | None
@@ -360,6 +463,8 @@ class CanvasView(QtWidgets.QGraphicsView):
                 self._pages.pop(index, None)
                 scene.removeItem(page)
                 removed = True
+        if removed:
+            self._update_transition_edges()
         return removed
 
     def _ensure_pages_for_items(
