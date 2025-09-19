@@ -4,6 +4,14 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtGui import QTransform
 
 from constants import PALETTE_MIME, SHAPES, DEFAULTS
+
+A4_WIDTH_MM = 210
+A4_HEIGHT_MM = 297
+SCREEN_DPI = 96  # Typical desktop DPI
+
+
+def mm_to_px(mm: float, dpi: float = SCREEN_DPI) -> float:
+    return mm / 25.4 * dpi
 from items import (
     RectItem,
     SplitRoundedRectItem,
@@ -123,6 +131,108 @@ class TrackingScene(QtWidgets.QGraphicsScene):
         self._owned_items.clear()
 
 
+class A4PageItem(QtWidgets.QGraphicsRectItem):
+    """QGraphicsRectItem representing a single A4 page with a grid."""
+
+    def __init__(
+        self,
+        width: float,
+        height: float,
+        *,
+        margin_mm: float = 12.0,
+        grid_px: int = 50,
+        subgrid_px: int = 10,
+    ):
+        super().__init__(0.0, 0.0, width, height)
+        self.setBrush(QtGui.QBrush(QtCore.Qt.GlobalColor.white))
+        self.setPen(QtGui.QPen(QtGui.QColor("#c8c8c8")))
+        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+        self.setZValue(-100)
+
+        effect = QtWidgets.QGraphicsDropShadowEffect()
+        effect.setOffset(0, 4)
+        effect.setBlurRadius(20)
+        effect.setColor(QtGui.QColor(0, 0, 0, 60))
+        self.setGraphicsEffect(effect)
+
+        margin_px = mm_to_px(margin_mm)
+        self._margins = QtCore.QMarginsF(margin_px, margin_px, margin_px, margin_px)
+        self._grid_visible = True
+        self._grid_px = max(1, grid_px)
+        self._subgrid_px = max(1, subgrid_px)
+
+    def set_grid_spacing(self, grid_px: int, subgrid_px: int) -> None:
+        self._grid_px = max(1, grid_px)
+        self._subgrid_px = max(1, subgrid_px)
+        self.update()
+
+    def set_grid_visible(self, visible: bool) -> None:
+        self._grid_visible = visible
+        self.update()
+
+    def paint(
+        self,
+        painter: QtGui.QPainter,
+        option: QtWidgets.QStyleOptionGraphicsItem,
+        widget=None,
+    ) -> None:
+        super().paint(painter, option, widget)
+
+        if not self._grid_visible:
+            return
+
+        painter.save()
+        page_rect = self.rect()
+        painter.setClipRect(page_rect)
+
+        subgrid_pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 30))
+        subgrid_pen.setWidthF(0)
+        painter.setPen(subgrid_pen)
+
+        left = int(page_rect.left())
+        top = int(page_rect.top())
+        right = int(page_rect.right())
+        bottom = int(page_rect.bottom())
+
+        x = left - (left % self._subgrid_px)
+        while x <= right:
+            if x % self._grid_px != 0:
+                painter.drawLine(x, top, x, bottom)
+            x += self._subgrid_px
+
+        y = top - (top % self._subgrid_px)
+        while y <= bottom:
+            if y % self._grid_px != 0:
+                painter.drawLine(left, y, right, y)
+            y += self._subgrid_px
+
+        grid_pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 80))
+        grid_pen.setWidthF(0)
+        painter.setPen(grid_pen)
+
+        x = left - (left % self._grid_px)
+        while x <= right:
+            painter.drawLine(x, top, x, bottom)
+            x += self._grid_px
+
+        y = top - (top % self._grid_px)
+        while y <= bottom:
+            painter.drawLine(left, y, right, y)
+            y += self._grid_px
+
+        painter.restore()
+
+        painter.save()
+        inner_rect = page_rect.marginsRemoved(self._margins)
+        pen = QtGui.QPen(QtGui.QColor("#b0b0b0"))
+        pen.setStyle(QtCore.Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+        painter.drawRect(inner_rect)
+        painter.restore()
+
+
 class CanvasView(QtWidgets.QGraphicsView):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -148,10 +258,14 @@ class CanvasView(QtWidgets.QGraphicsView):
         )
         scene.changed.connect(self._update_scene_rect)
         self.setScene(scene)
-        self.setBackgroundBrush(QtGui.QColor("#fafafa"))
+        self.setBackgroundBrush(QtGui.QColor("#f0f0f0"))
         self._grid_size = 50
         self._grid_size_min = 10
         self._show_grid = True
+        self._page_item = self._create_page_item()
+        scene.addItem(self._page_item)
+        QtCore.QTimer.singleShot(0, self._fit_view_to_page)
+        self._update_scene_rect()
 
         self._panning = False
         self._pan_start = QtCore.QPointF()
@@ -159,53 +273,45 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._right_button_pressed = False
         self._suppress_context_menu = False
 
+    def _create_page_item(self) -> A4PageItem:
+        page_w = mm_to_px(A4_WIDTH_MM, SCREEN_DPI)
+        page_h = mm_to_px(A4_HEIGHT_MM, SCREEN_DPI)
+        page = A4PageItem(
+            page_w,
+            page_h,
+            margin_mm=12.0,
+            grid_px=self._grid_size,
+            subgrid_px=self._grid_size_min,
+        )
+        page.setPos(-page_w / 2.0, -page_h / 2.0)
+        page.set_grid_visible(self._show_grid)
+        return page
+
+    def _fit_view_to_page(self) -> None:
+        if self._page_item is None:
+            return
+        page_scene_rect = self._page_item.mapRectToScene(self._page_item.rect())
+        padded = page_scene_rect.adjusted(-80, -80, 80, 80)
+        if padded.isValid() and padded.width() > 0 and padded.height() > 0:
+            self.fitInView(padded, QtCore.Qt.AspectRatioMode.KeepAspectRatio)
+        self.centerOn(self._page_item)
+
     def clear_canvas(self):
         """Remove all items from the scene."""
-        self.scene().clear()
+        scene = self.scene()
+        for item in list(scene.items()):
+            if item is self._page_item or item.parentItem() is not None:
+                continue
+            scene.removeItem(item)
         self._update_scene_rect()
 
     def drawBackground(self, painter: QtGui.QPainter, rect: QtCore.QRectF):
         super().drawBackground(painter, rect)
-        if not self._show_grid:
-            return
-
-        # Draw subgrid lines (every 10 units, lighter and more translucent)
-        subgrid_size = 10
-        left = int(rect.left()) - int(rect.left()) % subgrid_size
-        top = int(rect.top()) - int(rect.top()) % subgrid_size
-        subgrid_lines = []
-        x = left
-        while x < rect.right():
-            if x % self._grid_size != 0:  # Skip main grid lines
-                subgrid_lines.append(QtCore.QLineF(x, rect.top(), x, rect.bottom()))
-            x += subgrid_size
-        y = top
-        while y < rect.bottom():
-            if y % self._grid_size != 0:  # Skip main grid lines
-                subgrid_lines.append(QtCore.QLineF(rect.left(), y, rect.right(), y))
-            y += subgrid_size
-        subgrid_pen = QtGui.QPen(QtGui.QColor(208, 208, 208, 60))  # More translucent
-        painter.setPen(subgrid_pen)
-        painter.drawLines(subgrid_lines)
-
-        # Draw main grid lines (every 50 units, less translucent)
-        left = int(rect.left()) - int(rect.left()) % self._grid_size
-        top = int(rect.top()) - int(rect.top()) % self._grid_size
-        grid_lines = []
-        x = left
-        while x < rect.right():
-            grid_lines.append(QtCore.QLineF(x, rect.top(), x, rect.bottom()))
-            x += self._grid_size
-        y = top
-        while y < rect.bottom():
-            grid_lines.append(QtCore.QLineF(rect.left(), y, rect.right(), y))
-            y += self._grid_size
-        grid_pen = QtGui.QPen(QtGui.QColor(208, 208, 208, 180))  # Less translucent
-        painter.setPen(grid_pen)
-        painter.drawLines(grid_lines)
 
     def set_grid_visible(self, visible: bool):
         self._show_grid = visible
+        if self._page_item is not None:
+            self._page_item.set_grid_visible(visible)
         self.viewport().update()
 
     def _update_scene_rect(self):
