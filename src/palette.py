@@ -47,7 +47,7 @@ def _build_shape_icon(name: str, size: QtCore.QSize) -> QtGui.QPixmap:
     painter.setPen(PEN_NORMAL)
     painter.setBrush(DEFAULT_FILL)
 
-    padding = 6 * device_pixel_ratio
+    padding = 4 * device_pixel_ratio
     rect = QtCore.QRectF(
         padding,
         padding,
@@ -185,9 +185,16 @@ class PaletteList(QtWidgets.QListWidget):
         self.setDragEnabled(False)
         self.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.NoSelection)
         self.setViewMode(QtWidgets.QListView.ViewMode.IconMode)
-        icon_size = QtCore.QSize(64, 64)
+        icon_size = QtCore.QSize(56, 56)
         self.setIconSize(icon_size)
-        self.setSpacing(8)
+        cell_padding = 4
+        self.setGridSize(
+            QtCore.QSize(
+                icon_size.width() + cell_padding * 2,
+                icon_size.height() + cell_padding * 2,
+            )
+        )
+        self.setSpacing(6)
         self.setResizeMode(QtWidgets.QListView.ResizeMode.Adjust)
         self.setMouseTracking(True)
         self.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
