@@ -147,16 +147,10 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
     ):
         super().__init__(0.0, 0.0, width, height)
         self.setBrush(QtGui.QBrush(QtCore.Qt.GlobalColor.white))
-        self.setPen(QtGui.QPen(QtGui.QColor("#c8c8c8")))
+        self.setPen(QtCore.Qt.PenStyle.NoPen)
         self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
         self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
         self.setZValue(-100)
-
-        effect = QtWidgets.QGraphicsDropShadowEffect()
-        effect.setOffset(0, 4)
-        effect.setBlurRadius(20)
-        effect.setColor(QtGui.QColor(0, 0, 0, 60))
-        self.setGraphicsEffect(effect)
 
         margin_px = mm_to_px(margin_mm)
         self._margins = QtCore.QMarginsF(margin_px, margin_px, margin_px, margin_px)
@@ -315,19 +309,23 @@ class CanvasView(QtWidgets.QGraphicsView):
         self, item: QtWidgets.QGraphicsItem, drop_reference: QtCore.QPointF | None
     ) -> A4PageItem:
         rect = item.sceneBoundingRect()
-        for page in self._pages.values():
-            page_rect = page.mapRectToScene(page.rect())
+        page: A4PageItem | None = None
+        for existing in self._pages.values():
+            page_rect = existing.mapRectToScene(existing.rect())
             if page_rect.contains(rect):
-                return page
+                page = existing
+                break
 
-        reference = drop_reference if drop_reference is not None else rect.center()
-        index = self._page_index_for_point(reference)
-        page = self._add_page(index)
-        if not page.mapRectToScene(page.rect()).contains(rect):
-            center_index = self._page_index_for_point(rect.center())
-            page = self._add_page(center_index)
+        if page is None:
+            reference = drop_reference if drop_reference is not None else rect.center()
+            index = self._page_index_for_point(reference)
+            page = self._add_page(index)
+            if not page.mapRectToScene(page.rect()).contains(rect):
+                center_index = self._page_index_for_point(rect.center())
+                page = self._add_page(center_index)
         self._prune_empty_pages()
         self._update_scene_rect()
+        assert page is not None
         return page
 
     def _collect_canvas_content_items(self) -> list[QtWidgets.QGraphicsItem]:
