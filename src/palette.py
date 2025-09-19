@@ -194,6 +194,8 @@ class PaletteList(QtWidgets.QListWidget):
 
         self._pressed_item: QtWidgets.QListWidgetItem | None = None
         self._press_pos = QtCore.QPointF()
+        self._hovered_item: QtWidgets.QListWidgetItem | None = None
+        self._hover_brush = QtGui.QBrush(QtGui.QColor("#d2e7ff"))
 
         for name in SHAPES:
             icon = QtGui.QIcon(_build_shape_icon(name, icon_size))
@@ -203,6 +205,7 @@ class PaletteList(QtWidgets.QListWidget):
             self.addItem(item)
 
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
+        self._update_hover_from_pos(event.position())
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
             item = self.itemAt(event.position().toPoint())
             if item is not None:
@@ -214,6 +217,7 @@ class PaletteList(QtWidgets.QListWidget):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:
+        self._update_hover_from_pos(event.position())
         if (
             self._pressed_item is not None
             and event.buttons() & QtCore.Qt.MouseButton.LeftButton
@@ -230,6 +234,7 @@ class PaletteList(QtWidgets.QListWidget):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:
+        self._update_hover_from_pos(event.position())
         if event.button() == QtCore.Qt.MouseButton.LeftButton and self._pressed_item:
             item = self.itemAt(event.position().toPoint())
             if item is self._pressed_item:
@@ -259,6 +264,8 @@ class PaletteList(QtWidgets.QListWidget):
         md.setText(shape)
         drag.setMimeData(md)
 
+        self._set_hover_item(None)
+
         icon = item.icon()
         if not icon.isNull():
             size = self.iconSize()
@@ -267,3 +274,31 @@ class PaletteList(QtWidgets.QListWidget):
                 drag.setPixmap(pix)
                 drag.setHotSpot(QtCore.QPoint(pix.width() // 2, pix.height() // 2))
         drag.exec(QtCore.Qt.DropAction.CopyAction)
+
+    def leaveEvent(self, event: QtCore.QEvent) -> None:
+        self._set_hover_item(None)
+        super().leaveEvent(event)
+
+    def enterEvent(self, event: QtCore.QEvent) -> None:
+        cursor_pos = self.viewport().mapFromGlobal(QtGui.QCursor.pos())
+        self._update_hover_from_pos(QtCore.QPointF(cursor_pos))
+        super().enterEvent(event)
+
+    def _update_hover_from_pos(self, pos: QtCore.QPointF) -> None:
+        item = self.itemAt(pos.toPoint())
+        if item is not self._hovered_item:
+            self._set_hover_item(item)
+
+    def _set_hover_item(self, item: QtWidgets.QListWidgetItem | None) -> None:
+        if item is self._hovered_item:
+            return
+
+        if self._hovered_item is not None:
+            self._hovered_item.setData(QtCore.Qt.ItemDataRole.BackgroundRole, None)
+
+        self._hovered_item = item
+
+        if self._hovered_item is not None:
+            self._hovered_item.setData(
+                QtCore.Qt.ItemDataRole.BackgroundRole, self._hover_brush
+            )
