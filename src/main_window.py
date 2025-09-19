@@ -19,6 +19,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.palette.setMinimumWidth(220)
 
         self.canvas = CanvasView()
+        self.palette.shapeClicked.connect(self._add_shape_at_center)
 
         self.splitter.addWidget(self.palette)
         self.splitter.addWidget(self.canvas)
@@ -64,3 +65,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def load_drawsvg_py(self):
         import_drawsvg_py(self.canvas.scene(), self)
+
+    def _add_shape_at_center(self, shape: str) -> None:
+        self.canvas.add_shape_at_view_center(shape)

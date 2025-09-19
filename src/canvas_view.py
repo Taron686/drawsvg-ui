@@ -236,6 +236,65 @@ class CanvasView(QtWidgets.QGraphicsView):
         super().resizeEvent(event)
         self._update_scene_rect()
 
+    def add_shape(
+        self,
+        shape: str,
+        scene_pos: QtCore.QPointF,
+        snap_to_grid: bool = True,
+    ) -> QtWidgets.QGraphicsItem | None:
+        normalized = shape.strip()
+        if normalized not in SHAPES:
+            return None
+
+        x = scene_pos.x()
+        y = scene_pos.y()
+        w, h = DEFAULTS[normalized]
+
+        if snap_to_grid:
+            size = self._grid_size
+            x = round(x / size) * size
+            y = round(y / size) * size
+            if normalized in ("Line", "Arrow"):
+                w = round(w / size) * size
+
+        if normalized == "Rectangle":
+            item = RectItem(x, y, w, h)
+        elif normalized == "Rounded Rectangle":
+            item = RectItem(x, y, w, h, 15.0, 15.0)
+        elif normalized == "Split Rounded Rectangle":
+            item = SplitRoundedRectItem(x, y, w, h, 15.0, 15.0)
+        elif normalized in ("Circle", "Ellipse"):
+            item = EllipseItem(x, y, w, h)
+        elif normalized == "Triangle":
+            item = TriangleItem(x, y, w, h)
+        elif normalized == "Line":
+            item = LineItem(x, y, w)
+        elif normalized == "Arrow":
+            item = LineItem(x, y, w, arrow_end=True)
+        elif normalized == "Text":
+            item = TextItem(x, y, w, h)
+        else:
+            return None
+
+        item.setData(0, normalized)
+        self.scene().addItem(item)
+        item.setSelected(True)
+        self._update_scene_rect()
+        return item
+
+    def add_shape_at_view_center(self, shape: str) -> QtWidgets.QGraphicsItem | None:
+        normalized = shape.strip()
+        if normalized not in SHAPES:
+            return None
+
+        center = self.mapToScene(self.viewport().rect().center())
+        w, h = DEFAULTS[normalized]
+        if normalized in ("Line", "Arrow"):
+            pos = QtCore.QPointF(center.x() - w / 2.0, center.y())
+        else:
+            pos = QtCore.QPointF(center.x() - w / 2.0, center.y() - h / 2.0)
+        return self.add_shape(normalized, pos, snap_to_grid=False)
+
     # --- Drag and drop from the palette ---
     def dragEnterEvent(self, event: QtGui.QDragEnterEvent):
         md = event.mimeData()
@@ -264,40 +323,14 @@ class CanvasView(QtWidgets.QGraphicsView):
             return
 
         scene_pos = self.mapToScene(event.position().toPoint())
-        x = scene_pos.x()
-        y = scene_pos.y()
-
-        w, h = DEFAULTS[shape]
-        mods = event.keyboardModifiers()
-        if not mods & QtCore.Qt.KeyboardModifier.AltModifier:
-            size = self._grid_size
-            x = round(x / size) * size
-            y = round(y / size) * size
-            if shape in ("Line", "Arrow"):
-                w = round(w / size) * size
-
-        if shape == "Rectangle":
-            item = RectItem(x, y, w, h)
-        elif shape == "Rounded Rectangle":
-            item = RectItem(x, y, w, h, 15.0, 15.0)
-        elif shape == "Split Rounded Rectangle":
-            item = SplitRoundedRectItem(x, y, w, h, 15.0, 15.0)
-        elif shape in ("Circle", "Ellipse"):
-            item = EllipseItem(x, y, w, h)
-        elif shape == "Triangle":
-            item = TriangleItem(x, y, w, h)
-        elif shape == "Line":
-            item = LineItem(x, y, w)
-        elif shape == "Arrow":
-            item = LineItem(x, y, w, arrow_end=True)
-        else:  # "Text"
-            item = TextItem(x, y, w, h)
-
-        item.setData(0, shape)  # for export
-        self.scene().addItem(item)
-        item.setSelected(True)
-        self._update_scene_rect()
-        event.acceptProposedAction()
+        snap = not (
+            event.keyboardModifiers() & QtCore.Qt.KeyboardModifier.AltModifier
+        )
+        item = self.add_shape(shape, scene_pos, snap_to_grid=snap)
+        if item is not None:
+            event.acceptProposedAction()
+        else:
+            super().dropEvent(event)
 
     # --- Duplicate selected items with Ctrl+drag ---
     def mousePressEvent(self, event: QtGui.QMouseEvent):

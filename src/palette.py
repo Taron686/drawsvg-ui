@@ -178,28 +178,85 @@ def _build_shape_icon(name: str, size: QtCore.QSize) -> QtGui.QPixmap:
 
 
 class PaletteList(QtWidgets.QListWidget):
+    shapeClicked = QtCore.Signal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setDragEnabled(True)
-        self.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self.setDragEnabled(False)
+        self.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.NoSelection)
         self.setViewMode(QtWidgets.QListView.ViewMode.IconMode)
         icon_size = QtCore.QSize(64, 64)
         self.setIconSize(icon_size)
         self.setSpacing(8)
         self.setResizeMode(QtWidgets.QListView.ResizeMode.Adjust)
+        self.setMouseTracking(True)
+        self.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+
+        self._pressed_item: QtWidgets.QListWidgetItem | None = None
+        self._press_pos = QtCore.QPointF()
 
         for name in SHAPES:
             icon = QtGui.QIcon(_build_shape_icon(name, icon_size))
-            QtWidgets.QListWidgetItem(icon, name, self)
+            item = QtWidgets.QListWidgetItem(icon, "")
+            item.setData(QtCore.Qt.ItemDataRole.UserRole, name)
+            item.setToolTip(name)
+            self.addItem(item)
 
-    def startDrag(self, supportedActions: QtCore.Qt.DropActions):
-        item = self.currentItem()
-        if not item:
+    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            item = self.itemAt(event.position().toPoint())
+            if item is not None:
+                self._pressed_item = item
+                self._press_pos = event.position()
+                event.accept()
+                return
+        self._pressed_item = None
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:
+        if (
+            self._pressed_item is not None
+            and event.buttons() & QtCore.Qt.MouseButton.LeftButton
+        ):
+            delta = event.position() - self._press_pos
+            distance = QtCore.QLineF(QtCore.QPointF(), delta).length()
+            if distance >= QtWidgets.QApplication.startDragDistance():
+                item = self._pressed_item
+                self._pressed_item = None
+                if item is not None:
+                    self._start_drag_from_item(item)
+                event.accept()
+                return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:
+        if event.button() == QtCore.Qt.MouseButton.LeftButton and self._pressed_item:
+            item = self.itemAt(event.position().toPoint())
+            if item is self._pressed_item:
+                shape = self._shape_from_item(item)
+                if shape:
+                    self.shapeClicked.emit(shape)
+            self._pressed_item = None
+            event.accept()
             return
+        self._pressed_item = None
+        super().mouseReleaseEvent(event)
+
+    def _shape_from_item(self, item: QtWidgets.QListWidgetItem | None) -> str | None:
+        if item is None:
+            return None
+        data = item.data(QtCore.Qt.ItemDataRole.UserRole)
+        return data if isinstance(data, str) else None
+
+    def _start_drag_from_item(self, item: QtWidgets.QListWidgetItem) -> None:
+        shape = self._shape_from_item(item)
+        if not shape:
+            return
+
         drag = QtGui.QDrag(self)
         md = QtCore.QMimeData()
-        md.setData(PALETTE_MIME, item.text().encode("utf-8"))
-        md.setText(item.text())
+        md.setData(PALETTE_MIME, shape.encode("utf-8"))
+        md.setText(shape)
         drag.setMimeData(md)
 
         icon = item.icon()
