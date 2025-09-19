@@ -223,15 +223,6 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
 
         painter.restore()
 
-        painter.save()
-        inner_rect = page_rect.marginsRemoved(self._margins)
-        pen = QtGui.QPen(QtGui.QColor("#b0b0b0"))
-        pen.setStyle(QtCore.Qt.PenStyle.DashLine)
-        painter.setPen(pen)
-        painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-        painter.drawRect(inner_rect)
-        painter.restore()
-
 
 class CanvasView(QtWidgets.QGraphicsView):
     def __init__(self, parent=None):
@@ -262,7 +253,9 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._grid_size = 50
         self._grid_size_min = 10
         self._show_grid = True
+        self._pages: list[A4PageItem] = []
         self._page_item = self._create_page_item()
+        self._pages.append(self._page_item)
         scene.addItem(self._page_item)
         QtCore.QTimer.singleShot(0, self._fit_view_to_page)
         self._update_scene_rect()
@@ -273,7 +266,9 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._right_button_pressed = False
         self._suppress_context_menu = False
 
-    def _create_page_item(self) -> A4PageItem:
+    def _create_page_item(
+        self, center: QtCore.QPointF | None = None
+    ) -> A4PageItem:
         page_w = mm_to_px(A4_WIDTH_MM, SCREEN_DPI)
         page_h = mm_to_px(A4_HEIGHT_MM, SCREEN_DPI)
         page = A4PageItem(
@@ -283,9 +278,50 @@ class CanvasView(QtWidgets.QGraphicsView):
             grid_px=self._grid_size,
             subgrid_px=self._grid_size_min,
         )
-        page.setPos(-page_w / 2.0, -page_h / 2.0)
+        if center is None:
+            center = QtCore.QPointF(0.0, 0.0)
+        page.setPos(center.x() - page_w / 2.0, center.y() - page_h / 2.0)
         page.set_grid_visible(self._show_grid)
         return page
+
+    def _add_page(self, center: QtCore.QPointF) -> A4PageItem:
+        page = self._create_page_item(center)
+        self.scene().addItem(page)
+        self._pages.append(page)
+        return page
+
+    def _ensure_page_for_item(
+        self, item: QtWidgets.QGraphicsItem, drop_reference: QtCore.QPointF | None
+    ) -> A4PageItem:
+        rect = item.sceneBoundingRect()
+        for page in self._pages:
+            page_rect = page.mapRectToScene(page.rect())
+            if page_rect.contains(rect):
+                return page
+
+        center = drop_reference if drop_reference is not None else rect.center()
+        page = self._add_page(center)
+        page_rect = page.mapRectToScene(page.rect())
+        if not page_rect.contains(rect):
+            rect_center = rect.center()
+            page.setPos(
+                rect_center.x() - page.rect().width() / 2.0,
+                rect_center.y() - page.rect().height() / 2.0,
+            )
+        self._update_scene_rect()
+        return page
+
+    def _ensure_pages_for_items(
+        self, items: list[QtWidgets.QGraphicsItem]
+    ) -> None:
+        for item in items:
+            if item in self._pages:
+                continue
+            if item.parentItem() is not None:
+                continue
+            if isinstance(item, (ResizeHandle, RotationHandle)):
+                continue
+            self._ensure_page_for_item(item, item.sceneBoundingRect().center())
 
     def _fit_view_to_page(self) -> None:
         if self._page_item is None:
@@ -300,7 +336,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         """Remove all items from the scene."""
         scene = self.scene()
         for item in list(scene.items()):
-            if item is self._page_item or item.parentItem() is not None:
+            if item in self._pages or item.parentItem() is not None:
                 continue
             scene.removeItem(item)
         self._update_scene_rect()
@@ -310,8 +346,8 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     def set_grid_visible(self, visible: bool):
         self._show_grid = visible
-        if self._page_item is not None:
-            self._page_item.set_grid_visible(visible)
+        for page in self._pages:
+            page.set_grid_visible(visible)
         self.viewport().update()
 
     def _update_scene_rect(self):
@@ -363,6 +399,8 @@ class CanvasView(QtWidgets.QGraphicsView):
             if normalized in ("Line", "Arrow"):
                 w = round(w / size) * size
 
+        drop_reference = QtCore.QPointF(x + w / 2.0, y + h / 2.0)
+
         if normalized == "Rectangle":
             item = RectItem(x, y, w, h)
         elif normalized == "Rounded Rectangle":
@@ -385,6 +423,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         item.setData(0, normalized)
         self.scene().addItem(item)
         item.setSelected(True)
+        self._ensure_page_for_item(item, drop_reference)
         self._update_scene_rect()
         return item
 
@@ -567,6 +606,7 @@ class CanvasView(QtWidgets.QGraphicsView):
                 self._dup_items = []
                 self._dup_orig = []
                 self._dup_source = []
+                self._ensure_pages_for_items(self.scene().selectedItems())
                 event.accept()
                 return
             if getattr(self, "_dup_source", None):
@@ -575,6 +615,8 @@ class CanvasView(QtWidgets.QGraphicsView):
                 event.accept()
                 return
         super().mouseReleaseEvent(event)
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            self._ensure_pages_for_items(self.scene().selectedItems())
 
     def _clone_item(self, item: QtWidgets.QGraphicsItem):
         if isinstance(item, RectItem):
