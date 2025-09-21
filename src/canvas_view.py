@@ -162,6 +162,17 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
         self.index: tuple[int, int] = index
         self._master_origin = QtCore.QPointF(master_origin)
         self._transition_edges: set[str] = set()
+        self._neighbors: dict[str, bool] = {
+            "left": False,
+            "right": False,
+            "top": False,
+            "bottom": False,
+        }
+        self._outline_pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 120))
+        self._outline_pen.setStyle(QtCore.Qt.PenStyle.DashLine)
+        self._outline_pen.setWidthF(0)
+        self._outline_pen.setCapStyle(QtCore.Qt.PenCapStyle.FlatCap)
+        self._outline_pen.setJoinStyle(QtCore.Qt.PenJoinStyle.MiterJoin)
 
     def set_grid_spacing(self, grid_px: int, subgrid_px: int) -> None:
         self._grid_px = max(1, grid_px)
@@ -184,6 +195,22 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
         self._transition_edges = set(edges)
         self.update()
 
+    def set_outline_neighbors(
+        self, *, left: bool, right: bool, top: bool, bottom: bool
+    ) -> None:
+        if (
+            self._neighbors["left"] == left
+            and self._neighbors["right"] == right
+            and self._neighbors["top"] == top
+            and self._neighbors["bottom"] == bottom
+        ):
+            return
+        self._neighbors["left"] = left
+        self._neighbors["right"] = right
+        self._neighbors["top"] = top
+        self._neighbors["bottom"] = bottom
+        self.update()
+
     def paint(
         self,
         painter: QtGui.QPainter,
@@ -192,11 +219,96 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
     ) -> None:
         super().paint(painter, option, widget)
 
+        page_rect = self.rect()
+
+        painter.save()
+        painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+
+        outline_vertical = QtGui.QPen(self._outline_pen)
+        outline_horizontal = QtGui.QPen(self._outline_pen)
+
+        dash_pattern = outline_vertical.dashPattern()
+        dash_period = sum(dash_pattern) if dash_pattern else 0.0
+        scene_pos = self.scenePos()
+
+        if dash_period > 0.0:
+            vertical_offset = math.fmod(
+                scene_pos.y() - self._master_origin.y(), dash_period
+            )
+            horizontal_offset = math.fmod(
+                scene_pos.x() - self._master_origin.x(), dash_period
+            )
+            if vertical_offset < 0.0:
+                vertical_offset += dash_period
+            if horizontal_offset < 0.0:
+                horizontal_offset += dash_period
+            outline_vertical.setDashOffset(vertical_offset)
+            outline_horizontal.setDashOffset(horizontal_offset)
+
+        transition_vertical = QtGui.QPen(outline_vertical)
+        transition_horizontal = QtGui.QPen(outline_horizontal)
+        transition_vertical.setColor(QtGui.QColor(0, 0, 0, 160))
+        transition_horizontal.setColor(QtGui.QColor(0, 0, 0, 160))
+
+        has_left_neighbor = self._neighbors["left"]
+        has_right_neighbor = self._neighbors["right"]
+        has_top_neighbor = self._neighbors["top"]
+        has_bottom_neighbor = self._neighbors["bottom"]
+
+        edge_segments: list[tuple[str, QtCore.QPointF, QtCore.QPointF]] = []
+        if not has_left_neighbor:
+            edge_segments.append(
+                (
+                    "left",
+                    QtCore.QPointF(page_rect.left(), page_rect.top()),
+                    QtCore.QPointF(page_rect.left(), page_rect.bottom()),
+                )
+            )
+        edge_segments.append(
+            (
+                "right",
+                QtCore.QPointF(page_rect.right(), page_rect.top()),
+                QtCore.QPointF(page_rect.right(), page_rect.bottom()),
+            )
+        )
+        if not has_top_neighbor:
+            edge_segments.append(
+                (
+                    "top",
+                    QtCore.QPointF(page_rect.left(), page_rect.top()),
+                    QtCore.QPointF(page_rect.right(), page_rect.top()),
+                )
+            )
+        edge_segments.append(
+            (
+                "bottom",
+                QtCore.QPointF(page_rect.left(), page_rect.bottom()),
+                QtCore.QPointF(page_rect.right(), page_rect.bottom()),
+            )
+        )
+
+        for edge, start, end in edge_segments:
+            if edge in ("left", "right"):
+                pen = (
+                    transition_vertical
+                    if edge in self._transition_edges
+                    else outline_vertical
+                )
+            else:
+                pen = (
+                    transition_horizontal
+                    if edge in self._transition_edges
+                    else outline_horizontal
+                )
+            painter.setPen(pen)
+            painter.drawLine(start, end)
+
+        painter.restore()
+
         if not self._grid_visible:
             return
 
         painter.save()
-        page_rect = self.rect()
         painter.setClipRect(page_rect)
 
         origin_scene = self.scenePos()
@@ -267,28 +379,6 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
 
         _draw_lines(self._grid_px, "vertical", False)
         _draw_lines(self._grid_px, "horizontal", False)
-
-        if self._transition_edges:
-            transition_pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 120))
-            transition_pen.setStyle(QtCore.Qt.PenStyle.DashLine)
-            transition_pen.setWidthF(0)
-            painter.setPen(transition_pen)
-            if "left" in self._transition_edges:
-                painter.drawLine(
-                    page_rect.left(), page_rect.top(), page_rect.left(), page_rect.bottom()
-                )
-            if "right" in self._transition_edges:
-                painter.drawLine(
-                    page_rect.right(), page_rect.top(), page_rect.right(), page_rect.bottom()
-                )
-            if "top" in self._transition_edges:
-                painter.drawLine(
-                    page_rect.left(), page_rect.top(), page_rect.right(), page_rect.top()
-                )
-            if "bottom" in self._transition_edges:
-                painter.drawLine(
-                    page_rect.left(), page_rect.bottom(), page_rect.right(), page_rect.bottom()
-                )
 
         painter.restore()
 
@@ -371,7 +461,9 @@ class CanvasView(QtWidgets.QGraphicsView):
         page.set_grid_visible(self._show_grid)
         return page
 
-    def _add_page(self, index: tuple[int, int]) -> A4PageItem:
+    def _add_page(
+        self, index: tuple[int, int], *, update_edges: bool = True
+    ) -> A4PageItem:
         existing = self._pages.get(index)
         if existing is not None:
             existing.set_master_origin(self._master_origin)
@@ -379,13 +471,39 @@ class CanvasView(QtWidgets.QGraphicsView):
         page = self._create_page_item(index)
         self.scene().addItem(page)
         self._pages[index] = page
-        self._update_transition_edges()
+        if update_edges:
+            self._update_transition_edges()
         return page
+
+    def _ensure_pages_between_master(self, target_index: tuple[int, int]) -> None:
+        master_row, master_col = self._master_index
+        target_row, target_col = target_index
+        min_row = min(master_row, target_row)
+        max_row = max(master_row, target_row)
+        min_col = min(master_col, target_col)
+        max_col = max(master_col, target_col)
+
+        added_any = False
+        for row in range(min_row, max_row + 1):
+            for col in range(min_col, max_col + 1):
+                index = (row, col)
+                if index not in self._pages:
+                    added_any = True
+                self._add_page(index, update_edges=False)
+        if added_any:
+            self._update_transition_edges()
 
     def _update_transition_edges(self) -> None:
         master_page = self._pages.get(self._master_index)
         if master_page is None:
             return
+        for (row, col), page in self._pages.items():
+            page.set_outline_neighbors(
+                left=(row, col - 1) in self._pages,
+                right=(row, col + 1) in self._pages,
+                top=(row - 1, col) in self._pages,
+                bottom=(row + 1, col) in self._pages,
+            )
         master_edges: set[str] = set()
         master_row, master_col = self._master_index
         for (row, col), page in self._pages.items():
@@ -420,13 +538,23 @@ class CanvasView(QtWidgets.QGraphicsView):
                 page = existing
                 break
 
+        indices_to_connect: set[tuple[int, int]] = set()
+
         if page is None:
             reference = drop_reference if drop_reference is not None else rect.center()
             index = self._page_index_for_point(reference)
             page = self._add_page(index)
+            indices_to_connect.add(index)
             if not page.mapRectToScene(page.rect()).contains(rect):
                 center_index = self._page_index_for_point(rect.center())
                 page = self._add_page(center_index)
+                indices_to_connect.add(center_index)
+        if page is not None:
+            indices_to_connect.add(page.index)
+
+        for index in indices_to_connect:
+            self._ensure_pages_between_master(index)
+
         self._prune_empty_pages()
         self._update_scene_rect()
         assert page is not None
@@ -450,20 +578,36 @@ class CanvasView(QtWidgets.QGraphicsView):
         if scene is None:
             return False
         content_items = self._collect_canvas_content_items()
-        removed = False
-        for index, page in list(self._pages.items()):
-            if index == self._master_index:
-                continue
+        master_row, master_col = self._master_index
+
+        content_indices: set[tuple[int, int]] = set()
+        for index, page in self._pages.items():
             page_rect = page.mapRectToScene(page.rect())
             has_item = any(
                 item.sceneBoundingRect().intersects(page_rect)
                 for item in content_items
                 if item.scene() is scene
             )
-            if not has_item:
-                self._pages.pop(index, None)
-                scene.removeItem(page)
-                removed = True
+            if has_item:
+                content_indices.add(index)
+
+        required_indices: set[tuple[int, int]] = {self._master_index}
+        for row, col in content_indices:
+            min_row = min(master_row, row)
+            max_row = max(master_row, row)
+            min_col = min(master_col, col)
+            max_col = max(master_col, col)
+            for r in range(min_row, max_row + 1):
+                for c in range(min_col, max_col + 1):
+                    required_indices.add((r, c))
+
+        removed = False
+        for index, page in list(self._pages.items()):
+            if index in required_indices:
+                continue
+            self._pages.pop(index, None)
+            scene.removeItem(page)
+            removed = True
         if removed:
             self._update_transition_edges()
         return removed
