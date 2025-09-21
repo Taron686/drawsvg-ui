@@ -84,7 +84,16 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
     try:
         with open(path, "r", encoding="utf-8") as f:
             lines = f.readlines()
-        scene.clear()
+
+        cleared = False
+        view = scene.parent()
+        if view is not None:
+            clear_method = getattr(view, "clear_canvas", None)
+            if callable(clear_method):
+                clear_method()
+                cleared = True
+        if not cleared:
+            scene.clear()
         pending_split: dict[str, Any] | None = None
         pending_line: LineItem | None = None
         for raw in lines:
