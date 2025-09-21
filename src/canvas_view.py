@@ -164,6 +164,8 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
         self._outline_pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 120))
         self._outline_pen.setStyle(QtCore.Qt.PenStyle.DashLine)
         self._outline_pen.setWidthF(0)
+        self._outline_pen.setCapStyle(QtCore.Qt.PenCapStyle.FlatCap)
+        self._outline_pen.setJoinStyle(QtCore.Qt.PenJoinStyle.MiterJoin)
 
     def set_grid_spacing(self, grid_px: int, subgrid_px: int) -> None:
         self._grid_px = max(1, grid_px)
@@ -197,9 +199,49 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
         page_rect = self.rect()
 
         painter.save()
-        painter.setPen(self._outline_pen)
         painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-        painter.drawRect(page_rect)
+
+        outline_vertical = QtGui.QPen(self._outline_pen)
+        outline_horizontal = QtGui.QPen(self._outline_pen)
+
+        dash_pattern = outline_vertical.dashPattern()
+        dash_period = sum(dash_pattern) if dash_pattern else 0.0
+        scene_pos = self.scenePos()
+
+        if dash_period > 0.0:
+            vertical_offset = math.fmod(
+                scene_pos.y() - self._master_origin.y(), dash_period
+            )
+            horizontal_offset = math.fmod(
+                scene_pos.x() - self._master_origin.x(), dash_period
+            )
+            if vertical_offset < 0.0:
+                vertical_offset += dash_period
+            if horizontal_offset < 0.0:
+                horizontal_offset += dash_period
+            outline_vertical.setDashOffset(vertical_offset)
+            outline_horizontal.setDashOffset(horizontal_offset)
+
+        painter.setPen(outline_vertical)
+        painter.drawLine(
+            QtCore.QPointF(page_rect.left(), page_rect.top()),
+            QtCore.QPointF(page_rect.left(), page_rect.bottom()),
+        )
+        painter.drawLine(
+            QtCore.QPointF(page_rect.right(), page_rect.top()),
+            QtCore.QPointF(page_rect.right(), page_rect.bottom()),
+        )
+
+        painter.setPen(outline_horizontal)
+        painter.drawLine(
+            QtCore.QPointF(page_rect.left(), page_rect.top()),
+            QtCore.QPointF(page_rect.right(), page_rect.top()),
+        )
+        painter.drawLine(
+            QtCore.QPointF(page_rect.left(), page_rect.bottom()),
+            QtCore.QPointF(page_rect.right(), page_rect.bottom()),
+        )
+
         painter.restore()
 
         if not self._grid_visible:
