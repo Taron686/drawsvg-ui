@@ -20,6 +20,7 @@ from items import (
     LineItem,
     TextItem,
     TriangleItem,
+    DiamondItem,
     GroupItem,
     ResizableItem,
     ResizeHandle,
@@ -572,6 +573,8 @@ class CanvasView(QtWidgets.QGraphicsView):
             item = EllipseItem(x, y, w, h)
         elif normalized == "Triangle":
             item = TriangleItem(x, y, w, h)
+        elif normalized == "Diamond":
+            item = DiamondItem(x, y, w, h)
         elif normalized == "Line":
             item = LineItem(x, y, w)
         elif normalized == "Arrow":
@@ -807,6 +810,11 @@ class CanvasView(QtWidgets.QGraphicsView):
         elif isinstance(item, TriangleItem):
             br = item.boundingRect()
             clone = TriangleItem(item.x(), item.y(), br.width(), br.height())
+            clone.setBrush(item.brush())
+            clone.setPen(item.pen())
+        elif isinstance(item, DiamondItem):
+            br = item.boundingRect()
+            clone = DiamondItem(item.x(), item.y(), br.width(), br.height())
             clone.setBrush(item.brush())
             clone.setPen(item.pen())
         elif isinstance(item, LineItem):
@@ -1271,7 +1279,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             add_corner_action()
             menu.addSeparator()
             add_stroke_actions()
-        elif isinstance(item, (QtWidgets.QGraphicsEllipseItem, TriangleItem)):
+        elif isinstance(item, (QtWidgets.QGraphicsEllipseItem, TriangleItem, DiamondItem)):
             add_fill_actions()
             menu.addSeparator()
             add_stroke_actions()
