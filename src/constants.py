@@ -8,6 +8,7 @@ SHAPES = (
     "Ellipse",
     "Circle",
     "Triangle",
+    "Diamond",
     "Line",
     "Arrow",
     "Text",
@@ -20,6 +21,7 @@ DEFAULTS = {
     "Ellipse":   (160.0, 100.0),   # w, h
     "Circle":    (100.0, 100.0),   # diameter, diameter
     "Triangle":  (160.0, 100.0),   # w, h
+    "Diamond":   (140.0, 140.0),   # w, h
     "Line":      (150.0, 0.0),     # length, (unused)
     "Arrow":     (150.0, 0.0),     # length, (unused)
     "Text":      (100.0, 30.0),    # placeholder bbox

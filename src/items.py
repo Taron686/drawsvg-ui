@@ -135,7 +135,7 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
             self._w0, self._h0 = r.width(), r.height()
             self._start_rx = getattr(parent, "rx", 0.0)
             self._start_ry = getattr(parent, "ry", 0.0)
-        elif isinstance(parent, TriangleItem):
+        elif isinstance(parent, (TriangleItem, DiamondItem)):
             # TriangleItem hält w/h intern
             self._w0, self._h0 = parent._w, parent._h
         else:
@@ -256,7 +256,7 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
         elif isinstance(parent, QtWidgets.QGraphicsEllipseItem):
             parent.setRect(0, 0, new_w, new_h)
 
-        elif isinstance(parent, TriangleItem):
+        elif isinstance(parent, (TriangleItem, DiamondItem)):
             parent.set_size(new_w, new_h, adjust_origin=False)
 
         else:
@@ -827,6 +827,57 @@ class TriangleItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
         self.setPolygon(poly)
 
     def set_size(self, w, h, adjust_origin: bool = True):
+        self._w = w
+        self._h = h
+        self._update_polygon()
+        if adjust_origin:
+            self.setTransformOriginPoint(w / 2.0, h / 2.0)
+
+    def paint(self, painter, option, widget=None):
+        opt = QtWidgets.QStyleOptionGraphicsItem(option)
+        opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
+        super().paint(painter, opt, widget)
+        if _should_draw_selection(self):
+            painter.save()
+            painter.setPen(PEN_SELECTED)
+            painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+            rect = self.polygon().boundingRect()
+            painter.drawRect(rect)
+            painter.restore()
+
+
+class DiamondItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
+    def __init__(self, x: float, y: float, w: float, h: float):
+        QtWidgets.QGraphicsPolygonItem.__init__(self)
+        ResizableItem.__init__(self)
+        self._w = w
+        self._h = h
+        self._update_polygon()
+        self.setPos(x, y)
+        self.setTransformOriginPoint(w / 2.0, h / 2.0)
+        self.setFlags(
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
+        )
+        self.setPen(PEN_NORMAL)
+        self.setBrush(DEFAULT_FILL)
+
+    def _update_polygon(self) -> None:
+        half_w = self._w / 2.0
+        half_h = self._h / 2.0
+        poly = QtGui.QPolygonF(
+            [
+                QtCore.QPointF(half_w, 0.0),
+                QtCore.QPointF(self._w, half_h),
+                QtCore.QPointF(half_w, self._h),
+                QtCore.QPointF(0.0, half_h),
+            ]
+        )
+        self.setPolygon(poly)
+
+    def set_size(self, w: float, h: float, adjust_origin: bool = True) -> None:
         self._w = w
         self._h = h
         self._update_polygon()

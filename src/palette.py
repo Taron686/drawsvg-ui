@@ -132,6 +132,16 @@ def _build_shape_icon(name: str, size: QtCore.QSize) -> QtGui.QPixmap:
             ]
         )
         painter.drawPolygon(points)
+    elif lower_name == "diamond":
+        points = QtGui.QPolygonF(
+            [
+                QtCore.QPointF(rect.center().x(), rect.top()),
+                QtCore.QPointF(rect.right(), rect.center().y()),
+                QtCore.QPointF(rect.center().x(), rect.bottom()),
+                QtCore.QPointF(rect.left(), rect.center().y()),
+            ]
+        )
+        painter.drawPolygon(points)
     elif lower_name == "line":
         painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
         y = rect.center().y()
