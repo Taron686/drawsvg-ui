@@ -370,7 +370,9 @@ class CanvasView(QtWidgets.QGraphicsView):
         page.set_grid_visible(self._show_grid)
         return page
 
-    def _add_page(self, index: tuple[int, int]) -> A4PageItem:
+    def _add_page(
+        self, index: tuple[int, int], *, update_edges: bool = True
+    ) -> A4PageItem:
         existing = self._pages.get(index)
         if existing is not None:
             existing.set_master_origin(self._master_origin)
@@ -378,8 +380,27 @@ class CanvasView(QtWidgets.QGraphicsView):
         page = self._create_page_item(index)
         self.scene().addItem(page)
         self._pages[index] = page
-        self._update_transition_edges()
+        if update_edges:
+            self._update_transition_edges()
         return page
+
+    def _ensure_pages_between_master(self, target_index: tuple[int, int]) -> None:
+        master_row, master_col = self._master_index
+        target_row, target_col = target_index
+        min_row = min(master_row, target_row)
+        max_row = max(master_row, target_row)
+        min_col = min(master_col, target_col)
+        max_col = max(master_col, target_col)
+
+        added_any = False
+        for row in range(min_row, max_row + 1):
+            for col in range(min_col, max_col + 1):
+                index = (row, col)
+                if index not in self._pages:
+                    added_any = True
+                self._add_page(index, update_edges=False)
+        if added_any:
+            self._update_transition_edges()
 
     def _update_transition_edges(self) -> None:
         master_page = self._pages.get(self._master_index)
@@ -419,13 +440,23 @@ class CanvasView(QtWidgets.QGraphicsView):
                 page = existing
                 break
 
+        indices_to_connect: set[tuple[int, int]] = set()
+
         if page is None:
             reference = drop_reference if drop_reference is not None else rect.center()
             index = self._page_index_for_point(reference)
             page = self._add_page(index)
+            indices_to_connect.add(index)
             if not page.mapRectToScene(page.rect()).contains(rect):
                 center_index = self._page_index_for_point(rect.center())
                 page = self._add_page(center_index)
+                indices_to_connect.add(center_index)
+        if page is not None:
+            indices_to_connect.add(page.index)
+
+        for index in indices_to_connect:
+            self._ensure_pages_between_master(index)
+
         self._prune_empty_pages()
         self._update_scene_rect()
         assert page is not None
@@ -449,20 +480,36 @@ class CanvasView(QtWidgets.QGraphicsView):
         if scene is None:
             return False
         content_items = self._collect_canvas_content_items()
-        removed = False
-        for index, page in list(self._pages.items()):
-            if index == self._master_index:
-                continue
+        master_row, master_col = self._master_index
+
+        content_indices: set[tuple[int, int]] = set()
+        for index, page in self._pages.items():
             page_rect = page.mapRectToScene(page.rect())
             has_item = any(
                 item.sceneBoundingRect().intersects(page_rect)
                 for item in content_items
                 if item.scene() is scene
             )
-            if not has_item:
-                self._pages.pop(index, None)
-                scene.removeItem(page)
-                removed = True
+            if has_item:
+                content_indices.add(index)
+
+        required_indices: set[tuple[int, int]] = {self._master_index}
+        for row, col in content_indices:
+            min_row = min(master_row, row)
+            max_row = max(master_row, row)
+            min_col = min(master_col, col)
+            max_col = max(master_col, col)
+            for r in range(min_row, max_row + 1):
+                for c in range(min_col, max_col + 1):
+                    required_indices.add((r, c))
+
+        removed = False
+        for index, page in list(self._pages.items()):
+            if index in required_indices:
+                continue
+            self._pages.pop(index, None)
+            scene.removeItem(page)
+            removed = True
         if removed:
             self._update_transition_edges()
         return removed
