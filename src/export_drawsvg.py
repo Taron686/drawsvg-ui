@@ -102,14 +102,24 @@ def _arrowhead_polygon(
 
 
 def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget | None = None):
-    rect = scene.itemsBoundingRect()
-    width = int(rect.width())
-    height = int(rect.height())
-    ox = int(rect.x())
-    oy = int(rect.y())
+    shape_items = [it for it in scene.items() if it.data(0) in SHAPES]
+    if shape_items:
+        rect = shape_items[0].sceneBoundingRect()
+        for it in shape_items[1:]:
+            rect = rect.united(it.sceneBoundingRect())
+    else:
+        rect = scene.itemsBoundingRect()
 
-    items = [it for it in scene.items() if it.data(0) in SHAPES]
-    items.reverse()
+    left = math.floor(rect.left())
+    top = math.floor(rect.top())
+    right = math.ceil(rect.right())
+    bottom = math.ceil(rect.bottom())
+    width = max(1, int(right - left))
+    height = max(1, int(bottom - top))
+    ox = int(left)
+    oy = int(top)
+
+    items = list(reversed(shape_items))
 
     lines = []
     lines.append("# Auto-generated from PySide6 Canvas to drawsvg")
