@@ -161,6 +161,12 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
         self.index: tuple[int, int] = index
         self._master_origin = QtCore.QPointF(master_origin)
         self._transition_edges: set[str] = set()
+        self._neighbors: dict[str, bool] = {
+            "left": False,
+            "right": False,
+            "top": False,
+            "bottom": False,
+        }
         self._outline_pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 120))
         self._outline_pen.setStyle(QtCore.Qt.PenStyle.DashLine)
         self._outline_pen.setWidthF(0)
@@ -186,6 +192,22 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
         if self._transition_edges == edges:
             return
         self._transition_edges = set(edges)
+        self.update()
+
+    def set_outline_neighbors(
+        self, *, left: bool, right: bool, top: bool, bottom: bool
+    ) -> None:
+        if (
+            self._neighbors["left"] == left
+            and self._neighbors["right"] == right
+            and self._neighbors["top"] == top
+            and self._neighbors["bottom"] == bottom
+        ):
+            return
+        self._neighbors["left"] = left
+        self._neighbors["right"] = right
+        self._neighbors["top"] = top
+        self._neighbors["bottom"] = bottom
         self.update()
 
     def paint(
@@ -222,25 +244,63 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
             outline_vertical.setDashOffset(vertical_offset)
             outline_horizontal.setDashOffset(horizontal_offset)
 
-        painter.setPen(outline_vertical)
-        painter.drawLine(
-            QtCore.QPointF(page_rect.left(), page_rect.top()),
-            QtCore.QPointF(page_rect.left(), page_rect.bottom()),
+        transition_vertical = QtGui.QPen(outline_vertical)
+        transition_horizontal = QtGui.QPen(outline_horizontal)
+        transition_vertical.setColor(QtGui.QColor(0, 0, 0, 160))
+        transition_horizontal.setColor(QtGui.QColor(0, 0, 0, 160))
+
+        has_left_neighbor = self._neighbors["left"]
+        has_right_neighbor = self._neighbors["right"]
+        has_top_neighbor = self._neighbors["top"]
+        has_bottom_neighbor = self._neighbors["bottom"]
+
+        edge_segments: list[tuple[str, QtCore.QPointF, QtCore.QPointF]] = []
+        if not has_left_neighbor:
+            edge_segments.append(
+                (
+                    "left",
+                    QtCore.QPointF(page_rect.left(), page_rect.top()),
+                    QtCore.QPointF(page_rect.left(), page_rect.bottom()),
+                )
+            )
+        edge_segments.append(
+            (
+                "right",
+                QtCore.QPointF(page_rect.right(), page_rect.top()),
+                QtCore.QPointF(page_rect.right(), page_rect.bottom()),
+            )
         )
-        painter.drawLine(
-            QtCore.QPointF(page_rect.right(), page_rect.top()),
-            QtCore.QPointF(page_rect.right(), page_rect.bottom()),
+        if not has_top_neighbor:
+            edge_segments.append(
+                (
+                    "top",
+                    QtCore.QPointF(page_rect.left(), page_rect.top()),
+                    QtCore.QPointF(page_rect.right(), page_rect.top()),
+                )
+            )
+        edge_segments.append(
+            (
+                "bottom",
+                QtCore.QPointF(page_rect.left(), page_rect.bottom()),
+                QtCore.QPointF(page_rect.right(), page_rect.bottom()),
+            )
         )
 
-        painter.setPen(outline_horizontal)
-        painter.drawLine(
-            QtCore.QPointF(page_rect.left(), page_rect.top()),
-            QtCore.QPointF(page_rect.right(), page_rect.top()),
-        )
-        painter.drawLine(
-            QtCore.QPointF(page_rect.left(), page_rect.bottom()),
-            QtCore.QPointF(page_rect.right(), page_rect.bottom()),
-        )
+        for edge, start, end in edge_segments:
+            if edge in ("left", "right"):
+                pen = (
+                    transition_vertical
+                    if edge in self._transition_edges
+                    else outline_vertical
+                )
+            else:
+                pen = (
+                    transition_horizontal
+                    if edge in self._transition_edges
+                    else outline_horizontal
+                )
+            painter.setPen(pen)
+            painter.drawLine(start, end)
 
         painter.restore()
 
@@ -318,28 +378,6 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
 
         _draw_lines(self._grid_px, "vertical", False)
         _draw_lines(self._grid_px, "horizontal", False)
-
-        if self._transition_edges:
-            transition_pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 120))
-            transition_pen.setStyle(QtCore.Qt.PenStyle.DashLine)
-            transition_pen.setWidthF(0)
-            painter.setPen(transition_pen)
-            if "left" in self._transition_edges:
-                painter.drawLine(
-                    page_rect.left(), page_rect.top(), page_rect.left(), page_rect.bottom()
-                )
-            if "right" in self._transition_edges:
-                painter.drawLine(
-                    page_rect.right(), page_rect.top(), page_rect.right(), page_rect.bottom()
-                )
-            if "top" in self._transition_edges:
-                painter.drawLine(
-                    page_rect.left(), page_rect.top(), page_rect.right(), page_rect.top()
-                )
-            if "bottom" in self._transition_edges:
-                painter.drawLine(
-                    page_rect.left(), page_rect.bottom(), page_rect.right(), page_rect.bottom()
-                )
 
         painter.restore()
 
@@ -458,6 +496,13 @@ class CanvasView(QtWidgets.QGraphicsView):
         master_page = self._pages.get(self._master_index)
         if master_page is None:
             return
+        for (row, col), page in self._pages.items():
+            page.set_outline_neighbors(
+                left=(row, col - 1) in self._pages,
+                right=(row, col + 1) in self._pages,
+                top=(row - 1, col) in self._pages,
+                bottom=(row + 1, col) in self._pages,
+            )
         master_edges: set[str] = set()
         master_row, master_col = self._master_index
         for (row, col), page in self._pages.items():
