@@ -161,6 +161,9 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
         self.index: tuple[int, int] = index
         self._master_origin = QtCore.QPointF(master_origin)
         self._transition_edges: set[str] = set()
+        self._outline_pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 120))
+        self._outline_pen.setStyle(QtCore.Qt.PenStyle.DashLine)
+        self._outline_pen.setWidthF(0)
 
     def set_grid_spacing(self, grid_px: int, subgrid_px: int) -> None:
         self._grid_px = max(1, grid_px)
@@ -191,11 +194,18 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
     ) -> None:
         super().paint(painter, option, widget)
 
+        page_rect = self.rect()
+
+        painter.save()
+        painter.setPen(self._outline_pen)
+        painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+        painter.drawRect(page_rect)
+        painter.restore()
+
         if not self._grid_visible:
             return
 
         painter.save()
-        page_rect = self.rect()
         painter.setClipRect(page_rect)
 
         origin_scene = self.scenePos()
