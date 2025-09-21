@@ -84,7 +84,16 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
     try:
         with open(path, "r", encoding="utf-8") as f:
             lines = f.readlines()
-        scene.clear()
+
+        cleared = False
+        view = scene.parent()
+        if view is not None:
+            clear_method = getattr(view, "clear_canvas", None)
+            if callable(clear_method):
+                clear_method()
+                cleared = True
+        if not cleared:
+            scene.clear()
         pending_split: dict[str, Any] | None = None
         pending_line: LineItem | None = None
         for raw in lines:
@@ -336,6 +345,10 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     item.setRotation(_parse_rotate(kwargs["transform"]))
                 item.setData(0, "Text")
                 scene.addItem(item)
+        if view is not None:
+            ensure_pages = getattr(view, "ensure_pages_for_scene_items", None)
+            if callable(ensure_pages):
+                ensure_pages()
         if parent is not None:
             parent.statusBar().showMessage(f"Loaded: {path}", 5000)
     except Exception as e:

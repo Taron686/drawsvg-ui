@@ -647,6 +647,13 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._prune_empty_pages()
         self._update_scene_rect()
 
+    def ensure_pages_for_scene_items(self) -> None:
+        """Ensure every top-level scene item has an A4 page beneath it."""
+        scene = self.scene()
+        if scene is None:
+            return
+        self._ensure_pages_for_items(scene.items())
+
     def drawBackground(self, painter: QtGui.QPainter, rect: QtCore.QRectF):
         super().drawBackground(painter, rect)
 
