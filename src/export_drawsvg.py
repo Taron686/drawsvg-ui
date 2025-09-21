@@ -435,15 +435,23 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             if color.alphaF() < 1.0:
                 attrs.append(f"fill_opacity={color.alphaF():.2f}")
             attr_str = ", ".join(attrs)
+
+            # QTextDocument verwendet standardmäßig einen Rand von 4px um den
+            # Text, der auch im Canvas sichtbar ist. Beim Export müssen wir
+            # diesen Rand berücksichtigen, damit die Position von Text im SVG
+            # mit der Darstellung im Canvas übereinstimmt.
+            doc_margin = it.document().documentMargin() if it.document() else 0.0
             fm = QtGui.QFontMetrics(font)
-            baseline = y + fm.ascent() * s
+            baseline = y + (doc_margin + fm.ascent()) * s
+            text_x = x + doc_margin * s
+
             if abs(ang) > 1e-6:
                 lines.append(
-                    f"    _text = draw.Text('{text}', {size:.2f}, {x:.2f}, {baseline:.2f}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
+                    f"    _text = draw.Text('{text}', {size:.2f}, {text_x:.2f}, {baseline:.2f}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
                 )
             else:
                 lines.append(
-                    f"    _text = draw.Text('{text}', {size:.2f}, {x:.2f}, {baseline:.2f}, {attr_str})"
+                    f"    _text = draw.Text('{text}', {size:.2f}, {text_x:.2f}, {baseline:.2f}, {attr_str})"
                 )
             lines.append("    d.append(_text)")
             lines.append("")
