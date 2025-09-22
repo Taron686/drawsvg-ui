@@ -17,8 +17,15 @@ from items import (
     DiamondItem,
 )
 
+from constants import PEN_STYLE_DASH_ARRAYS
+
 
 _ROT_RE = re.compile(r"rotate\(([-0-9.]+)\s+([-0-9.]+)\s+([-0-9.]+)\)")
+_DASH_ARRAY_TO_STYLE = {
+    tuple(round(val, 2) for val in pattern): style
+    for style, pattern in PEN_STYLE_DASH_ARRAYS.items()
+    if pattern
+}
 
 
 def _parse_call(line: str) -> tuple[list[Any], dict[str, Any]]:
@@ -55,7 +62,32 @@ def _apply_style(item: QtWidgets.QGraphicsItem, kwargs: dict[str, Any]) -> None:
             pen.setColor(QtGui.QColor(kwargs["stroke"]))
         if "stroke_width" in kwargs:
             pen.setWidthF(float(kwargs["stroke_width"]))
+        dash_pattern = None
+        dash_value = kwargs.get("stroke_dasharray")
+        if dash_value is not None:
+            if isinstance(dash_value, (list, tuple)):
+                dash_pattern = [float(v) for v in dash_value]
+            else:
+                parts = str(dash_value).replace(",", " ").split()
+                try:
+                    dash_pattern = [float(part) for part in parts]
+                except ValueError:
+                    dash_pattern = []
+        style_to_apply: QtCore.Qt.PenStyle | None = None
+        if dash_pattern is not None:
+            if not dash_pattern:
+                style_to_apply = QtCore.Qt.PenStyle.SolidLine
+            else:
+                rounded = tuple(round(val, 2) for val in dash_pattern)
+                style_to_apply = _DASH_ARRAY_TO_STYLE.get(rounded)
+        if style_to_apply is not None:
+            pen.setStyle(style_to_apply)
+        elif dash_pattern:
+            pen.setStyle(QtCore.Qt.PenStyle.CustomDashLine)
+            pen.setDashPattern(dash_pattern)
         item.setPen(pen)
+        if isinstance(item, LineItem) and style_to_apply is not None:
+            item.set_pen_style(style_to_apply)
     elif isinstance(item, TextItem):
         if "fill" in kwargs:
             color = QtGui.QColor(kwargs["fill"])
