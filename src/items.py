@@ -256,7 +256,7 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
         elif isinstance(parent, QtWidgets.QGraphicsEllipseItem):
             parent.setRect(0, 0, new_w, new_h)
 
-        elif isinstance(parent, (TriangleItem, DiamondItem)):
+        elif isinstance(parent, (TriangleItem, DiamondItem, BlockArrowItem)):
             parent.set_size(new_w, new_h, adjust_origin=False)
 
         else:
