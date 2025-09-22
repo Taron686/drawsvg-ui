@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from constants import SHAPES, PEN_STYLE_DASH_ARRAYS
-from items import LineItem, SplitRoundedRectItem, DiamondItem
+from items import LineItem, SplitRoundedRectItem, DiamondItem, BlockArrowItem
 
 
 def _format_item_attributes(
@@ -359,6 +359,33 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     f"    _diamond = draw.Lines({coord_str}, close=True, {attr_str})"
                 )
             lines.append("    d.append(_diamond)")
+            lines.append("")
+
+        elif shape == "Block Arrow" and isinstance(it, BlockArrowItem):
+            poly = it.polygon()
+            x = it.pos().x()
+            y = it.pos().y()
+            pts: list[float] = []
+            for p in poly:
+                pts.extend([x + p.x(), y + p.y()])
+            br = it.boundingRect()
+            cx = x + br.width() / 2.0
+            cy = y + br.height() / 2.0
+            ang = it.rotation()
+            attr_str = _format_item_attributes(it)
+            lines.append(
+                f"    # BlockArrow head_ratio={it.head_ratio():.6f} shaft_ratio={it.shaft_ratio():.6f}"
+            )
+            coord_str = ", ".join(f"{v:.2f}" for v in pts)
+            if abs(ang) > 1e-6:
+                lines.append(
+                    f"    _block_arrow = draw.Lines({coord_str}, close=True, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
+                )
+            else:
+                lines.append(
+                    f"    _block_arrow = draw.Lines({coord_str}, close=True, {attr_str})"
+                )
+            lines.append("    d.append(_block_arrow)")
             lines.append("")
 
         elif shape in ("Line", "Arrow") and isinstance(it, LineItem):

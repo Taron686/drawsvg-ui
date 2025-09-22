@@ -15,6 +15,7 @@ from items import (
     TextItem,
     TriangleItem,
     DiamondItem,
+    BlockArrowItem,
 )
 
 from constants import PEN_STYLE_DASH_ARRAYS
@@ -49,7 +50,7 @@ def _parse_call(line: str) -> tuple[list[Any], dict[str, Any]]:
 
 
 def _apply_style(item: QtWidgets.QGraphicsItem, kwargs: dict[str, Any]) -> None:
-    if isinstance(item, (QtWidgets.QGraphicsRectItem, QtWidgets.QGraphicsEllipseItem, LineItem, TriangleItem, DiamondItem)):
+    if isinstance(item, (QtWidgets.QGraphicsRectItem, QtWidgets.QGraphicsEllipseItem, LineItem, TriangleItem, DiamondItem, BlockArrowItem)):
         if kwargs.get("fill") == "none":
             item.setBrush(QtCore.Qt.BrushStyle.NoBrush)
         elif "fill" in kwargs:
@@ -127,11 +128,13 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
         if not cleared:
             scene.clear()
         pending_split: dict[str, Any] | None = None
+        pending_block: dict[str, Any] | None = None
         pending_line: LineItem | None = None
         for raw in lines:
             line = raw.strip()
             if not line:
                 pending_split = None
+                pending_block = None
                 pending_line = None
                 continue
             if line.startswith("#"):
@@ -146,6 +149,17 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                             value = value[1:-1]
                         info[key] = value
                     pending_split = info
+                elif line.startswith("# BlockArrow"):
+                    info: dict[str, Any] = {}
+                    for part in line.split()[2:]:
+                        if "=" not in part:
+                            continue
+                        key, value = part.split("=", 1)
+                        value = value.rstrip(",")
+                        if value.startswith("'") and value.endswith("'"):
+                            value = value[1:-1]
+                        info[key] = value
+                    pending_block = info
                 elif line.startswith("# Arrowheads:") and pending_line is not None:
                     comment = line.split(":", 1)[1]
                     start_flag = False
@@ -283,6 +297,37 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     item.setRotation(_parse_rotate(kwargs["transform"]))
                 item.setData(0, "Diamond")
                 scene.addItem(item)
+            elif line.startswith("_block_arrow = draw.Lines("):
+                args, kwargs = _parse_call(line)
+                coords = [float(a) for a in args]
+                xs = coords[0::2]
+                ys = coords[1::2]
+                x = min(xs)
+                y = min(ys)
+                w = max(xs) - x
+                h = max(ys) - y
+                item = BlockArrowItem(x, y, w, h)
+                _apply_style(item, kwargs)
+                if pending_block is not None:
+                    head_ratio = pending_block.get("head_ratio")
+                    shaft_ratio = pending_block.get("shaft_ratio")
+                    if head_ratio is not None:
+                        try:
+                            item.set_head_ratio(float(head_ratio), update_handles=False)
+                        except (TypeError, ValueError):
+                            pass
+                    if shaft_ratio is not None:
+                        try:
+                            item.set_shaft_ratio(float(shaft_ratio))
+                        except (TypeError, ValueError):
+                            item.update_handles()
+                    else:
+                        item.update_handles()
+                if "transform" in kwargs:
+                    item.setRotation(_parse_rotate(kwargs["transform"]))
+                item.setData(0, "Block Arrow")
+                scene.addItem(item)
+                pending_block = None
             elif line.startswith("_path = draw.Path("):
                 args, kwargs = _parse_call(line)
                 if args:
