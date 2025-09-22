@@ -1031,20 +1031,68 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         for h in self._handles + self._mid_handles:
             h.hide()
 
-    def _draw_arrow_head(self, painter: QtGui.QPainter, start: QtCore.QPointF, end: QtCore.QPointF) -> None:
+    def _arrow_head_geometry(
+        self, start: QtCore.QPointF, end: QtCore.QPointF
+    ) -> tuple[QtGui.QPolygonF, QtCore.QPointF]:
         line = QtCore.QLineF(start, end)
-        angle = math.atan2(-line.dy(), line.dx())
         size = self._arrow_size
-        p1 = end + QtCore.QPointF(math.sin(angle - math.pi / 3) * size, math.cos(angle - math.pi / 3) * size)
-        p2 = end + QtCore.QPointF(math.sin(angle - math.pi + math.pi / 3) * size, math.cos(angle - math.pi + math.pi / 3) * size)
-        painter.drawPolygon(QtGui.QPolygonF([end, p1, p2]))
+        tip = QtCore.QPointF(end)
+        if line.length() <= 1e-6:
+            polygon = QtGui.QPolygonF([tip, tip, tip])
+            return polygon, tip
+
+        angle = math.atan2(-line.dy(), line.dx())
+        left_point = tip + QtCore.QPointF(
+            math.sin(angle - math.pi / 3.0) * size,
+            math.cos(angle - math.pi / 3.0) * size,
+        )
+        right_point = tip + QtCore.QPointF(
+            math.sin(angle - math.pi + math.pi / 3.0) * size,
+            math.cos(angle - math.pi + math.pi / 3.0) * size,
+        )
+        base_center = QtCore.QPointF(
+            (left_point.x() + right_point.x()) / 2.0,
+            (left_point.y() + right_point.y()) / 2.0,
+        )
+        polygon = QtGui.QPolygonF([tip, left_point, right_point])
+        return polygon, base_center
+
+    def _draw_arrow_head(
+        self, painter: QtGui.QPainter, start: QtCore.QPointF, end: QtCore.QPointF
+    ) -> None:
+        polygon, _ = self._arrow_head_geometry(start, end)
+        painter.drawPolygon(polygon)
 
     def paint(self, painter, option, widget=None):
-        opt = QtWidgets.QStyleOptionGraphicsItem(option)
-        opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
-        super().paint(painter, opt, widget)
         pts = self._points
+
+        arrow_polygons: list[QtGui.QPolygonF] = []
         if self.arrow_start or self.arrow_end:
+            shaft_points = [QtCore.QPointF(p) for p in pts]
+            if len(shaft_points) >= 2:
+                if self.arrow_start:
+                    start_poly, start_base = self._arrow_head_geometry(pts[1], pts[0])
+                    arrow_polygons.append(start_poly)
+                    shaft_points[0] = start_base
+                if self.arrow_end:
+                    end_poly, end_base = self._arrow_head_geometry(pts[-2], pts[-1])
+                    arrow_polygons.append(end_poly)
+                    shaft_points[-1] = end_base
+                shaft_path = QtGui.QPainterPath(shaft_points[0])
+                for point in shaft_points[1:]:
+                    shaft_path.lineTo(point)
+            else:
+                shaft_path = QtGui.QPainterPath(self.path())
+        else:
+            shaft_path = QtGui.QPainterPath(self.path())
+
+        painter.save()
+        painter.setPen(self.pen())
+        painter.setBrush(self.brush())
+        painter.drawPath(shaft_path)
+        painter.restore()
+
+        if arrow_polygons:
             painter.save()
             arrow_pen = QtGui.QPen(self.pen())
             if arrow_pen.style() != QtCore.Qt.PenStyle.SolidLine:
@@ -1052,20 +1100,17 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
             arrow_pen.setJoinStyle(QtCore.Qt.PenJoinStyle.MiterJoin)
             painter.setPen(arrow_pen)
             painter.setBrush(self.pen().color())
-            if self.arrow_start and len(pts) >= 2:
-                self._draw_arrow_head(painter, pts[1], pts[0])
-            if self.arrow_end and len(pts) >= 2:
-                self._draw_arrow_head(painter, pts[-2], pts[-1])
+            for poly in arrow_polygons:
+                painter.drawPolygon(poly)
             painter.restore()
+
         if _should_draw_selection(self):
             painter.save()
             painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-            painter.drawPath(self.path())
-            if self.arrow_start and len(pts) >= 2:
-                self._draw_arrow_head(painter, pts[1], pts[0])
-            if self.arrow_end and len(pts) >= 2:
-                self._draw_arrow_head(painter, pts[-2], pts[-1])
+            painter.drawPath(shaft_path)
+            for poly in arrow_polygons:
+                painter.drawPolygon(poly)
             painter.restore()
 
 
