@@ -1309,6 +1309,34 @@ class CanvasView(QtWidgets.QGraphicsView):
 
             actions[end_action] = end_callback
 
+        def add_line_style_actions() -> None:
+            style_menu = menu.addMenu("Line style")
+            action_group = QtGui.QActionGroup(menu)
+            action_group.setExclusive(True)
+            current_style = item.pen().style()
+
+            def make_action(text: str, style: QtCore.Qt.PenStyle) -> None:
+                act = style_menu.addAction(text)
+                act.setCheckable(True)
+                act.setChecked(current_style == style)
+                action_group.addAction(act)
+
+                def callback(item=item, style=style) -> None:
+                    setter = getattr(item, "set_pen_style", None)
+                    if callable(setter):
+                        setter(style)
+                    else:
+                        pen = QtGui.QPen(item.pen())
+                        pen.setStyle(style)
+                        item.setPen(pen)
+                        item.update()
+
+                actions[act] = callback
+
+            make_action("Solid", QtCore.Qt.PenStyle.SolidLine)
+            make_action("Dashed", QtCore.Qt.PenStyle.DashLine)
+            make_action("Dotted", QtCore.Qt.PenStyle.DotLine)
+
         def add_text_actions() -> None:
             text_color_action, text_color_callback = self._create_color_action(
                 menu,
@@ -1436,6 +1464,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             add_stroke_actions()
         elif isinstance(item, LineItem):
             add_arrow_actions()
+            add_line_style_actions()
             menu.addSeparator()
             add_stroke_actions()
         elif isinstance(item, TextItem):

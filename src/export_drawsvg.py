@@ -3,7 +3,7 @@ from collections.abc import Iterable
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from constants import SHAPES
+from constants import SHAPES, PEN_STYLE_DASH_ARRAYS
 from items import LineItem, SplitRoundedRectItem, DiamondItem
 
 
@@ -47,11 +47,24 @@ def _format_item_attributes(
         pen = pen_getter()
         attrs.append(f"stroke='{pen.color().name()}'")
         attrs.append(f"stroke_width={pen.widthF():.2f}")
+        dash_str = _pen_dash_array_string(pen)
+        if dash_str:
+            attrs.append(f"stroke_dasharray='{dash_str}'")
 
     if extra_attrs:
         attrs.extend(extra_attrs)
 
     return ", ".join(attrs)
+
+
+def _pen_dash_array_string(pen: QtGui.QPen) -> str | None:
+    dash_array = PEN_STYLE_DASH_ARRAYS.get(pen.style())
+    if dash_array:
+        return " ".join(f"{value:.2f}" for value in dash_array)
+    pattern = pen.dashPattern()
+    if pattern:
+        return " ".join(f"{value:.2f}" for value in pattern)
+    return None
 
 
 def _painter_path_to_svg(path: QtGui.QPainterPath) -> str:
@@ -363,6 +376,9 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 f"stroke_width={pen.widthF():.2f}",
                 "fill='none'",
             ]
+            dash_str = _pen_dash_array_string(pen)
+            if dash_str:
+                attrs.append(f"stroke_dasharray='{dash_str}'")
             attr_str = ", ".join(attrs)
             transform_suffix = ""
             if abs(ang) > 1e-6:

@@ -915,7 +915,7 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
         )
-        self.setPen(PEN_NORMAL)
+        self.setPen(QtGui.QPen(PEN_NORMAL))
         self.arrow_start = arrow_start
         self.arrow_end = arrow_end
         self._arrow_size = 10.0
@@ -974,6 +974,17 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
             self.prepareGeometryChange()
             self.arrow_end = val
             self.update()
+
+    def set_pen_style(self, style: QtCore.Qt.PenStyle) -> None:
+        pen = QtGui.QPen(self.pen())
+        if pen.style() != style:
+            pen.setStyle(style)
+        if style == QtCore.Qt.PenStyle.DotLine:
+            pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
+        elif pen.capStyle() == QtCore.Qt.PenCapStyle.RoundCap:
+            pen.setCapStyle(QtCore.Qt.PenCapStyle.SquareCap)
+        self.setPen(pen)
+        self.update()
 
     def boundingRect(self):  # type: ignore[override]
         br = super().boundingRect()
