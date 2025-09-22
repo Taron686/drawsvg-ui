@@ -1046,7 +1046,11 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         pts = self._points
         if self.arrow_start or self.arrow_end:
             painter.save()
-            painter.setPen(self.pen())
+            arrow_pen = QtGui.QPen(self.pen())
+            if arrow_pen.style() != QtCore.Qt.PenStyle.SolidLine:
+                arrow_pen.setStyle(QtCore.Qt.PenStyle.SolidLine)
+            arrow_pen.setJoinStyle(QtCore.Qt.PenJoinStyle.MiterJoin)
+            painter.setPen(arrow_pen)
             painter.setBrush(self.pen().color())
             if self.arrow_start and len(pts) >= 2:
                 self._draw_arrow_head(painter, pts[1], pts[0])
