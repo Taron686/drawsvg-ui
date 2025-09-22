@@ -21,6 +21,7 @@ from items import (
     TextItem,
     TriangleItem,
     DiamondItem,
+    BlockArrowItem,
     GroupItem,
     ResizableItem,
     ResizeHandle,
@@ -730,6 +731,8 @@ class CanvasView(QtWidgets.QGraphicsView):
             item = LineItem(x, y, w)
         elif normalized == "Arrow":
             item = LineItem(x, y, w, arrow_end=True)
+        elif normalized == "Block Arrow":
+            item = BlockArrowItem(x, y, w, h)
         elif normalized == "Text":
             item = TextItem(x, y, w, h)
         else:

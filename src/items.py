@@ -256,7 +256,7 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
         elif isinstance(parent, QtWidgets.QGraphicsEllipseItem):
             parent.setRect(0, 0, new_w, new_h)
 
-        elif isinstance(parent, (TriangleItem, DiamondItem)):
+        elif isinstance(parent, (TriangleItem, DiamondItem, BlockArrowItem)):
             parent.set_size(new_w, new_h, adjust_origin=False)
 
         else:
@@ -338,6 +338,54 @@ class SplitDividerHandle(QtWidgets.QGraphicsEllipseItem):
         parent = self.parentItem()
         if parent is not None:
             parent._set_divider_from_scene_pos(event.scenePos())  # type: ignore[attr-defined]
+        event.accept()
+
+    def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
+        parent = self.parentItem()
+        if parent is not None and self._parent_was_movable:
+            parent.setFlag(
+                QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
+                True,
+            )
+        self._parent_was_movable = False
+        event.accept()
+
+
+class BlockArrowHandle(QtWidgets.QGraphicsEllipseItem):
+    """Orangefarbene Spezial-Handles für das BlockArrowItem."""
+
+    def __init__(self, parent: "BlockArrowItem", role: str):
+        radius = DIVIDER_HANDLE_DIAMETER / 2.0
+        super().__init__(-radius, -radius, DIVIDER_HANDLE_DIAMETER, DIVIDER_HANDLE_DIAMETER, parent)
+        self._role = role
+        self.setBrush(DIVIDER_HANDLE_COLOR)
+        self.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
+        self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
+        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+        if role == "head":
+            self.setCursor(QtCore.Qt.CursorShape.SizeHorCursor)
+        else:
+            self.setCursor(QtCore.Qt.CursorShape.SizeVerCursor)
+        self._parent_was_movable = False
+
+    def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
+        parent = self.parentItem()
+        if parent is not None:
+            flags = parent.flags()
+            self._parent_was_movable = bool(
+                flags & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            )
+            if self._parent_was_movable:
+                parent.setFlag(
+                    QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
+                    False,
+                )
+        event.accept()
+
+    def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
+        parent: "BlockArrowItem" = self.parentItem()  # type: ignore[assignment]
+        if parent is not None:
+            parent._handle_special_drag(self._role, event)
         event.accept()
 
     def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
@@ -894,6 +942,208 @@ class DiamondItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
             rect = self.polygon().boundingRect()
             painter.drawRect(rect)
+            painter.restore()
+
+
+class BlockArrowItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
+    """Rechts gerichteter Blockpfeil mit zwei spezialisierten Orange-Handles."""
+
+    def __init__(self, x: float, y: float, w: float, h: float):
+        QtWidgets.QGraphicsPolygonItem.__init__(self)
+        ResizableItem.__init__(self)
+        self._w = max(1.0, w)
+        self._h = max(1.0, h)
+        self._head_ratio = 0.3
+        self._shaft_ratio = 0.45
+        self._head_handle: BlockArrowHandle | None = None
+        self._body_handle: BlockArrowHandle | None = None
+        self._update_polygon()
+        self.setPos(x, y)
+        self.setTransformOriginPoint(self._w / 2.0, self._h / 2.0)
+        self.setFlags(
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
+        )
+        self.setPen(PEN_NORMAL)
+        self.setBrush(DEFAULT_FILL)
+
+        self._head_handle = BlockArrowHandle(self, "head")
+        self._body_handle = BlockArrowHandle(self, "body")
+        self._head_handle.setZValue(1.0)
+        self._body_handle.setZValue(1.0)
+        self._head_handle.hide()
+        self._body_handle.hide()
+        self._update_custom_handles()
+
+    def width(self) -> float:
+        return self._w
+
+    def height(self) -> float:
+        return self._h
+
+    def head_ratio(self) -> float:
+        return self._head_ratio
+
+    def shaft_ratio(self) -> float:
+        return self._shaft_ratio
+
+    def set_head_ratio(self, ratio: float, *, update_handles: bool = True) -> None:
+        clamped = self._clamp_head_ratio(ratio)
+        if not math.isclose(self._head_ratio, clamped, abs_tol=1e-4):
+            self._head_ratio = clamped
+            self._update_polygon()
+            if update_handles:
+                self.update_handles()
+        elif update_handles:
+            self._update_custom_handles()
+
+    def set_shaft_ratio(self, ratio: float, *, update_handles: bool = True) -> None:
+        clamped = self._clamp_shaft_ratio(ratio)
+        if not math.isclose(self._shaft_ratio, clamped, abs_tol=1e-4):
+            self._shaft_ratio = clamped
+            self._update_polygon()
+            if update_handles:
+                self.update_handles()
+        elif update_handles:
+            self._update_custom_handles()
+
+    def set_size(self, w: float, h: float, adjust_origin: bool = True) -> None:
+        self._w = max(1.0, w)
+        self._h = max(1.0, h)
+        self._head_ratio = self._clamp_head_ratio(self._head_ratio)
+        self._shaft_ratio = self._clamp_shaft_ratio(self._shaft_ratio)
+        self._update_polygon()
+        if adjust_origin:
+            self.setTransformOriginPoint(self._w / 2.0, self._h / 2.0)
+        self.update_handles()
+
+    def _clamp_head_ratio(self, ratio: float | None = None) -> float:
+        w = max(self._w, 1.0)
+        min_head_px = min(w - 1.0, max(12.0, w * 0.1))
+        min_tail_px = max(12.0, w * 0.1)
+        min_ratio = min(0.95, max(0.05, min_head_px / w))
+        max_ratio = max(0.05, min(0.95, 1.0 - (min_tail_px / w)))
+        if min_ratio > max_ratio:
+            mid = 0.5
+            min_ratio = max_ratio = mid
+        value = self._head_ratio if ratio is None else ratio
+        return max(min_ratio, min(max_ratio, value))
+
+    def _clamp_shaft_ratio(self, ratio: float | None = None) -> float:
+        h = max(self._h, 1.0)
+        min_shaft_px = max(12.0, h * 0.15)
+        min_ratio = min(1.0, max(0.1, min_shaft_px / h))
+        value = self._shaft_ratio if ratio is None else ratio
+        return max(min_ratio, min(1.0, value))
+
+    def _head_width(self) -> float:
+        return self._w * self._clamp_head_ratio(self._head_ratio)
+
+    def _shaft_bounds(self) -> tuple[float, float]:
+        shaft_h = self._h * self._clamp_shaft_ratio(self._shaft_ratio)
+        top = (self._h - shaft_h) / 2.0
+        return top, top + shaft_h
+
+    def _update_polygon(self) -> None:
+        self.prepareGeometryChange()
+        w = self._w
+        h = self._h
+        head_w = self._head_width()
+        shaft_top, shaft_bottom = self._shaft_bounds()
+        poly = QtGui.QPolygonF(
+            [
+                QtCore.QPointF(0.0, shaft_top),
+                QtCore.QPointF(w - head_w, shaft_top),
+                QtCore.QPointF(w - head_w, 0.0),
+                QtCore.QPointF(w, h / 2.0),
+                QtCore.QPointF(w - head_w, h),
+                QtCore.QPointF(w - head_w, shaft_bottom),
+                QtCore.QPointF(0.0, shaft_bottom),
+            ]
+        )
+        self.setPolygon(poly)
+        self.setTransformOriginPoint(self._w / 2.0, self._h / 2.0)
+        self._update_custom_handles()
+
+    def _update_custom_handles(self) -> None:
+        if not (self._head_handle and self._body_handle):
+            return
+        head_w = self._head_width()
+        shaft_top, shaft_bottom = self._shaft_bounds()
+        tail_width = self._w - head_w
+        margin = DIVIDER_HANDLE_DIAMETER / 2.0
+        head_pos = QtCore.QPointF(self._w - head_w, shaft_top - margin)
+        body_pos = QtCore.QPointF(
+            max(0.0, tail_width / 2.0), shaft_bottom + margin
+        )
+        self._head_handle.setPos(head_pos)
+        self._body_handle.setPos(body_pos)
+
+    def _handle_special_drag(self, role: str, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
+        scene_pos = event.scenePos()
+        if not (event.modifiers() & QtCore.Qt.KeyboardModifier.AltModifier):
+            scene_pos = snap_to_grid(self, scene_pos)
+        local = self.mapFromScene(scene_pos)
+        if role == "head":
+            self._apply_head_drag(local.x())
+        else:
+            self._apply_body_drag(local.y())
+
+    def _apply_head_drag(self, local_x: float) -> None:
+        w = self._w
+        if w <= 0:
+            return
+        min_tail = max(8.0, min(w - 8.0, w * 0.1))
+        min_head = max(8.0, w * 0.1)
+        max_x = max(min_tail, w - min_head)
+        min_x = min_tail
+        if max_x < min_x:
+            min_x = max_x = w / 2.0
+        clamped_x = max(min_x, min(local_x, max_x))
+        ratio = (w - clamped_x) / w
+        self.set_head_ratio(ratio)
+
+    def _apply_body_drag(self, local_y: float) -> None:
+        h = self._h
+        if h <= 0:
+            return
+        center = h / 2.0
+        min_shaft = max(8.0, h * 0.15)
+        min_bottom = center + min_shaft / 2.0
+        clamped_y = max(min_bottom, min(local_y, h))
+        shaft_height = (clamped_y - center) * 2.0
+        ratio = shaft_height / h
+        self.set_shaft_ratio(ratio)
+
+    def update_handles(self):  # type: ignore[override]
+        super().update_handles()
+        self._update_custom_handles()
+
+    def show_handles(self):  # type: ignore[override]
+        super().show_handles()
+        if self._head_handle:
+            self._head_handle.show()
+        if self._body_handle:
+            self._body_handle.show()
+
+    def hide_handles(self):  # type: ignore[override]
+        super().hide_handles()
+        if self._head_handle:
+            self._head_handle.hide()
+        if self._body_handle:
+            self._body_handle.hide()
+
+    def paint(self, painter, option, widget=None):
+        opt = QtWidgets.QStyleOptionGraphicsItem(option)
+        opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
+        super().paint(painter, opt, widget)
+        if _should_draw_selection(self):
+            painter.save()
+            painter.setPen(PEN_SELECTED)
+            painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+            painter.drawPolygon(self.polygon())
             painter.restore()
 
 

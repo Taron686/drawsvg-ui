@@ -162,6 +162,45 @@ def _build_shape_icon(name: str, size: QtCore.QSize) -> QtGui.QPixmap:
             ]
         )
         painter.drawPolygon(arrow_head)
+    elif lower_name == "block arrow":
+        dims = DEFAULTS.get(name)
+        draw_rect = rect
+        if dims and dims[1]:
+            draw_rect = _fit_rect_to_ratio(rect, dims[0] / dims[1])
+
+        head_frac = 0.32
+        head_width = draw_rect.width() * head_frac
+        shaft_frac = 0.45
+        shaft_height = draw_rect.height() * shaft_frac
+        shaft_top = draw_rect.center().y() - shaft_height / 2.0
+        shaft_bottom = draw_rect.center().y() + shaft_height / 2.0
+        head_base_x = draw_rect.right() - head_width
+
+        polygon = QtGui.QPolygonF(
+            [
+                QtCore.QPointF(draw_rect.left(), shaft_top),
+                QtCore.QPointF(head_base_x, shaft_top),
+                QtCore.QPointF(head_base_x, draw_rect.top()),
+                QtCore.QPointF(draw_rect.right(), draw_rect.center().y()),
+                QtCore.QPointF(head_base_x, draw_rect.bottom()),
+                QtCore.QPointF(head_base_x, shaft_bottom),
+                QtCore.QPointF(draw_rect.left(), shaft_bottom),
+            ]
+        )
+        painter.drawPolygon(polygon)
+
+        painter.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
+        painter.setBrush(QtGui.QColor("#d28b00"))
+        handle_radius = 3.0 * device_pixel_ratio
+        painter.drawEllipse(
+            QtCore.QPointF(head_base_x, shaft_top), handle_radius, handle_radius
+        )
+        tail_mid_x = draw_rect.left() + (head_base_x - draw_rect.left()) / 2.0
+        painter.drawEllipse(
+            QtCore.QPointF(tail_mid_x, shaft_bottom), handle_radius, handle_radius
+        )
+        painter.setBrush(DEFAULT_FILL)
+        painter.setPen(PEN_NORMAL)
     elif lower_name == "text":
         radius = 6 * device_pixel_ratio
         painter.drawRoundedRect(rect, radius, radius)

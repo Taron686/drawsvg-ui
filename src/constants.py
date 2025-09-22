@@ -11,6 +11,7 @@ SHAPES = (
     "Diamond",
     "Line",
     "Arrow",
+    "Block Arrow",
     "Text",
 )
 
@@ -24,6 +25,7 @@ DEFAULTS = {
     "Diamond":   (140.0, 140.0),   # w, h
     "Line":      (150.0, 0.0),     # length, (unused)
     "Arrow":     (150.0, 0.0),     # length, (unused)
+    "Block Arrow": (200.0, 120.0), # w, h
     "Text":      (100.0, 30.0),    # placeholder bbox
 }
 
