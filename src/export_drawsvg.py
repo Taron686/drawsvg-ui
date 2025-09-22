@@ -110,6 +110,9 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
     else:
         rect = scene.itemsBoundingRect()
 
+    padding = 5.0
+    rect = rect.adjusted(-padding, -padding, padding, padding)
+
     left = math.floor(rect.left())
     top = math.floor(rect.top())
     right = math.ceil(rect.right())
