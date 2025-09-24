@@ -14,6 +14,7 @@ SHAPES = (
     "Block Arrow",
     "Curvy Right Bracket",
     "Text",
+    "Folder Tree",
 )
 
 DEFAULTS = {
@@ -29,6 +30,7 @@ DEFAULTS = {
     "Block Arrow": (200.0, 120.0), # w, h
     "Curvy Right Bracket": (80.0, 160.0),  # w, h
     "Text":      (100.0, 30.0),    # placeholder bbox
+    "Folder Tree": (240.0, 200.0), # auto-sized, reference bbox
 }
 
 PEN_NORMAL = QtGui.QPen(QtGui.QColor("#222"), 2)

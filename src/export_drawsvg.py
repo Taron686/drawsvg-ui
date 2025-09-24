@@ -1,3 +1,4 @@
+import json
 import math
 from collections.abc import Iterable
 
@@ -5,11 +6,12 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from constants import SHAPES, PEN_STYLE_DASH_ARRAYS
 from items import (
-    LineItem,
-    SplitRoundedRectItem,
-    DiamondItem,
     BlockArrowItem,
     CurvyBracketItem,
+    DiamondItem,
+    FolderTreeItem,
+    LineItem,
+    SplitRoundedRectItem,
 )
 
 
@@ -540,6 +542,92 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     f"    _text = draw.Text('{text}', {size:.2f}, {text_x:.2f}, {baseline:.2f}, {attr_str})"
                 )
             lines.append("    d.append(_text)")
+            lines.append("")
+
+        elif shape == "Folder Tree" and isinstance(it, FolderTreeItem):
+            structure_json = json.dumps(it.structure(), ensure_ascii=False)
+            pos = it.pos()
+            rotation = it.rotation()
+            br = it.boundingRect()
+            transform = it.sceneTransform()
+            matrix = (
+                f"matrix({transform.m11():.6f} {transform.m12():.6f} {transform.m21():.6f} "
+                f"{transform.m22():.6f} {transform.m31():.2f} {transform.m32():.2f})"
+            )
+            lines.append(
+                f"    # FolderTree pos=({pos.x():.2f}, {pos.y():.2f}) size=({br.width():.2f}, {br.height():.2f}) rotation={rotation:.2f} structure={structure_json}"
+            )
+            lines.append(f"    _folder_tree = draw.Group(transform='{matrix}')")
+
+            line_pen = getattr(it, "_line_pen", QtGui.QPen(QtGui.QColor("#7a7a7a")))
+            folder_pen = getattr(it, "_folder_pen", QtGui.QPen(QtGui.QColor("#9bd97c")))
+            file_pen = getattr(it, "_file_pen", QtGui.QPen(QtGui.QColor("#f58db2")))
+            font = getattr(it, "_font", QtGui.QFont("Cascadia Code", 11))
+            fm = QtGui.QFontMetricsF(font)
+            dot_radius = float(getattr(it, "_dot_radius", 6.0))
+            offset = dot_radius - 1.0
+
+            order = list(getattr(it, "_order", []))
+            info_map = getattr(it, "_node_info", {})
+
+            line_attr = (
+                f"stroke='{line_pen.color().name()}', stroke_width={line_pen.widthF():.2f}"
+            )
+
+            for node in order:
+                node_parent = getattr(node, "parent", None)
+                if node_parent is None:
+                    continue
+                info = info_map.get(node)
+                parent_info = info_map.get(node_parent)
+                if not info or not parent_info:
+                    continue
+                parent_center = parent_info.get("dot_center")
+                child_center = info.get("dot_center")
+                if parent_center is None or child_center is None:
+                    continue
+                start = QtCore.QPointF(parent_center.x(), parent_center.y() + offset)
+                end = QtCore.QPointF(parent_center.x(), child_center.y())
+                lines.append(
+                    f"    _folder_tree.append(draw.Line({start.x():.2f}, {start.y():.2f}, {end.x():.2f}, {end.y():.2f}, {line_attr}))"
+                )
+                horizontal_start = QtCore.QPointF(parent_center.x(), child_center.y())
+                horizontal_end = QtCore.QPointF(
+                    child_center.x() - (dot_radius - 1.0), child_center.y()
+                )
+                lines.append(
+                    f"    _folder_tree.append(draw.Line({horizontal_start.x():.2f}, {horizontal_start.y():.2f}, {horizontal_end.x():.2f}, {horizontal_end.y():.2f}, {line_attr}))"
+                )
+
+            for node in order:
+                info = info_map.get(node)
+                if not info:
+                    continue
+                text_rect = info.get("text_rect")
+                if text_rect is None:
+                    continue
+                label = it._node_label(node)
+                text = repr(label)[1:-1]
+                text_x = text_rect.left()
+                center_y = text_rect.center().y()
+                baseline = center_y + (fm.ascent() - fm.descent()) / 2.0
+                pen = folder_pen if getattr(node, "is_folder", False) else file_pen
+                color = pen.color()
+                font_size = font.pointSizeF()
+                if font_size <= 0.0:
+                    font_size = float(font.pixelSize())
+                attrs = [
+                    f"fill='{color.name()}'",
+                    f"font_family='{font.family()}'",
+                ]
+                if color.alphaF() < 1.0:
+                    attrs.append(f"fill_opacity={color.alphaF():.2f}")
+                attr_str = ", ".join(attrs)
+                lines.append(
+                    f"    _folder_tree.append(draw.Text('{text}', {font_size:.2f}, {text_x:.2f}, {baseline:.2f}, {attr_str}))"
+                )
+
+            lines.append("    d.append(_folder_tree)")
             lines.append("")
 
     lines.append("    return d")

@@ -202,6 +202,67 @@ def _build_shape_icon(name: str, size: QtCore.QSize) -> QtGui.QPixmap:
         )
         painter.setBrush(DEFAULT_FILL)
         painter.setPen(PEN_NORMAL)
+    elif lower_name == "folder tree":
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+
+        branch_pen = QtGui.QPen(QtGui.QColor("#7a7a7a"))
+        branch_pen.setWidthF(max(1.0, PEN_NORMAL.widthF() * device_pixel_ratio * 0.7))
+        branch_pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
+        painter.setPen(branch_pen)
+        painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+
+        padding_x = rect.width() * 0.12
+        padding_y = rect.height() * 0.18
+        indent = rect.width() * 0.28
+        line_gap = rect.height() * 0.26
+
+        base_x = rect.left() + padding_x
+        level1_x = base_x + indent
+        level2_x = level1_x + indent
+
+        y0 = rect.top() + padding_y
+        y1 = y0 + line_gap
+        y2 = y1 + line_gap
+
+        painter.drawLine(QtCore.QPointF(base_x, y0), QtCore.QPointF(base_x, y2))
+        painter.drawLine(QtCore.QPointF(base_x, y0), QtCore.QPointF(level1_x, y0))
+        painter.drawLine(QtCore.QPointF(base_x, y1), QtCore.QPointF(level1_x, y1))
+        painter.drawLine(QtCore.QPointF(level1_x, y1), QtCore.QPointF(level2_x, y1))
+        painter.drawLine(QtCore.QPointF(base_x, y2), QtCore.QPointF(level1_x, y2))
+        painter.drawLine(QtCore.QPointF(level1_x, y2), QtCore.QPointF(level2_x, y2))
+
+        dot_radius = 3.0 * device_pixel_ratio
+        dot_color = QtGui.QColor("#f28c28")
+        painter.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
+        painter.setBrush(dot_color)
+        dot_centers = [
+            QtCore.QPointF(base_x, y0),
+            QtCore.QPointF(base_x, y1),
+            QtCore.QPointF(base_x, y2),
+            QtCore.QPointF(level1_x, y1),
+            QtCore.QPointF(level1_x, y2),
+            QtCore.QPointF(level2_x, y1),
+            QtCore.QPointF(level2_x, y2),
+        ]
+        for center in dot_centers:
+            painter.drawEllipse(center, dot_radius, dot_radius)
+
+        painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+        label_pen = QtGui.QPen(QtGui.QColor("#d7d7d7"))
+        label_pen.setWidthF(max(1.0, PEN_NORMAL.widthF() * device_pixel_ratio * 0.6))
+        painter.setPen(label_pen)
+
+        label_len = rect.width() * 0.32
+        text_offsets = [
+            (level1_x + dot_radius * 2.0 + 3.0, y0),
+            (level2_x + dot_radius * 2.0 + 3.0, y1),
+            (level2_x + dot_radius * 2.0 + 3.0, y2),
+        ]
+        for tx, ty in text_offsets:
+            painter.drawLine(QtCore.QPointF(tx, ty), QtCore.QPointF(tx + label_len, ty))
+
+        painter.setPen(PEN_NORMAL)
+        painter.setBrush(DEFAULT_FILL)
     elif lower_name == "curvy right bracket":
         dims = DEFAULTS.get(name)
         draw_rect = rect

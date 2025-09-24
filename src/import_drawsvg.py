@@ -2,21 +2,24 @@ from __future__ import annotations
 
 import ast
 import math
+import json
 import re
+from collections.abc import Mapping
 from typing import Any
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from items import (
-    RectItem,
+    BlockArrowItem,
+    CurvyBracketItem,
+    DiamondItem,
     EllipseItem,
+    FolderTreeItem,
     LineItem,
+    RectItem,
     SplitRoundedRectItem,
     TextItem,
     TriangleItem,
-    DiamondItem,
-    BlockArrowItem,
-    CurvyBracketItem,
 )
 
 from constants import DEFAULTS, PEN_STYLE_DASH_ARRAYS
@@ -174,6 +177,39 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                             value = value[1:-1]
                         info[key] = value
                     pending_bracket = info
+                elif line.startswith("# FolderTree"):
+                    info: dict[str, Any] = {}
+                    pos_match = re.search(r"pos=\(([-0-9.]+),\s*([-0-9.]+)\)", line)
+                    if pos_match:
+                        info["x"] = float(pos_match.group(1))
+                        info["y"] = float(pos_match.group(2))
+                    rot_match = re.search(r"rotation=([-0-9.]+)", line)
+                    if rot_match:
+                        info["rotation"] = float(rot_match.group(1))
+                    size_match = re.search(r"size=\(([-0-9.]+),\s*([-0-9.]+)\)", line)
+                    if size_match:
+                        info["w"] = float(size_match.group(1))
+                        info["h"] = float(size_match.group(2))
+                    struct_index = line.find("structure=")
+                    structure_data: Any = None
+                    if struct_index != -1:
+                        struct_text = line[struct_index + len("structure=") :].strip()
+                        try:
+                            structure_data = json.loads(struct_text)
+                        except json.JSONDecodeError:
+                            structure_data = None
+                    info["structure"] = structure_data
+                    x = float(info.get("x", 0.0))
+                    y = float(info.get("y", 0.0))
+                    w = float(info.get("w", DEFAULTS["Folder Tree"][0]))
+                    h = float(info.get("h", DEFAULTS["Folder Tree"][1]))
+                    structure = structure_data if isinstance(structure_data, Mapping) else None
+                    item = FolderTreeItem(x, y, w, h, structure)
+                    rotation = float(info.get("rotation", 0.0))
+                    if rotation:
+                        item.setRotation(rotation)
+                    item.setData(0, "Folder Tree")
+                    scene.addItem(item)
                 elif line.startswith("# Arrowheads:") and pending_line is not None:
                     comment = line.split(":", 1)[1]
                     start_flag = False
@@ -205,6 +241,8 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     if "origin" in kwargs and isinstance(kwargs["origin"], (tuple, list)):
                         ox, oy = map(float, kwargs["origin"][:2])
                     scene.setSceneRect(float(ox), float(oy), float(args[0]), float(args[1]))
+            elif line.startswith("_folder_tree"):
+                continue
             elif line.startswith("_split_rect = draw.Rectangle("):
                 args, kwargs = _parse_call(line)
                 x, y, w, h = map(float, args[:4])
