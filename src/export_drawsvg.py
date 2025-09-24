@@ -88,11 +88,19 @@ def _painter_path_to_svg(path: QtGui.QPainterPath) -> str:
             continue
         commands: list[str] = []
         points = list(poly)
+        closed = False
+        if len(points) >= 2:
+            first = points[0]
+            last = points[-1]
+            if math.hypot(first.x() - last.x(), first.y() - last.y()) <= 1e-4:
+                closed = True
+                points = points[:-1]
         start = points[0]
         commands.append(f"M {start.x():.2f} {start.y():.2f}")
         for point in points[1:]:
             commands.append(f"L {point.x():.2f} {point.y():.2f}")
-        commands.append("Z")
+        if closed:
+            commands.append("Z")
         segments.append(" ".join(commands))
     return " ".join(segments)
 
