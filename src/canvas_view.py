@@ -27,6 +27,7 @@ from items import (
     ResizableItem,
     ResizeHandle,
     RotationHandle,
+    FolderTreeItem,
 )
 
 # Minimum mouse movement (in scene coordinates) required before
@@ -738,6 +739,8 @@ class CanvasView(QtWidgets.QGraphicsView):
             item = CurvyBracketItem(x, y, w, h)
         elif normalized == "Text":
             item = TextItem(x, y, w, h)
+        elif normalized == "Folder Tree":
+            item = FolderTreeItem(x, y, w, h)
         else:
             return None
 
@@ -991,6 +994,9 @@ class CanvasView(QtWidgets.QGraphicsView):
             clone.setDefaultTextColor(item.defaultTextColor())
             br = clone.boundingRect()
             clone.setTransformOriginPoint(br.width() / 2.0, br.height() / 2.0)
+            clone.setScale(item.scale())
+        elif isinstance(item, FolderTreeItem):
+            clone = FolderTreeItem(item.x(), item.y(), 0.0, 0.0, structure=item.structure())
             clone.setScale(item.scale())
         else:
             return None
