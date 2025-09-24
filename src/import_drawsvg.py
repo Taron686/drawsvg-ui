@@ -16,9 +16,10 @@ from items import (
     TriangleItem,
     DiamondItem,
     BlockArrowItem,
+    CurvyBracketItem,
 )
 
-from constants import PEN_STYLE_DASH_ARRAYS
+from constants import DEFAULTS, PEN_STYLE_DASH_ARRAYS
 
 
 _ROT_RE = re.compile(r"rotate\(([-0-9.]+)\s+([-0-9.]+)\s+([-0-9.]+)\)")
@@ -129,12 +130,14 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             scene.clear()
         pending_split: dict[str, Any] | None = None
         pending_block: dict[str, Any] | None = None
+        pending_bracket: dict[str, Any] | None = None
         pending_line: LineItem | None = None
         for raw in lines:
             line = raw.strip()
             if not line:
                 pending_split = None
                 pending_block = None
+                pending_bracket = None
                 pending_line = None
                 continue
             if line.startswith("#"):
@@ -160,6 +163,17 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                             value = value[1:-1]
                         info[key] = value
                     pending_block = info
+                elif line.startswith("# CurvyBracket"):
+                    info: dict[str, Any] = {}
+                    for part in line.split()[2:]:
+                        if "=" not in part:
+                            continue
+                        key, value = part.split("=", 1)
+                        value = value.rstrip(",")
+                        if value.startswith("'") and value.endswith("'"):
+                            value = value[1:-1]
+                        info[key] = value
+                    pending_bracket = info
                 elif line.startswith("# Arrowheads:") and pending_line is not None:
                     comment = line.split(":", 1)[1]
                     start_flag = False
@@ -330,6 +344,26 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 pending_block = None
             elif line.startswith("_path = draw.Path("):
                 args, kwargs = _parse_call(line)
+                if pending_bracket is not None:
+                    x = float(pending_bracket.get("x", 0.0))
+                    y = float(pending_bracket.get("y", 0.0))
+                    w = float(pending_bracket.get("w", DEFAULTS["Curvy Right Bracket"][0]))
+                    h = float(pending_bracket.get("h", DEFAULTS["Curvy Right Bracket"][1]))
+                    ratio = pending_bracket.get("hook_ratio")
+                    hook_ratio = CurvyBracketItem.DEFAULT_HOOK_RATIO
+                    if ratio is not None:
+                        try:
+                            hook_ratio = float(ratio)
+                        except (TypeError, ValueError):
+                            hook_ratio = CurvyBracketItem.DEFAULT_HOOK_RATIO
+                    item = CurvyBracketItem(x, y, w, h, hook_ratio)
+                    _apply_style(item, kwargs)
+                    if "transform" in kwargs:
+                        item.setRotation(_parse_rotate(kwargs["transform"]))
+                    item.setData(0, "Curvy Right Bracket")
+                    scene.addItem(item)
+                    pending_bracket = None
+                    continue
                 if args:
                     cmd = args[0]
                     parts = cmd.split()

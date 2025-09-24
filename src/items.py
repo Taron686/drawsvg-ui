@@ -68,6 +68,63 @@ def _should_draw_selection(item: QtWidgets.QGraphicsItem) -> bool:
     return item.isSelected() and not _has_selected_group_parent(item)
 
 
+def build_curvy_bracket_path(w: float, h: float, hook: float) -> QtGui.QPainterPath:
+    """Return a right-facing curly bracket path translated to the origin."""
+
+    w = max(8.0, float(w))
+    h = max(40.0, float(h))
+    hook = max(6.0, min(float(hook), h * 0.45))
+
+    rect = QtCore.QRectF(-w / 2.0, -h / 2.0, w, h)
+    cx = rect.center().x()
+    top = rect.top()
+    bottom = rect.bottom()
+    mid = rect.center().y()
+
+    c = w * 0.85
+    d = hook * 0.55
+
+    path = QtGui.QPainterPath()
+    path.moveTo(cx - w * 0.48, top + 2.0)
+    path.cubicTo(
+        cx - w * 0.48 + d,
+        top + 2.0,
+        cx - w * 0.12,
+        top + hook * 0.25,
+        cx + 0.0,
+        top + hook,
+    )
+    path.cubicTo(
+        cx + c * 0.12,
+        top + hook + (h * 0.20),
+        cx + c * 0.18,
+        mid - (h * 0.08),
+        cx + w * 0.42,
+        mid - 2.0,
+    )
+    path.lineTo(cx + w * 0.50, mid)
+    path.lineTo(cx + w * 0.42, mid + 2.0)
+    path.cubicTo(
+        cx + c * 0.18,
+        mid + (h * 0.08),
+        cx + c * 0.12,
+        bottom - hook - (h * 0.20),
+        cx + 0.0,
+        bottom - hook,
+    )
+    path.cubicTo(
+        cx - w * 0.12,
+        bottom - hook * 0.25,
+        cx - w * 0.48 + d,
+        bottom - 2.0,
+        cx - w * 0.48,
+        bottom - 2.0,
+    )
+
+    path.translate(w / 2.0, h / 2.0)
+    return path
+
+
 class HandleAwareItemMixin:
     """Shared ``itemChange`` implementation for items with interactive handles."""
 
@@ -256,7 +313,7 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
         elif isinstance(parent, QtWidgets.QGraphicsEllipseItem):
             parent.setRect(0, 0, new_w, new_h)
 
-        elif isinstance(parent, (TriangleItem, DiamondItem, BlockArrowItem)):
+        elif hasattr(parent, "set_size") and callable(getattr(parent, "set_size", None)):
             parent.set_size(new_w, new_h, adjust_origin=False)
 
         else:
@@ -1144,6 +1201,83 @@ class BlockArrowItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
             painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
             painter.drawPolygon(self.polygon())
+            painter.restore()
+
+
+class CurvyBracketItem(ResizableItem, QtWidgets.QGraphicsPathItem):
+    """Resizable right-facing curly bracket."""
+
+    DEFAULT_HOOK_RATIO = 0.3
+
+    def __init__(
+        self,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        hook_ratio: float | None = None,
+    ) -> None:
+        QtWidgets.QGraphicsPathItem.__init__(self)
+        ResizableItem.__init__(self)
+        self._w = max(8.0, float(w))
+        self._h = max(40.0, float(h))
+        if hook_ratio is None:
+            hook_ratio = self.DEFAULT_HOOK_RATIO
+        self._hook_ratio = self._clamp_ratio(float(hook_ratio))
+        self._update_path()
+        self.setPos(x, y)
+        self.setTransformOriginPoint(self._w / 2.0, self._h / 2.0)
+        self.setFlags(
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
+        )
+        self.setPen(PEN_NORMAL)
+        self.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+
+    def width(self) -> float:
+        return self._w
+
+    def height(self) -> float:
+        return self._h
+
+    def hook_ratio(self) -> float:
+        return self._hook_ratio
+
+    def set_hook_ratio(self, ratio: float) -> None:
+        clamped = self._clamp_ratio(ratio)
+        if not math.isclose(clamped, self._hook_ratio, abs_tol=1e-4):
+            self._hook_ratio = clamped
+            self._update_path()
+
+    def set_size(self, w: float, h: float, adjust_origin: bool = True) -> None:
+        self._w = max(8.0, float(w))
+        self._h = max(40.0, float(h))
+        self._update_path()
+        if adjust_origin:
+            self.setTransformOriginPoint(self._w / 2.0, self._h / 2.0)
+
+    def _clamp_ratio(self, ratio: float | None = None) -> float:
+        value = self._hook_ratio if ratio is None else float(ratio)
+        return max(0.08, min(0.45, value))
+
+    def _update_path(self) -> None:
+        self.prepareGeometryChange()
+        hook = self._hook_ratio * self._h
+        path = build_curvy_bracket_path(self._w, self._h, hook)
+        self.setPath(path)
+        self.setTransformOriginPoint(self._w / 2.0, self._h / 2.0)
+
+    def paint(self, painter, option, widget=None):
+        opt = QtWidgets.QStyleOptionGraphicsItem(option)
+        opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
+        super().paint(painter, opt, widget)
+        if _should_draw_selection(self):
+            painter.save()
+            painter.setPen(PEN_SELECTED)
+            painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+            painter.drawRect(self.boundingRect())
             painter.restore()
 
 

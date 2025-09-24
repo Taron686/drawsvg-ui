@@ -22,6 +22,7 @@ from items import (
     TriangleItem,
     DiamondItem,
     BlockArrowItem,
+    CurvyBracketItem,
     GroupItem,
     ResizableItem,
     ResizeHandle,
@@ -733,6 +734,8 @@ class CanvasView(QtWidgets.QGraphicsView):
             item = LineItem(x, y, w, arrow_end=True)
         elif normalized == "Block Arrow":
             item = BlockArrowItem(x, y, w, h)
+        elif normalized == "Curvy Right Bracket":
+            item = CurvyBracketItem(x, y, w, h)
         elif normalized == "Text":
             item = TextItem(x, y, w, h)
         else:

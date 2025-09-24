@@ -12,6 +12,7 @@ SHAPES = (
     "Line",
     "Arrow",
     "Block Arrow",
+    "Curvy Right Bracket",
     "Text",
 )
 
@@ -26,6 +27,7 @@ DEFAULTS = {
     "Line":      (150.0, 0.0),     # length, (unused)
     "Arrow":     (150.0, 0.0),     # length, (unused)
     "Block Arrow": (200.0, 120.0), # w, h
+    "Curvy Right Bracket": (80.0, 160.0),  # w, h
     "Text":      (100.0, 30.0),    # placeholder bbox
 }
 

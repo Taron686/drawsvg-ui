@@ -4,7 +4,13 @@ from collections.abc import Iterable
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from constants import SHAPES, PEN_STYLE_DASH_ARRAYS
-from items import LineItem, SplitRoundedRectItem, DiamondItem, BlockArrowItem
+from items import (
+    LineItem,
+    SplitRoundedRectItem,
+    DiamondItem,
+    BlockArrowItem,
+    CurvyBracketItem,
+)
 
 
 def _format_item_attributes(
@@ -386,6 +392,32 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     f"    _block_arrow = draw.Lines({coord_str}, close=True, {attr_str})"
                 )
             lines.append("    d.append(_block_arrow)")
+            lines.append("")
+
+        elif shape == "Curvy Right Bracket" and isinstance(it, CurvyBracketItem):
+            x = it.pos().x()
+            y = it.pos().y()
+            w = it.width()
+            h = it.height()
+            cx = x + w / 2.0
+            cy = y + h / 2.0
+            ang = it.rotation()
+            path = QtGui.QPainterPath(it.path())
+            path.translate(x, y)
+            path_cmd = _painter_path_to_svg(path)
+            if not path_cmd:
+                continue
+            attr_str = _format_item_attributes(it)
+            lines.append(
+                f"    # CurvyBracket x={x:.2f} y={y:.2f} w={w:.2f} h={h:.2f} hook_ratio={it.hook_ratio():.6f}"
+            )
+            if abs(ang) > 1e-6:
+                lines.append(
+                    f"    _path = draw.Path('{path_cmd}', {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
+                )
+            else:
+                lines.append(f"    _path = draw.Path('{path_cmd}', {attr_str})")
+            lines.append("    d.append(_path)")
             lines.append("")
 
         elif shape in ("Line", "Arrow") and isinstance(it, LineItem):

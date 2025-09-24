@@ -1,6 +1,7 @@
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from constants import DEFAULTS, DEFAULT_FILL, PALETTE_MIME, PEN_NORMAL, SHAPES
+from items import CurvyBracketItem, build_curvy_bracket_path
 
 
 def _fit_rect_to_ratio(rect: QtCore.QRectF, aspect_ratio: float) -> QtCore.QRectF:
@@ -201,6 +202,20 @@ def _build_shape_icon(name: str, size: QtCore.QSize) -> QtGui.QPixmap:
         )
         painter.setBrush(DEFAULT_FILL)
         painter.setPen(PEN_NORMAL)
+    elif lower_name == "curvy right bracket":
+        dims = DEFAULTS.get(name)
+        draw_rect = rect
+        if dims and dims[1]:
+            draw_rect = _fit_rect_to_ratio(rect, dims[0] / dims[1])
+        path = build_curvy_bracket_path(
+            draw_rect.width(),
+            draw_rect.height(),
+            draw_rect.height() * CurvyBracketItem.DEFAULT_HOOK_RATIO,
+        )
+        path.translate(draw_rect.left(), draw_rect.top())
+        painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+        painter.drawPath(path)
+        painter.setBrush(DEFAULT_FILL)
     elif lower_name == "text":
         radius = 6 * device_pixel_ratio
         painter.drawRoundedRect(rect, radius, radius)
