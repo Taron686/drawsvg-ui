@@ -575,11 +575,11 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             )
 
             for node in order:
-                parent = getattr(node, "parent", None)
-                if parent is None:
+                node_parent = getattr(node, "parent", None)
+                if node_parent is None:
                     continue
                 info = info_map.get(node)
-                parent_info = info_map.get(parent)
+                parent_info = info_map.get(node_parent)
                 if not info or not parent_info:
                     continue
                 parent_center = parent_info.get("dot_center")
