@@ -1521,9 +1521,20 @@ class FolderTreeItem(HandleAwareItemMixin, QtWidgets.QGraphicsItem):
             return scene.views()[0]
         return None
 
-    def _prompt_name(self, title: str, label: str) -> str | None:
+    def _prompt_name(
+        self,
+        title: str,
+        label: str,
+        default: str = "",
+    ) -> str | None:
         parent = self._view_widget()
-        text, ok = QtWidgets.QInputDialog.getText(parent, title, label)
+        text, ok = QtWidgets.QInputDialog.getText(
+            parent,
+            title,
+            label,
+            QtWidgets.QLineEdit.EchoMode.Normal,
+            default,
+        )
         if not ok:
             return None
         name = text.strip()
@@ -1552,12 +1563,37 @@ class FolderTreeItem(HandleAwareItemMixin, QtWidgets.QGraphicsItem):
         node.parent.remove_child(node)
         self._rebuild_layout()
 
+    def _rename_node(self, node: FolderTreeNode) -> None:
+        current = node.name
+        title = "Eintrag umbenennen"
+        prompt = "Neuer Name:"
+        name = self._prompt_name(title, prompt, current)
+        if not name or name == current:
+            return
+        node.name = name
+        self._rebuild_layout()
+
     def structure(self) -> dict[str, Any]:
         return self._root.to_dict()
 
     def set_structure(self, structure: Mapping[str, Any]) -> None:
         self._root = FolderTreeNode.from_dict(structure)
         self._rebuild_layout()
+
+    def mouseDoubleClickEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
+        if event.button() != QtCore.Qt.MouseButton.LeftButton:
+            super().mouseDoubleClickEvent(event)
+            return
+
+        local_pos = event.pos()
+        for node in self._order:
+            text_rect: QtCore.QRectF = self._node_info[node]["text_rect"]
+            if text_rect.contains(local_pos):
+                self._rename_node(node)
+                event.accept()
+                return
+
+        super().mouseDoubleClickEvent(event)
 
 
 class CurvyBracketItem(ResizableItem, QtWidgets.QGraphicsPathItem):
