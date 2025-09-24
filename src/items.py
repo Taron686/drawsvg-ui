@@ -1477,7 +1477,11 @@ class FolderTreeItem(HandleAwareItemMixin, QtWidgets.QGraphicsItem):
                 self._dot_items[node] = dot
             dot.setPos(info["dot_center"])
 
-    def open_branch_menu(self, node: FolderTreeNode, global_pos: QtCore.QPointF) -> None:
+    def open_branch_menu(
+        self,
+        node: FolderTreeNode,
+        global_pos: QtCore.QPointF | QtCore.QPoint,
+    ) -> None:
         menu = QtWidgets.QMenu()
         add_folder_action = None
         add_file_action = None
@@ -1491,7 +1495,12 @@ class FolderTreeItem(HandleAwareItemMixin, QtWidgets.QGraphicsItem):
                 menu.addSeparator()
             delete_action = menu.addAction("Eintrag entfernen")
 
-        selected = menu.exec(global_pos.toPoint())
+        if isinstance(global_pos, QtCore.QPointF):
+            global_point = QtCore.QPoint(round(global_pos.x()), round(global_pos.y()))
+        else:
+            global_point = global_pos
+
+        selected = menu.exec(global_point)
         if not selected:
             return
         if selected is add_folder_action:
