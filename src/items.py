@@ -1335,11 +1335,16 @@ class FolderTreeItem(HandleAwareItemMixin, QtWidgets.QGraphicsItem):
         self._rebuild_layout()
         self.setTransformOriginPoint(self.boundingRect().center())
 
+    def update_handles(self) -> None:
+        """Folder trees don't expose resize handles."""
+
+        return
+
     def show_handles(self):
-        pass
+        return
 
     def hide_handles(self):
-        pass
+        return
 
     def boundingRect(self) -> QtCore.QRectF:  # type: ignore[override]
         return QtCore.QRectF(self._bounding_rect)
