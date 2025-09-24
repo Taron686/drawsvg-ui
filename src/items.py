@@ -1309,6 +1309,7 @@ class FolderTreeItem(HandleAwareItemMixin, QtWidgets.QGraphicsItem):
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
         )
+        self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
 
         self._padding = 18.0
         self._indent = 54.0
@@ -1579,6 +1580,17 @@ class FolderTreeItem(HandleAwareItemMixin, QtWidgets.QGraphicsItem):
     def set_structure(self, structure: Mapping[str, Any]) -> None:
         self._root = FolderTreeNode.from_dict(structure)
         self._rebuild_layout()
+
+    def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
+        super().mousePressEvent(event)
+        if event.button() != QtCore.Qt.MouseButton.LeftButton:
+            return
+
+        local_pos = event.pos()
+        for node in self._order:
+            if self._node_info[node]["text_rect"].contains(local_pos):
+                event.accept()
+                return
 
     def mouseDoubleClickEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
         if event.button() != QtCore.Qt.MouseButton.LeftButton:
