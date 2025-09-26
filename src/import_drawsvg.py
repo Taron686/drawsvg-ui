@@ -481,11 +481,19 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 item = TextItem(0, 0, 0, 0)
                 item.setPlainText(text)
                 font = item.font()
-                font.setPointSizeF(size)
+                # ``draw.Text`` expects the ``size`` argument in pixels.  When
+                # exporting we therefore pass the actual rendered height of the
+                # text (including any item scaling).  Re-importing that value as
+                # a point size would cause Qt to apply its own DPI conversion,
+                # inflating the text on every save/load cycle.  Instead we map
+                # the exported value back to a pixel size so the metrics remain
+                # stable across round-trips.
+                if size > 0.0:
+                    font.setPixelSize(max(1, int(round(size))))
                 item.setFont(font)
                 _apply_style(item, kwargs)
                 font = item.font()
-                fm = QtGui.QFontMetrics(font)
+                fm = QtGui.QFontMetricsF(font)
                 doc_margin = (
                     item.document().documentMargin() if item.document() else 0.0
                 )
