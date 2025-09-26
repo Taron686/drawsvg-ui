@@ -11,14 +11,44 @@ DIVIDER_HANDLE_COLOR = QtGui.QColor("#d28b00")
 DIVIDER_HANDLE_DIAMETER = 10.0
 
 
+def _origin_component(origin: Any, axis: str) -> float:
+    attr = getattr(origin, axis, None)
+    if callable(attr):
+        try:
+            return float(attr())
+        except TypeError:
+            # If attr is a property returning a value without call support
+            pass
+    if attr is not None:
+        return float(attr)
+    return 0.0
+
+
+def _grid_origin(view: QtWidgets.QGraphicsView) -> tuple[float, float]:
+    origin = getattr(view, "_master_origin", None)
+    if isinstance(origin, QtCore.QPointF):
+        return origin.x(), origin.y()
+    if origin is None:
+        return 0.0, 0.0
+    return _origin_component(origin, "x"), _origin_component(origin, "y")
+
+
+def _snap_component(value: float, spacing: float, origin: float) -> float:
+    if spacing <= 0.0:
+        return value
+    return round((value - origin) / spacing) * spacing + origin
+
+
 def snap_to_grid(item: QtWidgets.QGraphicsItem, pos: QtCore.QPointF) -> QtCore.QPointF:
     scene = item.scene()
     if scene:
         views = scene.views()
         if views:
-            size = getattr(views[0], "_grid_size_min", 10)
-            x = round(pos.x() / size) * size
-            y = round(pos.y() / size) * size
+            view = views[0]
+            spacing = float(getattr(view, "_grid_size_min", 10.0))
+            ox, oy = _grid_origin(view)
+            x = _snap_component(pos.x(), spacing, ox)
+            y = _snap_component(pos.y(), spacing, oy)
             return QtCore.QPointF(x, y)
     return pos
 

@@ -13,6 +13,12 @@ SCREEN_DPI = 96  # Typical desktop DPI
 
 def mm_to_px(mm: float, dpi: float = SCREEN_DPI) -> float:
     return mm / 25.4 * dpi
+
+
+def _snap_coordinate(value: float, spacing: float, origin: float) -> float:
+    if spacing <= 0.0:
+        return value
+    return round((value - origin) / spacing) * spacing + origin
 from items import (
     RectItem,
     SplitRoundedRectItem,
@@ -710,8 +716,14 @@ class CanvasView(QtWidgets.QGraphicsView):
 
         if snap_to_grid:
             size = self._grid_size
-            x = round(x / size) * size
-            y = round(y / size) * size
+            origin = self._master_origin
+            if isinstance(origin, QtCore.QPointF):
+                origin_x, origin_y = origin.x(), origin.y()
+            else:
+                origin_x = float(getattr(origin, "x", 0.0))
+                origin_y = float(getattr(origin, "y", 0.0))
+            x = _snap_coordinate(x, size, origin_x)
+            y = _snap_coordinate(y, size, origin_y)
             if normalized in ("Line", "Arrow"):
                 w = round(w / size) * size
 
