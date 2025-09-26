@@ -1207,6 +1207,17 @@ class BlockArrowItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
 
     def update_handles(self):  # type: ignore[override]
         super().update_handles()
+        if self._handles:
+            tip: QtCore.QPointF | None = None
+            poly = self.polygon()
+            if len(poly) >= 4:
+                tip = QtCore.QPointF(poly[3])
+            else:
+                tip = QtCore.QPointF(self._w, self._h / 2.0)
+            for handle in self._handles:
+                if getattr(handle, "_direction", None) == "right":
+                    handle.setPos(tip)
+                    break
         self._update_custom_handles()
 
     def show_handles(self):  # type: ignore[override]
