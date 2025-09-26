@@ -1770,6 +1770,48 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         self._points.insert(index, QtCore.QPointF(pos))
         self._update_path()
 
+    def _snap_position_value(self, value):  # type: ignore[override]
+        if not isinstance(value, QtCore.QPointF):
+            return value
+
+        mods = QtWidgets.QApplication.keyboardModifiers()
+        if mods & QtCore.Qt.KeyboardModifier.AltModifier:
+            return value
+
+        if not (self.arrow_start or self.arrow_end):
+            return super()._snap_position_value(value)
+
+        tip_deltas: list[QtCore.QPointF] = []
+        current_scene_pos = self.scenePos()
+
+        if self.arrow_start and self._points:
+            start_scene = self.mapToScene(self._points[0])
+            tip_deltas.append(start_scene - current_scene_pos)
+
+        if self.arrow_end and self._points:
+            end_scene = self.mapToScene(self._points[-1])
+            tip_deltas.append(end_scene - current_scene_pos)
+
+        if not tip_deltas:
+            return super()._snap_position_value(value)
+
+        best_value: QtCore.QPointF | None = None
+        best_distance: float | None = None
+
+        for delta in tip_deltas:
+            new_tip_scene = value + delta
+            snapped_tip = snap_to_grid(self, new_tip_scene)
+            adjusted_value = snapped_tip - delta
+            distance = math.hypot(adjusted_value.x() - value.x(), adjusted_value.y() - value.y())
+            if best_distance is None or distance < best_distance - 1e-6:
+                best_distance = distance
+                best_value = adjusted_value
+
+        if best_value is None:
+            return super()._snap_position_value(value)
+
+        return best_value
+
     def _handle_move(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
         if self._moving_index is None:
             return
@@ -1849,44 +1891,15 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         for h in self._handles + self._mid_handles:
             h.hide()
 
-    def _arrow_head_clip_path(
-        self, tip: QtCore.QPointF, direction: QtCore.QPointF
-    ) -> QtGui.QPainterPath:
-        clip = QtGui.QPainterPath()
-        dx = direction.x()
-        dy = direction.y()
-        length = math.hypot(dx, dy)
-        if length <= 1e-6:
-            clip.moveTo(tip)
-            return clip
-        nx = -dy / length
-        ny = dx / length
-        half_span = max(self._arrow_size * 2.0, self.pen().widthF() * 4.0)
-        back_extent = max(self._arrow_size * 3.0, self.pen().widthF() * 8.0)
-        clip.moveTo(tip.x() - nx * half_span, tip.y() - ny * half_span)
-        clip.lineTo(tip.x() + nx * half_span, tip.y() + ny * half_span)
-        clip.lineTo(
-            tip.x() + nx * half_span - (dx / length) * back_extent,
-            tip.y() + ny * half_span - (dy / length) * back_extent,
-        )
-        clip.lineTo(
-            tip.x() - nx * half_span - (dx / length) * back_extent,
-            tip.y() - ny * half_span - (dy / length) * back_extent,
-        )
-        clip.closeSubpath()
-        return clip
-
     def _arrow_head_geometry(
         self, start: QtCore.QPointF, end: QtCore.QPointF
-    ) -> tuple[QtGui.QPolygonF, QtCore.QPointF, QtGui.QPainterPath]:
+    ) -> tuple[QtGui.QPolygonF, QtCore.QPointF]:
         line = QtCore.QLineF(start, end)
         size = self._arrow_size
         tip = QtCore.QPointF(end)
         if line.length() <= 1e-6:
             polygon = QtGui.QPolygonF([tip, tip, tip])
-            clip = QtGui.QPainterPath()
-            clip.moveTo(tip)
-            return polygon, tip, clip
+            return polygon, tip
 
         angle = math.atan2(-line.dy(), line.dx())
         left_point = tip + QtCore.QPointF(
@@ -1902,37 +1915,26 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
             (left_point.y() + right_point.y()) / 2.0,
         )
         polygon = QtGui.QPolygonF([tip, left_point, right_point])
-        clip = self._arrow_head_clip_path(tip, QtCore.QPointF(line.dx(), line.dy()))
-        return polygon, base_center, clip
-
-    def _draw_arrow_head(
-        self, painter: QtGui.QPainter, start: QtCore.QPointF, end: QtCore.QPointF
-    ) -> None:
-        polygon, _, clip = self._arrow_head_geometry(start, end)
-        painter.save()
-        if not clip.isEmpty():
-            painter.setClipPath(clip, QtCore.Qt.ClipOperation.IntersectClip)
-        painter.drawPolygon(polygon)
-        painter.restore()
+        return polygon, base_center
 
     def paint(self, painter, option, widget=None):
         pts = self._points
 
-        arrow_polygons: list[tuple[QtGui.QPolygonF, QtGui.QPainterPath]] = []
+        arrow_polygons: list[QtGui.QPolygonF] = []
         if self.arrow_start or self.arrow_end:
             shaft_points = [QtCore.QPointF(p) for p in pts]
             if len(shaft_points) >= 2:
                 if self.arrow_start:
-                    start_poly, start_base, start_clip = self._arrow_head_geometry(
+                    start_poly, start_base = self._arrow_head_geometry(
                         pts[1], pts[0]
                     )
-                    arrow_polygons.append((start_poly, start_clip))
+                    arrow_polygons.append(start_poly)
                     shaft_points[0] = start_base
                 if self.arrow_end:
-                    end_poly, end_base, end_clip = self._arrow_head_geometry(
+                    end_poly, end_base = self._arrow_head_geometry(
                         pts[-2], pts[-1]
                     )
-                    arrow_polygons.append((end_poly, end_clip))
+                    arrow_polygons.append(end_poly)
                     shaft_points[-1] = end_base
                 shaft_path = QtGui.QPainterPath(shaft_points[0])
                 for point in shaft_points[1:]:
@@ -1956,12 +1958,8 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
             arrow_pen.setJoinStyle(QtCore.Qt.PenJoinStyle.MiterJoin)
             painter.setPen(arrow_pen)
             painter.setBrush(self.pen().color())
-            for poly, clip in arrow_polygons:
-                painter.save()
-                if not clip.isEmpty():
-                    painter.setClipPath(clip, QtCore.Qt.ClipOperation.IntersectClip)
+            for poly in arrow_polygons:
                 painter.drawPolygon(poly)
-                painter.restore()
             painter.restore()
 
         if _should_draw_selection(self):
@@ -1969,12 +1967,8 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
             painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
             painter.drawPath(shaft_path)
-            for poly, clip in arrow_polygons:
-                painter.save()
-                if not clip.isEmpty():
-                    painter.setClipPath(clip, QtCore.Qt.ClipOperation.IntersectClip)
+            for poly in arrow_polygons:
                 painter.drawPolygon(poly)
-                painter.restore()
             painter.restore()
 
 
