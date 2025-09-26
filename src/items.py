@@ -11,14 +11,44 @@ DIVIDER_HANDLE_COLOR = QtGui.QColor("#d28b00")
 DIVIDER_HANDLE_DIAMETER = 10.0
 
 
+def _origin_component(origin: Any, axis: str) -> float:
+    attr = getattr(origin, axis, None)
+    if callable(attr):
+        try:
+            return float(attr())
+        except TypeError:
+            # If attr is a property returning a value without call support
+            pass
+    if attr is not None:
+        return float(attr)
+    return 0.0
+
+
+def _grid_origin(view: QtWidgets.QGraphicsView) -> tuple[float, float]:
+    origin = getattr(view, "_master_origin", None)
+    if isinstance(origin, QtCore.QPointF):
+        return origin.x(), origin.y()
+    if origin is None:
+        return 0.0, 0.0
+    return _origin_component(origin, "x"), _origin_component(origin, "y")
+
+
+def _snap_component(value: float, spacing: float, origin: float) -> float:
+    if spacing <= 0.0:
+        return value
+    return round((value - origin) / spacing) * spacing + origin
+
+
 def snap_to_grid(item: QtWidgets.QGraphicsItem, pos: QtCore.QPointF) -> QtCore.QPointF:
     scene = item.scene()
     if scene:
         views = scene.views()
         if views:
-            size = getattr(views[0], "_grid_size_min", 10)
-            x = round(pos.x() / size) * size
-            y = round(pos.y() / size) * size
+            view = views[0]
+            spacing = float(getattr(view, "_grid_size_min", 10.0))
+            ox, oy = _grid_origin(view)
+            x = _snap_component(pos.x(), spacing, ox)
+            y = _snap_component(pos.y(), spacing, oy)
             return QtCore.QPointF(x, y)
     return pos
 
@@ -1177,6 +1207,17 @@ class BlockArrowItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
 
     def update_handles(self):  # type: ignore[override]
         super().update_handles()
+        if self._handles:
+            tip: QtCore.QPointF | None = None
+            poly = self.polygon()
+            if len(poly) >= 4:
+                tip = QtCore.QPointF(poly[3])
+            else:
+                tip = QtCore.QPointF(self._w, self._h / 2.0)
+            for handle in self._handles:
+                if getattr(handle, "_direction", None) == "right":
+                    handle.setPos(tip)
+                    break
         self._update_custom_handles()
 
     def show_handles(self):  # type: ignore[override]
@@ -1740,6 +1781,48 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         self._points.insert(index, QtCore.QPointF(pos))
         self._update_path()
 
+    def _snap_position_value(self, value):  # type: ignore[override]
+        if not isinstance(value, QtCore.QPointF):
+            return value
+
+        mods = QtWidgets.QApplication.keyboardModifiers()
+        if mods & QtCore.Qt.KeyboardModifier.AltModifier:
+            return value
+
+        if not (self.arrow_start or self.arrow_end):
+            return super()._snap_position_value(value)
+
+        tip_deltas: list[QtCore.QPointF] = []
+        current_scene_pos = self.scenePos()
+
+        if self.arrow_start and self._points:
+            start_scene = self.mapToScene(self._points[0])
+            tip_deltas.append(start_scene - current_scene_pos)
+
+        if self.arrow_end and self._points:
+            end_scene = self.mapToScene(self._points[-1])
+            tip_deltas.append(end_scene - current_scene_pos)
+
+        if not tip_deltas:
+            return super()._snap_position_value(value)
+
+        best_value: QtCore.QPointF | None = None
+        best_distance: float | None = None
+
+        for delta in tip_deltas:
+            new_tip_scene = value + delta
+            snapped_tip = snap_to_grid(self, new_tip_scene)
+            adjusted_value = snapped_tip - delta
+            distance = math.hypot(adjusted_value.x() - value.x(), adjusted_value.y() - value.y())
+            if best_distance is None or distance < best_distance - 1e-6:
+                best_distance = distance
+                best_value = adjusted_value
+
+        if best_value is None:
+            return super()._snap_position_value(value)
+
+        return best_value
+
     def _handle_move(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
         if self._moving_index is None:
             return
@@ -1845,12 +1928,6 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         polygon = QtGui.QPolygonF([tip, left_point, right_point])
         return polygon, base_center
 
-    def _draw_arrow_head(
-        self, painter: QtGui.QPainter, start: QtCore.QPointF, end: QtCore.QPointF
-    ) -> None:
-        polygon, _ = self._arrow_head_geometry(start, end)
-        painter.drawPolygon(polygon)
-
     def paint(self, painter, option, widget=None):
         pts = self._points
 
@@ -1859,11 +1936,15 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
             shaft_points = [QtCore.QPointF(p) for p in pts]
             if len(shaft_points) >= 2:
                 if self.arrow_start:
-                    start_poly, start_base = self._arrow_head_geometry(pts[1], pts[0])
+                    start_poly, start_base = self._arrow_head_geometry(
+                        pts[1], pts[0]
+                    )
                     arrow_polygons.append(start_poly)
                     shaft_points[0] = start_base
                 if self.arrow_end:
-                    end_poly, end_base = self._arrow_head_geometry(pts[-2], pts[-1])
+                    end_poly, end_base = self._arrow_head_geometry(
+                        pts[-2], pts[-1]
+                    )
                     arrow_polygons.append(end_poly)
                     shaft_points[-1] = end_base
                 shaft_path = QtGui.QPainterPath(shaft_points[0])
