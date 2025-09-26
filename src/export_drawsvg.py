@@ -513,9 +513,16 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             y = cy - br.height() * s / 2.0
             ang = it.rotation()
             font = it.font()
-            size = font.pointSizeF()
-            if size <= 0:  # fall back to pixel size when point size is unset
-                size = float(font.pixelSize())
+            fm = QtGui.QFontMetricsF(font)
+            size = fm.height()
+            if size <= 0.0:
+                point_size = font.pointSizeF()
+                if point_size > 0.0:
+                    screen = QtGui.QGuiApplication.primaryScreen()
+                    dpi = screen.logicalDotsPerInch() if screen else 96.0
+                    size = point_size * dpi / 72.0
+                else:
+                    size = float(font.pixelSize())
             size *= s
             text = repr(it.toPlainText())[1:-1]
             color = it.defaultTextColor()
@@ -529,7 +536,6 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             # diesen Rand berücksichtigen, damit die Position von Text im SVG
             # mit der Darstellung im Canvas übereinstimmt.
             doc_margin = it.document().documentMargin() if it.document() else 0.0
-            fm = QtGui.QFontMetrics(font)
             baseline = y + (doc_margin + fm.ascent()) * s
             text_x = x + doc_margin * s
 
