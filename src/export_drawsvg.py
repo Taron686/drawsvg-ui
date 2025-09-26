@@ -514,16 +514,16 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             ang = it.rotation()
             font = it.font()
             fm = QtGui.QFontMetricsF(font)
-            size = fm.height()
-            if size <= 0.0:
+            pixel_size = float(font.pixelSize())
+            if pixel_size <= 0.0:
                 point_size = font.pointSizeF()
                 if point_size > 0.0:
                     screen = QtGui.QGuiApplication.primaryScreen()
                     dpi = screen.logicalDotsPerInch() if screen else 96.0
-                    size = point_size * dpi / 72.0
-                else:
-                    size = float(font.pixelSize())
-            size *= s
+                    pixel_size = point_size * dpi / 72.0
+            if pixel_size <= 0.0:
+                pixel_size = fm.height()
+            size = pixel_size * s
             text = repr(it.toPlainText())[1:-1]
             color = it.defaultTextColor()
             attrs = [f"fill='{color.name()}'", f"font_family='{font.family()}'"]
