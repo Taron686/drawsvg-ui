@@ -476,29 +476,67 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 args, kwargs = _parse_call(line)
                 text = args[0]
                 size = float(args[1])
-                x = float(args[2])
-                baseline = float(args[3])
+                text_x = float(args[2])
+                text_y = float(args[3])
                 item = TextItem(0, 0, 0, 0)
                 item.setPlainText(text)
+
+                data_font_px = kwargs.get("data_font_px")
+                data_scale = kwargs.get("data_scale")
+                data_doc_margin = kwargs.get("data_doc_margin")
+
+                # Export speichert Schriftgroesse (Pixel) und Item-Skalierung separat,
+                # damit runde Trips keinen Versatz aufbauen.
                 font = item.font()
-                # ``draw.Text`` expects the ``size`` argument in pixels.  When
-                # exporting we therefore pass the actual rendered height of the
-                # text (including any item scaling).  Re-importing that value as
-                # a point size would cause Qt to apply its own DPI conversion,
-                # inflating the text on every save/load cycle.  Instead we map
-                # the exported value back to a pixel size so the metrics remain
-                # stable across round-trips.
-                if size > 0.0:
-                    font.setPixelSize(max(1, int(round(size))))
+                base_px = None
+                if data_font_px is not None:
+                    try:
+                        base_px = float(data_font_px)
+                    except (TypeError, ValueError):
+                        base_px = None
+                if base_px is None or base_px <= 0.0:
+                    base_px = float(font.pixelSize())
+                    if base_px <= 0.0:
+                        point_size = font.pointSizeF()
+                        if point_size > 0.0:
+                            screen = QtGui.QGuiApplication.primaryScreen()
+                            dpi = screen.logicalDotsPerInch() if screen else 96.0
+                            base_px = point_size * dpi / 72.0
+                    if base_px <= 0.0:
+                        fm = QtGui.QFontMetricsF(font)
+                        base_px = fm.height()
+                if base_px <= 0.0:
+                    base_px = size if size > 0.0 else 1.0
+                font.setPixelSize(max(1, int(round(base_px))))
                 item.setFont(font)
                 _apply_style(item, kwargs)
-                font = item.font()
-                fm = QtGui.QFontMetricsF(font)
+
+                if data_doc_margin is not None and item.document():
+                    try:
+                        base_doc_margin = float(data_doc_margin)
+                    except (TypeError, ValueError):
+                        base_doc_margin = item.document().documentMargin()
+                    else:
+                        item.document().setDocumentMargin(base_doc_margin)
+
                 doc_margin = (
                     item.document().documentMargin() if item.document() else 0.0
                 )
-                x_pos = x - doc_margin
-                y_pos = baseline - (doc_margin + fm.ascent())
+
+                if data_scale is not None:
+                    try:
+                        scale_factor = float(data_scale)
+                    except (TypeError, ValueError):
+                        scale_factor = size / base_px if base_px > 0.0 else 1.0
+                else:
+                    scale_factor = size / base_px if base_px > 0.0 else 1.0
+                if not math.isfinite(scale_factor) or scale_factor <= 0.0:
+                    scale_factor = 1.0
+                item.setScale(scale_factor)
+
+                doc_margin_scene = doc_margin * scale_factor
+                x_pos = text_x - doc_margin_scene
+                y_pos = text_y - doc_margin_scene
                 item.setPos(x_pos, y_pos)
                 br = item.boundingRect()
                 item.setTransformOriginPoint(br.width() / 2.0, br.height() / 2.0)

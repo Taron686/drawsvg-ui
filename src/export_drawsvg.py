@@ -158,7 +158,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
     lines.append("import drawsvg as draw")
     lines.append("")
     lines.append("def build_drawing():")
-    lines.append(f"    d = draw.Drawing({width}, {height}, origin=({ox}, {oy}))")
+    lines.append(f"    d = draw.Drawing({width}, {height}, origin=({ox}, {oy}), viewBox='{ox} {oy} {width} {height}')")
     lines.append(
         f"    d.append(draw.Rectangle({ox}, {oy}, {width}, {height}, fill='white', stroke='none'))"
     )
@@ -506,14 +506,17 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
         elif shape == "Text" and isinstance(it, QtWidgets.QGraphicsTextItem):
             br = it.boundingRect()
+            s = it.scale()
             cx = it.pos().x() + br.width() / 2.0
             cy = it.pos().y() + br.height() / 2.0
-            s = it.scale()
-            x = cx - br.width() * s / 2.0
-            y = cy - br.height() * s / 2.0
+
+            x_top = cx - (br.width() * s) / 2.0
+            y_top = cy - (br.height() * s) / 2.0
+
             ang = it.rotation()
             font = it.font()
             fm = QtGui.QFontMetricsF(font)
+
             pixel_size = float(font.pixelSize())
             if pixel_size <= 0.0:
                 point_size = font.pointSizeF()
@@ -523,33 +526,50 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     pixel_size = point_size * dpi / 72.0
             if pixel_size <= 0.0:
                 pixel_size = fm.height()
+
             size = pixel_size * s
-            text = repr(it.toPlainText())[1:-1]
+
+            raw_text = it.toPlainText()
+            raw_text = (
+                raw_text.replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+            )
+
             color = it.defaultTextColor()
-            attrs = [f"fill='{color.name()}'", f"font_family='{font.family()}'"]
+            doc_margin = it.document().documentMargin() if it.document() else 0.0
+
+            # QTextDocument verwendet standardmaessig einen Rand von 4px, der auch im Canvas sichtbar ist.
+            # Beruecksichtigen wir ihn, bleiben die SVG-Positionen deckungsgleich mit Qt.
+
+            text_x = x_top + doc_margin * s
+            text_y = y_top + doc_margin * s
+
+            attrs = [
+                f"fill='{color.name()}'",
+                f"font_family='{font.family()}'",
+                "text_anchor='start'",
+                "dominant_baseline='text-before-edge'",
+                "alignment_baseline='text-before-edge'",
+                f"data_doc_margin={doc_margin:.4f}",
+                f"data_font_px={pixel_size:.4f}",
+                f"data_scale={s:.6f}",
+            ]
             if color.alphaF() < 1.0:
                 attrs.append(f"fill_opacity={color.alphaF():.2f}")
             attr_str = ", ".join(attrs)
 
-            # QTextDocument verwendet standardmäßig einen Rand von 4px um den
-            # Text, der auch im Canvas sichtbar ist. Beim Export müssen wir
-            # diesen Rand berücksichtigen, damit die Position von Text im SVG
-            # mit der Darstellung im Canvas übereinstimmt.
-            doc_margin = it.document().documentMargin() if it.document() else 0.0
-            baseline = y + (doc_margin + fm.ascent()) * s
-            text_x = x + doc_margin * s
-
             if abs(ang) > 1e-6:
                 lines.append(
-                    f"    _text = draw.Text('{text}', {size:.2f}, {text_x:.2f}, {baseline:.2f}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
+                    f"    _text = draw.Text('{raw_text}', {size:.2f}, {text_x:.2f}, {text_y:.2f}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
                 )
             else:
                 lines.append(
-                    f"    _text = draw.Text('{text}', {size:.2f}, {text_x:.2f}, {baseline:.2f}, {attr_str})"
+                    f"    _text = draw.Text('{raw_text}', {size:.2f}, {text_x:.2f}, {text_y:.2f}, {attr_str})"
                 )
             lines.append("    d.append(_text)")
             lines.append("")
-
         elif shape == "Folder Tree" and isinstance(it, FolderTreeItem):
             structure_json = json.dumps(it.structure(), ensure_ascii=False)
             pos = it.pos()
