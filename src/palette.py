@@ -1,8 +1,8 @@
 from PySide6 import QtCore, QtGui, QtWidgets
+import math
 
 from constants import DEFAULTS, DEFAULT_FILL, PALETTE_MIME, PEN_NORMAL, SHAPES
 from items import CurvyBracketItem, build_curvy_bracket_path
-
 
 def _fit_rect_to_ratio(rect: QtCore.QRectF, aspect_ratio: float) -> QtCore.QRectF:
     """Return a copy of *rect* scaled to match the requested aspect ratio."""
@@ -31,13 +31,16 @@ def _fit_rect_to_ratio(rect: QtCore.QRectF, aspect_ratio: float) -> QtCore.QRect
     )
     return fitted
 
-
-def _build_shape_icon(name: str, size: QtCore.QSize) -> QtGui.QPixmap:
-    screen = QtGui.QGuiApplication.primaryScreen()
-    device_pixel_ratio = float(screen.devicePixelRatio() if screen else 1.0)
+def _build_shape_icon(
+    name: str,
+    size: QtCore.QSize,
+    *,
+    device_pixel_ratio: float = 1.0,
+) -> QtGui.QPixmap:
+    device_pixel_ratio = max(1.0, float(device_pixel_ratio))
     pixel_size = QtCore.QSize(
-        max(1, int(size.width() * device_pixel_ratio)),
-        max(1, int(size.height() * device_pixel_ratio)),
+        max(1, int(math.ceil(size.width() * device_pixel_ratio))),
+        max(1, int(math.ceil(size.height() * device_pixel_ratio))),
     )
     pixmap = QtGui.QPixmap(pixel_size)
     pixmap.setDevicePixelRatio(device_pixel_ratio)
@@ -301,7 +304,6 @@ def _build_shape_icon(name: str, size: QtCore.QSize) -> QtGui.QPixmap:
     painter.end()
     return pixmap
 
-
 class PaletteList(QtWidgets.QListWidget):
     shapeClicked = QtCore.Signal(str)
 
@@ -310,16 +312,16 @@ class PaletteList(QtWidgets.QListWidget):
         self.setDragEnabled(False)
         self.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.NoSelection)
         self.setViewMode(QtWidgets.QListView.ViewMode.IconMode)
-        icon_size = QtCore.QSize(56, 56)
-        self.setIconSize(icon_size)
-        cell_padding = 4
-        self.setGridSize(
-            QtCore.QSize(
-                icon_size.width() + cell_padding * 2,
-                icon_size.height() + cell_padding * 2,
-            )
-        )
-        self.setSpacing(6)
+
+        self._base_icon_size = QtCore.QSize(56, 56)
+        self._base_cell_padding = 4
+        self._base_spacing = 6
+        self._last_device_pixel_ratio: float | None = None
+        self._current_screen: QtGui.QScreen | None = None
+        self._window_handle_connected = False
+
+        self._update_metrics()
+
         self.setResizeMode(QtWidgets.QListView.ResizeMode.Adjust)
         self.setMouseTracking(True)
         self.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
@@ -330,11 +332,128 @@ class PaletteList(QtWidgets.QListWidget):
         self._hover_brush = QtGui.QBrush(QtGui.QColor("#d2e7ff"))
 
         for name in SHAPES:
-            icon = QtGui.QIcon(_build_shape_icon(name, icon_size))
-            item = QtWidgets.QListWidgetItem(icon, "")
+            item = QtWidgets.QListWidgetItem("")
             item.setData(QtCore.Qt.ItemDataRole.UserRole, name)
             item.setToolTip(name)
             self.addItem(item)
+
+        self._refresh_icons(force=True)
+
+    def showEvent(self, event: QtGui.QShowEvent) -> None:
+        super().showEvent(event)
+        self._bind_to_current_screen()
+        self._refresh_icons()
+
+    def event(self, event: QtCore.QEvent) -> bool:
+        if event.type() in (
+            QtCore.QEvent.Type.DevicePixelRatioChange,
+            QtCore.QEvent.Type.ScreenChangeInternal,
+        ):
+            self._bind_to_current_screen()
+            self._refresh_icons(force=True)
+        return super().event(event)
+
+    def _update_metrics(self) -> None:
+        icon_size = QtCore.QSize(self._base_icon_size)
+        self.setIconSize(icon_size)
+        padding = int(self._base_cell_padding)
+        self.setGridSize(
+            QtCore.QSize(
+                icon_size.width() + padding * 2,
+                icon_size.height() + padding * 2,
+            )
+        )
+        self.setSpacing(int(self._base_spacing))
+
+    def _effective_device_pixel_ratio(self) -> float:
+        dpr = float(self.devicePixelRatioF())
+        if not math.isfinite(dpr) or dpr <= 0.0:
+            handle = self.windowHandle()
+            if handle is not None:
+                try:
+                    dpr = float(handle.devicePixelRatio())
+                except AttributeError:
+                    dpr = 1.0
+        if not math.isfinite(dpr) or dpr <= 0.0:
+            screen = self.screen() or QtGui.QGuiApplication.primaryScreen()
+            if screen is not None:
+                dpr = float(screen.devicePixelRatio())
+        return dpr if math.isfinite(dpr) and dpr > 0.0 else 1.0
+
+    def _refresh_icons(self, *, force: bool = False) -> None:
+        if self.count() == 0:
+            return
+        dpr = self._effective_device_pixel_ratio()
+        if (
+            not force
+            and self._last_device_pixel_ratio is not None
+            and abs(self._last_device_pixel_ratio - dpr) < 1e-3
+        ):
+            return
+        self._last_device_pixel_ratio = dpr
+        self._update_metrics()
+        icon_size = self.iconSize()
+        for index in range(self.count()):
+            item = self.item(index)
+            shape = self._shape_from_item(item)
+            if not shape:
+                continue
+            pixmap = _build_shape_icon(
+                shape,
+                icon_size,
+                device_pixel_ratio=dpr,
+            )
+            item.setIcon(QtGui.QIcon(pixmap))
+
+    def _ensure_window_handle_connection(self) -> None:
+        if self._window_handle_connected:
+            return
+        window = self.window().windowHandle() if self.window() is not None else None
+        if window is None:
+            window = self.windowHandle()
+        if window is None:
+            return
+        window.screenChanged.connect(self._on_window_screen_changed)
+        self._window_handle_connected = True
+
+    def _bind_to_current_screen(self) -> None:
+        self._ensure_window_handle_connection()
+        screen = self.screen()
+        if screen is None:
+            window = self.window().windowHandle() if self.window() is not None else None
+            if window is None:
+                window = self.windowHandle()
+            if window is not None:
+                screen = window.screen()
+        self._connect_to_screen(screen)
+
+    def _connect_to_screen(self, screen: QtGui.QScreen | None) -> None:
+        current = self._current_screen
+        if current is screen:
+            return
+        if current is not None:
+            try:
+                current.logicalDotsPerInchChanged.disconnect(self._on_screen_metrics_changed)
+            except (TypeError, RuntimeError):
+                pass
+            if hasattr(current, "devicePixelRatioChanged"):
+                try:
+                    getattr(current, "devicePixelRatioChanged").disconnect(self._on_screen_metrics_changed)
+                except (TypeError, RuntimeError):
+                    pass
+        self._current_screen = screen
+        if screen is None:
+            return
+        screen.logicalDotsPerInchChanged.connect(self._on_screen_metrics_changed)
+        if hasattr(screen, "devicePixelRatioChanged"):
+            getattr(screen, "devicePixelRatioChanged").connect(self._on_screen_metrics_changed)
+
+    def _on_window_screen_changed(self, screen: QtGui.QScreen | None) -> None:
+        self._connect_to_screen(screen)
+        self._refresh_icons(force=True)
+
+    def _on_screen_metrics_changed(self, *args) -> None:
+        self._refresh_icons(force=True)
 
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
         self._update_hover_from_pos(event.position())
@@ -434,3 +553,4 @@ class PaletteList(QtWidgets.QListWidget):
             self._hovered_item.setData(
                 QtCore.Qt.ItemDataRole.BackgroundRole, self._hover_brush
             )
+
