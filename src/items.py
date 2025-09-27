@@ -692,6 +692,32 @@ class LineHandle(QtWidgets.QGraphicsEllipseItem):
         event.accept()
 
 
+
+
+class _RectLabelItem(QtWidgets.QGraphicsTextItem):
+    def __init__(self, parent: "RectItem") -> None:
+        super().__init__("", parent)
+        self.setDefaultTextColor(QtGui.QColor("#222"))
+        self.setVisible(False)
+        self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.NoButton)
+        self.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.NoTextInteraction)
+        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, False)
+        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
+        self.setZValue(1.0)
+        doc = self.document()
+        doc.setDocumentMargin(0.0)
+        text_option = doc.defaultTextOption()
+        text_option.setWrapMode(QtGui.QTextOption.WrapAtWordBoundaryOrAnywhere)
+        doc.setDefaultTextOption(text_option)
+
+    def focusOutEvent(self, event: QtGui.QFocusEvent) -> None:  # type: ignore[override]
+        super().focusOutEvent(event)
+        parent = self.parentItem()
+        if isinstance(parent, RectItem):
+            parent._finish_label_edit()
+
 class RectItem(ResizableItem, QtWidgets.QGraphicsRectItem):
     def __init__(self, x, y, w, h, rx: float = 0.0, ry: float = 0.0):
         QtWidgets.QGraphicsRectItem.__init__(self, 0, 0, w, h)
@@ -704,10 +730,166 @@ class RectItem(ResizableItem, QtWidgets.QGraphicsRectItem):
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
         )
+        self._label = _RectLabelItem(self)
+        self._label_h_align = "center"
+        self._label_v_align = "middle"
+        self._label_padding = 8.0
+        self._label.document().contentsChanged.connect(self._update_label_geometry)
+
+        self._apply_label_alignment()
         self.setPen(PEN_NORMAL)
         self.setBrush(DEFAULT_FILL)
         self.rx = rx
         self.ry = ry
+
+        self._update_label_color()
+        self._update_label_geometry()
+
+    def label_text(self) -> str:
+        return self._label.toPlainText()
+
+    def set_label_text(self, text: str) -> None:
+        self._label.setPlainText(text)
+        self._label.setVisible(bool(text.strip()))
+        self._update_label_geometry()
+
+    def _apply_label_alignment(self) -> None:
+        option = self._label.document().defaultTextOption()
+        if self._label_h_align == "left":
+            option.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
+        elif self._label_h_align == "right":
+            option.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
+        else:
+            option.setAlignment(QtCore.Qt.AlignmentFlag.AlignHCenter)
+        self._label.document().setDefaultTextOption(option)
+
+    def has_label(self) -> bool:
+        return bool(self._label.toPlainText().strip())
+
+    def label_alignment(self) -> tuple[str, str]:
+        return self._label_h_align, self._label_v_align
+
+    def set_label_alignment(self, *, horizontal: str | None = None, vertical: str | None = None) -> None:
+        valid_h = {"left", "center", "right"}
+        valid_v = {"top", "middle", "bottom"}
+        changed = False
+        if horizontal in valid_h and horizontal != self._label_h_align:
+            self._label_h_align = horizontal
+            changed = True
+        if vertical in valid_v and vertical != self._label_v_align:
+            self._label_v_align = vertical
+            changed = True
+        if changed:
+            self._apply_label_alignment()
+            self._update_label_geometry()
+
+    def edit_label(self) -> None:
+        self._begin_label_edit()
+
+    def set_label_font_pixel_size(self, value: float) -> None:
+        if value <= 0.0:
+            return
+        font = QtGui.QFont(self._label.font())
+        font.setPixelSize(int(round(value)))
+        self._label.setFont(font)
+        self._update_label_geometry()
+
+    def label_item(self) -> QtWidgets.QGraphicsTextItem:
+        return self._label
+
+    def _update_label_color(self) -> None:
+        if not hasattr(self, "_label") or self._label is None:
+            return
+        self._label.setDefaultTextColor(self.pen().color())
+
+    def _label_available_rect(self) -> QtCore.QRectF:
+        rect = QtCore.QRectF(self.rect())
+        pad = self._label_padding
+        rect.adjust(pad, pad, -pad, -pad)
+        if rect.width() <= 0.0:
+            rect.setWidth(1.0)
+        if rect.height() <= 0.0:
+            rect.setHeight(1.0)
+        return rect
+
+    def _update_label_geometry(self) -> None:
+        if not hasattr(self, "_label") or self._label is None:
+            return
+        rect = self._label_available_rect()
+        self._label.setTextWidth(rect.width())
+        br = self._label.boundingRect()
+        x = rect.left()
+        if self._label_v_align == "top":
+            y = rect.top()
+        elif self._label_v_align == "bottom":
+            y = rect.bottom() - br.height()
+        else:
+            y = rect.top() + (rect.height() - br.height()) / 2.0
+        # clamp inside overall rectangle
+        full_rect = self.rect()
+        y = max(full_rect.top(), min(y, full_rect.bottom() - br.height()))
+        x = max(full_rect.left(), min(x, full_rect.right() - br.width()))
+        self._label.setPos(x, y)
+        self._label.setVisible(self.has_label())
+
+    def _begin_label_edit(self) -> None:
+        self._label.setVisible(True)
+        self._apply_label_alignment()
+        self._label.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextEditorInteraction)
+        self._label.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
+        self._label.setFocus(QtCore.Qt.FocusReason.MouseFocusReason)
+        cursor = self._label.textCursor()
+        cursor.select(QtGui.QTextCursor.SelectionType.Document)
+        self._label.setTextCursor(cursor)
+
+    def _clear_label_highlight(self) -> None:
+        if not hasattr(self, "_label") or self._label is None:
+            return
+        cursor = self._label.textCursor()
+        if cursor.hasSelection():
+            cursor.clearSelection()
+            self._label.setTextCursor(cursor)
+        self._label.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.NoTextInteraction)
+        self._label.setAcceptedMouseButtons(QtCore.Qt.MouseButton.NoButton)
+        self._label.clearFocus()
+
+    def _finish_label_edit(self) -> None:
+        if not hasattr(self, "_label") or self._label is None:
+            return
+        self._clear_label_highlight()
+        if not self.has_label():
+            self._label.setVisible(False)
+        self._update_label_geometry()
+
+    def copy_label_from(self, other: "RectItem") -> None:
+        if not isinstance(other, RectItem):
+            return
+        self._label_h_align, self._label_v_align = other.label_alignment()
+        self._label.setFont(QtGui.QFont(other._label.font()))
+        self._label.setDefaultTextColor(other._label.defaultTextColor())
+        self._apply_label_alignment()
+        self.set_label_text(other.label_text())
+
+    def setRect(self, x: float, y: float, w: float, h: float) -> None:  # type: ignore[override]
+        QtWidgets.QGraphicsRectItem.setRect(self, x, y, w, h)
+        self._update_label_geometry()
+
+    def setPen(self, pen):  # type: ignore[override]
+        super().setPen(pen)
+        self._update_label_color()
+
+    def mouseDoubleClickEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:  # type: ignore[override]
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            self._begin_label_edit()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def itemChange(self, change, value):  # type: ignore[override]
+        if change == QtWidgets.QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
+            if not bool(value):
+                self._clear_label_highlight()
+        return super().itemChange(change, value)
 
     def paint(self, painter, option, widget=None):
         opt = QtWidgets.QStyleOptionGraphicsItem(option)

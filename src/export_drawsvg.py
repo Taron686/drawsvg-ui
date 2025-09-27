@@ -11,6 +11,7 @@ from items import (
     DiamondItem,
     FolderTreeItem,
     LineItem,
+    RectItem,
     SplitRoundedRectItem,
 )
 
@@ -74,6 +75,101 @@ def _pen_dash_array_string(pen: QtGui.QPen) -> str | None:
         return " ".join(f"{value:.2f}" for value in pattern)
     return None
 
+
+
+
+def _escape_draw_text(value: str) -> str:
+    return (
+        value.replace('\\', '\\\\')
+        .replace("'", "\'")
+        .replace('\n', '\\n')
+        .replace('\r', '\\r')
+    )
+
+
+def _export_rect_label(
+    item: RectItem,
+    lines: list[str],
+    *,
+    shape_id: str | None,
+    rect_pos: tuple[float, float],
+    rect_size: tuple[float, float],
+    angle: float,
+) -> None:
+    if not shape_id:
+        return
+    if not getattr(item, "has_label", lambda: False)():
+        return
+    text_value = getattr(item, "label_text", lambda: "")()
+    if not text_value:
+        return
+
+    label_item = getattr(item, "label_item", lambda: None)()
+    if label_item is None:
+        return
+
+    raw_text = _escape_draw_text(text_value)
+
+    font = label_item.font()
+    pixel_size = float(font.pixelSize())
+    if pixel_size <= 0.0:
+        point_size = font.pointSizeF()
+        if point_size > 0.0:
+            screen = QtGui.QGuiApplication.primaryScreen()
+            dpi = screen.logicalDotsPerInch() if screen else 96.0
+            pixel_size = point_size * dpi / 72.0
+    if pixel_size <= 0.0:
+        pixel_size = QtGui.QFontMetricsF(font).height()
+
+    scale = label_item.scale() or 1.0
+    size = pixel_size * scale
+
+    x, y = rect_pos
+    label_pos = label_item.pos()
+    text_origin_x = x + label_pos.x()
+    text_origin_y = y + label_pos.y()
+    br = label_item.boundingRect()
+    h_align, v_align = getattr(item, "label_alignment", lambda: ("center", "middle"))()
+    anchor_x = text_origin_x
+    anchor_y = text_origin_y
+    if h_align == "center":
+        anchor_x += br.width() / 2.0
+    elif h_align == "right":
+        anchor_x += br.width()
+    if v_align == "middle":
+        anchor_y += br.height() / 2.0
+    elif v_align == "bottom":
+        anchor_y += br.height()
+
+    anchor_map = {"left": "start", "center": "middle", "right": "end"}
+    baseline_map = {"top": "text-before-edge", "middle": "middle", "bottom": "text-after-edge"}
+
+    color = label_item.defaultTextColor()
+    attrs = [
+        f"fill='{color.name()}'",
+        f"font_family='{font.family()}'",
+        f"text_anchor='{anchor_map.get(h_align, 'middle')}'",
+        f"dominant_baseline='{baseline_map.get(v_align, 'middle')}'",
+        "data_rect_label='true'",
+        f"data_label_id='{shape_id}'",
+        f"data_label_h='{h_align}'",
+        f"data_label_v='{v_align}'",
+        f"data_font_px={pixel_size:.4f}",
+    ]
+    if color.alphaF() < 1.0:
+        attrs.append(f"fill_opacity={color.alphaF():.2f}")
+    attr_str = ", ".join(attrs)
+
+    transform_suffix = ""
+    if abs(angle) > 1e-6:
+        cx = rect_pos[0] + rect_size[0] / 2.0
+        cy = rect_pos[1] + rect_size[1] / 2.0
+        transform_suffix = f", transform='rotate({angle:.2f} {cx:.2f} {cy:.2f})'"
+
+    lines.append(
+        f"    _rect_label = draw.Text('{raw_text}', {size:.2f}, {anchor_x:.2f}, {anchor_y:.2f}, {attr_str}{transform_suffix})"
+    )
+    lines.append("    d.append(_rect_label)")
 
 def _painter_path_to_svg(path: QtGui.QPainterPath) -> str:
     """Return a compact SVG path string for ``path``.
@@ -152,6 +248,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
     oy = int(top)
 
     items = list(reversed(shape_items))
+    label_counter = 0
 
     lines = []
     lines.append("# Auto-generated from PySide6 Canvas to drawsvg")
@@ -179,7 +276,13 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             ang = it.rotation()
             rx = getattr(it, "rx", 0)
             ry = getattr(it, "ry", 0)
+            label_id = None
+            if isinstance(it, RectItem) and getattr(it, "has_label", lambda: False)():
+                label_counter += 1
+                label_id = f"rect_label_{label_counter}"
             extra_attrs = []
+            if label_id:
+                extra_attrs.append(f"data_label_id='{label_id}'")
             if rx:
                 extra_attrs.append(f"rx={rx:.2f}")
             if ry:
@@ -194,6 +297,8 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     f"    _rect = draw.Rectangle({x:.2f}, {y:.2f}, {w:.2f}, {h:.2f}, {attr_str})"
                 )
             lines.append("    d.append(_rect)")
+            if label_id:
+                _export_rect_label(it, lines, shape_id=label_id, rect_pos=(x, y), rect_size=(w, h), angle=ang)
             lines.append("")
 
         elif shape == "Split Rounded Rectangle" and isinstance(it, SplitRoundedRectItem):

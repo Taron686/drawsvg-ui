@@ -960,6 +960,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             clone = RectItem(item.x(), item.y(), r.width(), r.height(), getattr(item, "rx", 0.0), getattr(item, "ry", 0.0))
             clone.setBrush(item.brush())
             clone.setPen(item.pen())
+            clone.copy_label_from(item)
         elif isinstance(item, SplitRoundedRectItem):
             r = item.rect()
             clone = SplitRoundedRectItem(
@@ -1210,10 +1211,43 @@ class CanvasView(QtWidgets.QGraphicsView):
 
         return action, callback
 
+    def _add_rect_label_actions(
+        self, menu: QtWidgets.QMenu, item: RectItem
+    ) -> dict[QtGui.QAction, Callable[[], None]]:
+        actions: dict[QtGui.QAction, Callable[[], None]] = {}
+        label_menu = menu.addMenu("Label")
+        edit_action = label_menu.addAction("Edit text")
+        actions[edit_action] = lambda item=item: item.edit_label()
+
+        label_menu.addSeparator()
+        h_menu = label_menu.addMenu("Horizontal")
+        v_menu = label_menu.addMenu("Vertical")
+        has_label = item.has_label()
+        h_menu.setEnabled(has_label)
+        v_menu.setEnabled(has_label)
+        h_align, v_align = item.label_alignment()
+        for title, key in (("Left", "left"), ("Center", "center"), ("Right", "right")):
+            action = h_menu.addAction(title)
+            action.setCheckable(True)
+            action.setChecked(h_align == key)
+            actions[action] = lambda item=item, key=key: item.set_label_alignment(horizontal=key)
+        for title, key in (("Top", "top"), ("Middle", "middle"), ("Bottom", "bottom")):
+            action = v_menu.addAction(title)
+            action.setCheckable(True)
+            action.setChecked(v_align == key)
+            actions[action] = lambda item=item, key=key: item.set_label_alignment(vertical=key)
+        return actions
+
+
     def _create_shape_style_actions(
         self, menu: QtWidgets.QMenu, item: QtWidgets.QGraphicsItem
     ) -> dict[QtGui.QAction, Callable[[], None]]:
         actions: dict[QtGui.QAction, Callable[[], None]] = {}
+
+        if isinstance(item, RectItem):
+            label_actions = self._add_rect_label_actions(menu, item)
+            actions.update(label_actions)
+            menu.addSeparator()
 
         def add_fill_actions() -> None:
             fill_action, fill_callback = self._create_color_action(

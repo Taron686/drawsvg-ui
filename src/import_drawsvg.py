@@ -135,6 +135,21 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
         pending_block: dict[str, Any] | None = None
         pending_bracket: dict[str, Any] | None = None
         pending_line: LineItem | None = None
+        rect_label_targets: dict[str, RectItem] = {}
+        rect_label_pending: dict[str, dict[str, Any]] = {}
+        def _apply_rect_label(target: RectItem, data: dict[str, Any]) -> None:
+            target.set_label_text(str(data.get("text", "")))
+            target.set_label_alignment(
+                horizontal=str(data.get("h")) if data.get("h") else None,
+                vertical=str(data.get("v")) if data.get("v") else None,
+            )
+            font_px = data.get("font_px")
+            if font_px is not None:
+                try:
+                    target.set_label_font_pixel_size(float(font_px))
+                except (TypeError, ValueError):
+                    pass
+
         for raw in lines:
             line = raw.strip()
             if not line:
@@ -293,6 +308,13 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     item.setRotation(_parse_rotate(kwargs["transform"]))
                 shape_name = "Rounded Rectangle" if (rx or ry) else "Rectangle"
                 item.setData(0, shape_name)
+                label_id = kwargs.get("data_label_id")
+                if label_id:
+                    key = str(label_id)
+                    rect_label_targets[key] = item
+                    pending = rect_label_pending.pop(key, None)
+                    if pending:
+                        _apply_rect_label(item, pending)
                 scene.addItem(item)
             elif line.startswith("_ell = draw.Ellipse("):
                 args, kwargs = _parse_call(line)
@@ -478,6 +500,18 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 size = float(args[1])
                 text_x = float(args[2])
                 text_y = float(args[3])
+
+                if str(kwargs.get("data_rect_label")).lower() == 'true':
+                    label_id = kwargs.get("data_label_id")
+                    key = str(label_id) if label_id is not None else None
+                    data = {"text": text, "h": kwargs.get("data_label_h"), "v": kwargs.get("data_label_v"), "font_px": kwargs.get("data_font_px")}
+                    if key and key in rect_label_targets:
+                        _apply_rect_label(rect_label_targets[key], data)
+                        rect_label_targets.pop(key, None)
+                    elif key:
+                        rect_label_pending[key] = data
+                    continue
+
                 item = TextItem(0, 0, 0, 0)
                 item.setPlainText(text)
 
