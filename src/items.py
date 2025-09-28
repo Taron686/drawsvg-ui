@@ -694,7 +694,7 @@ class LineHandle(QtWidgets.QGraphicsEllipseItem):
 
 
 
-class _RectLabelItem(QtWidgets.QGraphicsTextItem):
+class _ShapeLabelItem(QtWidgets.QGraphicsTextItem):
     def __init__(self, parent: "RectItem") -> None:
         super().__init__("", parent)
         self.setDefaultTextColor(QtGui.QColor("#222"))
@@ -715,35 +715,23 @@ class _RectLabelItem(QtWidgets.QGraphicsTextItem):
     def focusOutEvent(self, event: QtGui.QFocusEvent) -> None:  # type: ignore[override]
         super().focusOutEvent(event)
         parent = self.parentItem()
-        if isinstance(parent, RectItem):
+        if isinstance(parent, ShapeLabelMixin):
             parent._finish_label_edit()
 
-class RectItem(ResizableItem, QtWidgets.QGraphicsRectItem):
-    def __init__(self, x, y, w, h, rx: float = 0.0, ry: float = 0.0):
-        QtWidgets.QGraphicsRectItem.__init__(self, 0, 0, w, h)
-        ResizableItem.__init__(self)
-        self.setPos(x, y)
-        self.setTransformOriginPoint(w / 2.0, h / 2.0)
-        self.setFlags(
-            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
-            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
-            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
-        )
-        self._label = _RectLabelItem(self)
+
+class ShapeLabelMixin:
+    def _init_shape_label(self) -> None:
+        self._label = _ShapeLabelItem(self)
         self._label_h_align = "center"
         self._label_v_align = "middle"
         self._label_padding = 8.0
         self._label.document().contentsChanged.connect(self._update_label_geometry)
-
         self._apply_label_alignment()
-        self.setPen(PEN_NORMAL)
-        self.setBrush(DEFAULT_FILL)
-        self.rx = rx
-        self.ry = ry
-
         self._update_label_color()
         self._update_label_geometry()
+
+    def _label_base_rect(self) -> QtCore.QRectF:
+        raise NotImplementedError
 
     def label_text(self) -> str:
         return self._label.toPlainText()
@@ -753,23 +741,18 @@ class RectItem(ResizableItem, QtWidgets.QGraphicsRectItem):
         self._label.setVisible(bool(text.strip()))
         self._update_label_geometry()
 
-    def _apply_label_alignment(self) -> None:
-        option = self._label.document().defaultTextOption()
-        if self._label_h_align == "left":
-            option.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
-        elif self._label_h_align == "right":
-            option.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
-        else:
-            option.setAlignment(QtCore.Qt.AlignmentFlag.AlignHCenter)
-        self._label.document().setDefaultTextOption(option)
-
     def has_label(self) -> bool:
         return bool(self._label.toPlainText().strip())
 
     def label_alignment(self) -> tuple[str, str]:
         return self._label_h_align, self._label_v_align
 
-    def set_label_alignment(self, *, horizontal: str | None = None, vertical: str | None = None) -> None:
+    def set_label_alignment(
+        self,
+        *,
+        horizontal: str | None = None,
+        vertical: str | None = None,
+    ) -> None:
         valid_h = {"left", "center", "right"}
         valid_v = {"top", "middle", "bottom"}
         changed = False
@@ -797,13 +780,18 @@ class RectItem(ResizableItem, QtWidgets.QGraphicsRectItem):
     def label_item(self) -> QtWidgets.QGraphicsTextItem:
         return self._label
 
-    def _update_label_color(self) -> None:
-        if not hasattr(self, "_label") or self._label is None:
-            return
-        self._label.setDefaultTextColor(self.pen().color())
+    def _apply_label_alignment(self) -> None:
+        option = self._label.document().defaultTextOption()
+        if self._label_h_align == "left":
+            option.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
+        elif self._label_h_align == "right":
+            option.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
+        else:
+            option.setAlignment(QtCore.Qt.AlignmentFlag.AlignHCenter)
+        self._label.document().setDefaultTextOption(option)
 
     def _label_available_rect(self) -> QtCore.QRectF:
-        rect = QtCore.QRectF(self.rect())
+        rect = QtCore.QRectF(self._label_base_rect())
         pad = self._label_padding
         rect.adjust(pad, pad, -pad, -pad)
         if rect.width() <= 0.0:
@@ -813,24 +801,29 @@ class RectItem(ResizableItem, QtWidgets.QGraphicsRectItem):
         return rect
 
     def _update_label_geometry(self) -> None:
-        if not hasattr(self, "_label") or self._label is None:
-            return
         rect = self._label_available_rect()
         self._label.setTextWidth(rect.width())
         br = self._label.boundingRect()
         x = rect.left()
-        if self._label_v_align == "top":
-            y = rect.top()
+        if self._label_h_align == "center":
+            x = rect.left() + (rect.width() - br.width()) / 2.0
+        elif self._label_h_align == "right":
+            x = rect.right() - br.width()
+        y = rect.top()
+        if self._label_v_align == "middle":
+            y = rect.top() + (rect.height() - br.height()) / 2.0
         elif self._label_v_align == "bottom":
             y = rect.bottom() - br.height()
-        else:
-            y = rect.top() + (rect.height() - br.height()) / 2.0
-        # clamp inside overall rectangle
-        full_rect = self.rect()
-        y = max(full_rect.top(), min(y, full_rect.bottom() - br.height()))
-        x = max(full_rect.left(), min(x, full_rect.right() - br.width()))
+        base_rect = self._label_base_rect()
+        x = max(base_rect.left(), min(x, base_rect.right() - br.width()))
+        y = max(base_rect.top(), min(y, base_rect.bottom() - br.height()))
         self._label.setPos(x, y)
         self._label.setVisible(self.has_label())
+
+    def _update_label_color(self) -> None:
+        if hasattr(self, "_label") and self._label is not None:
+            color = self.pen().color() if hasattr(self, "pen") else QtGui.QColor("#222")
+            self._label.setDefaultTextColor(color)
 
     def _begin_label_edit(self) -> None:
         self._label.setVisible(True)
@@ -861,14 +854,42 @@ class RectItem(ResizableItem, QtWidgets.QGraphicsRectItem):
             self._label.setVisible(False)
         self._update_label_geometry()
 
-    def copy_label_from(self, other: "RectItem") -> None:
-        if not isinstance(other, RectItem):
+    def copy_label_from(self, other: "ShapeLabelMixin") -> None:
+        if not isinstance(other, ShapeLabelMixin):
             return
         self._label_h_align, self._label_v_align = other.label_alignment()
-        self._label.setFont(QtGui.QFont(other._label.font()))
-        self._label.setDefaultTextColor(other._label.defaultTextColor())
+        other_label = other.label_item()
+        self._label.setFont(QtGui.QFont(other_label.font()))
+        self._label.setDefaultTextColor(other_label.defaultTextColor())
         self._apply_label_alignment()
         self.set_label_text(other.label_text())
+
+    def itemChange(self, change, value):  # type: ignore[override]
+        if change == QtWidgets.QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
+            if not bool(value):
+                self._clear_label_highlight()
+        return super().itemChange(change, value)
+
+class RectItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsRectItem):
+    def __init__(self, x, y, w, h, rx: float = 0.0, ry: float = 0.0):
+        QtWidgets.QGraphicsRectItem.__init__(self, 0, 0, w, h)
+        ResizableItem.__init__(self)
+        self.setPos(x, y)
+        self.setTransformOriginPoint(w / 2.0, h / 2.0)
+        self.setFlags(
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+            | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
+        )
+        self.rx = rx
+        self.ry = ry
+        self._init_shape_label()
+        self.setPen(PEN_NORMAL)
+        self.setBrush(DEFAULT_FILL)
+
+    def _label_base_rect(self) -> QtCore.QRectF:
+        return QtCore.QRectF(self.rect())
 
     def setRect(self, x: float, y: float, w: float, h: float) -> None:  # type: ignore[override]
         QtWidgets.QGraphicsRectItem.setRect(self, x, y, w, h)
@@ -884,12 +905,6 @@ class RectItem(ResizableItem, QtWidgets.QGraphicsRectItem):
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
-
-    def itemChange(self, change, value):  # type: ignore[override]
-        if change == QtWidgets.QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
-            if not bool(value):
-                self._clear_label_highlight()
-        return super().itemChange(change, value)
 
     def paint(self, painter, option, widget=None):
         opt = QtWidgets.QStyleOptionGraphicsItem(option)
@@ -1164,7 +1179,7 @@ class TriangleItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
             painter.restore()
 
 
-class DiamondItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
+class DiamondItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsPolygonItem):
     def __init__(self, x: float, y: float, w: float, h: float):
         QtWidgets.QGraphicsPolygonItem.__init__(self)
         ResizableItem.__init__(self)
@@ -1179,8 +1194,12 @@ class DiamondItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
         )
+        self._init_shape_label()
         self.setPen(PEN_NORMAL)
         self.setBrush(DEFAULT_FILL)
+
+    def _label_base_rect(self) -> QtCore.QRectF:
+        return QtCore.QRectF(self.boundingRect())
 
     def _update_polygon(self) -> None:
         half_w = self._w / 2.0
@@ -1194,6 +1213,8 @@ class DiamondItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
             ]
         )
         self.setPolygon(poly)
+        if hasattr(self, '_label'):
+            self._update_label_geometry()
 
     def set_size(self, w: float, h: float, adjust_origin: bool = True) -> None:
         self._w = w
@@ -1201,18 +1222,18 @@ class DiamondItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
         self._update_polygon()
         if adjust_origin:
             self.setTransformOriginPoint(w / 2.0, h / 2.0)
+        self._update_label_geometry()
 
-    def paint(self, painter, option, widget=None):
-        opt = QtWidgets.QStyleOptionGraphicsItem(option)
-        opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
-        super().paint(painter, opt, widget)
-        if _should_draw_selection(self):
-            painter.save()
-            painter.setPen(PEN_SELECTED)
-            painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-            rect = self.polygon().boundingRect()
-            painter.drawRect(rect)
-            painter.restore()
+    def setPen(self, pen: QtGui.QPen | QtGui.QColor) -> None:  # type: ignore[override]
+        super().setPen(pen)
+        self._update_label_color()
+
+    def mouseDoubleClickEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:  # type: ignore[override]
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            self._begin_label_edit()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
 
 class BlockArrowItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):

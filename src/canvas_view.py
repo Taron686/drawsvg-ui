@@ -28,6 +28,7 @@ from items import (
     TriangleItem,
     DiamondItem,
     BlockArrowItem,
+    ShapeLabelMixin,
     CurvyBracketItem,
     GroupItem,
     ResizableItem,
@@ -960,7 +961,6 @@ class CanvasView(QtWidgets.QGraphicsView):
             clone = RectItem(item.x(), item.y(), r.width(), r.height(), getattr(item, "rx", 0.0), getattr(item, "ry", 0.0))
             clone.setBrush(item.brush())
             clone.setPen(item.pen())
-            clone.copy_label_from(item)
         elif isinstance(item, SplitRoundedRectItem):
             r = item.rect()
             clone = SplitRoundedRectItem(
@@ -1013,6 +1013,8 @@ class CanvasView(QtWidgets.QGraphicsView):
             clone.setScale(item.scale())
         else:
             return None
+        if isinstance(item, ShapeLabelMixin) and isinstance(clone, ShapeLabelMixin):
+            clone.copy_label_from(item)
         clone.setRotation(item.rotation())
         clone.setData(0, item.data(0))
         return clone
@@ -1211,18 +1213,48 @@ class CanvasView(QtWidgets.QGraphicsView):
 
         return action, callback
 
-    def _add_rect_label_actions(
-        self, menu: QtWidgets.QMenu, item: RectItem
+    def _add_shape_label_actions(
+        self, menu: QtWidgets.QMenu, item: ShapeLabelMixin
     ) -> dict[QtGui.QAction, Callable[[], None]]:
         actions: dict[QtGui.QAction, Callable[[], None]] = {}
         label_menu = menu.addMenu("Label")
         edit_action = label_menu.addAction("Edit text")
         actions[edit_action] = lambda item=item: item.edit_label()
 
+        has_label = item.has_label()
+
+        font_action = label_menu.addAction("Set font size...")
+        font_action.setEnabled(has_label)
+
+        def font_callback(item=item) -> None:
+            label_item = item.label_item()
+            if label_item is None:
+                return
+            font = QtGui.QFont(label_item.font())
+            pixel_size = float(font.pixelSize())
+            if pixel_size <= 0.0:
+                point_size = font.pointSizeF()
+                if point_size > 0.0:
+                    pixel_size = point_size
+            if pixel_size <= 0.0:
+                pixel_size = QtGui.QFontMetricsF(font).height()
+            value, ok = QtWidgets.QInputDialog.getDouble(
+                self,
+                "Label font size",
+                "Font size (px):",
+                max(1.0, pixel_size),
+                1.0,
+                500.0,
+                1,
+            )
+            if ok:
+                item.set_label_font_pixel_size(value)
+
+        actions[font_action] = font_callback
+
         label_menu.addSeparator()
         h_menu = label_menu.addMenu("Horizontal")
         v_menu = label_menu.addMenu("Vertical")
-        has_label = item.has_label()
         h_menu.setEnabled(has_label)
         v_menu.setEnabled(has_label)
         h_align, v_align = item.label_alignment()
@@ -1237,15 +1269,13 @@ class CanvasView(QtWidgets.QGraphicsView):
             action.setChecked(v_align == key)
             actions[action] = lambda item=item, key=key: item.set_label_alignment(vertical=key)
         return actions
-
-
     def _create_shape_style_actions(
         self, menu: QtWidgets.QMenu, item: QtWidgets.QGraphicsItem
     ) -> dict[QtGui.QAction, Callable[[], None]]:
         actions: dict[QtGui.QAction, Callable[[], None]] = {}
 
-        if isinstance(item, RectItem):
-            label_actions = self._add_rect_label_actions(menu, item)
+        if isinstance(item, ShapeLabelMixin):
+            label_actions = self._add_shape_label_actions(menu, item)
             actions.update(label_actions)
             menu.addSeparator()
 

@@ -12,6 +12,7 @@ from items import (
     FolderTreeItem,
     LineItem,
     RectItem,
+    ShapeLabelMixin,
     SplitRoundedRectItem,
 )
 
@@ -87,14 +88,16 @@ def _escape_draw_text(value: str) -> str:
     )
 
 
-def _export_rect_label(
-    item: RectItem,
+def _export_shape_label(
+    item: ShapeLabelMixin,
     lines: list[str],
     *,
     shape_id: str | None,
-    rect_pos: tuple[float, float],
-    rect_size: tuple[float, float],
     angle: float,
+    base_pos: tuple[float, float] | None = None,
+    base_size: tuple[float, float] | None = None,
+    var_name: str = "shape_label",
+    label_kind: str | None = None,
 ) -> None:
     if not shape_id:
         return
@@ -124,10 +127,21 @@ def _export_rect_label(
     scale = label_item.scale() or 1.0
     size = pixel_size * scale
 
-    x, y = rect_pos
+    bounds = item.boundingRect()
+    if base_pos is None:
+        base_pos = (
+            item.pos().x() + bounds.x(),
+            item.pos().y() + bounds.y(),
+        )
+    if base_size is None:
+        base_size = (bounds.width(), bounds.height())
+
+    bx, by = base_pos
+    bw, bh = base_size
+
     label_pos = label_item.pos()
-    text_origin_x = x + label_pos.x()
-    text_origin_y = y + label_pos.y()
+    text_origin_x = bx + label_pos.x()
+    text_origin_y = by + label_pos.y()
     br = label_item.boundingRect()
     h_align, v_align = getattr(item, "label_alignment", lambda: ("center", "middle"))()
     anchor_x = text_origin_x
@@ -150,27 +164,30 @@ def _export_rect_label(
         f"font_family='{font.family()}'",
         f"text_anchor='{anchor_map.get(h_align, 'middle')}'",
         f"dominant_baseline='{baseline_map.get(v_align, 'middle')}'",
-        "data_rect_label='true'",
+        "data_shape_label='true'",
         f"data_label_id='{shape_id}'",
         f"data_label_h='{h_align}'",
         f"data_label_v='{v_align}'",
         f"data_font_px={pixel_size:.4f}",
     ]
+    if label_kind:
+        attrs.append(f"data_label_kind='{label_kind}'")
+    if label_kind == "rect":
+        attrs.append("data_rect_label='true'")
     if color.alphaF() < 1.0:
         attrs.append(f"fill_opacity={color.alphaF():.2f}")
     attr_str = ", ".join(attrs)
 
     transform_suffix = ""
     if abs(angle) > 1e-6:
-        cx = rect_pos[0] + rect_size[0] / 2.0
-        cy = rect_pos[1] + rect_size[1] / 2.0
+        cx = bx + bw / 2.0
+        cy = by + bh / 2.0
         transform_suffix = f", transform='rotate({angle:.2f} {cx:.2f} {cy:.2f})'"
 
     lines.append(
-        f"    _rect_label = draw.Text('{raw_text}', {size:.2f}, {anchor_x:.2f}, {anchor_y:.2f}, {attr_str}{transform_suffix})"
+        f"    _{var_name} = draw.Text('{raw_text}', {size:.2f}, {anchor_x:.2f}, {anchor_y:.2f}, {attr_str}{transform_suffix})"
     )
-    lines.append("    d.append(_rect_label)")
-
+    lines.append(f"    d.append(_{var_name})")
 def _painter_path_to_svg(path: QtGui.QPainterPath) -> str:
     """Return a compact SVG path string for ``path``.
 
@@ -298,7 +315,16 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 )
             lines.append("    d.append(_rect)")
             if label_id:
-                _export_rect_label(it, lines, shape_id=label_id, rect_pos=(x, y), rect_size=(w, h), angle=ang)
+                _export_shape_label(
+                    it,
+                    lines,
+                    shape_id=label_id,
+                    angle=ang,
+                    base_pos=(x, y),
+                    base_size=(w, h),
+                    var_name="rect_label",
+                    label_kind="rect",
+                )
             lines.append("")
 
         elif shape == "Split Rounded Rectangle" and isinstance(it, SplitRoundedRectItem):
@@ -466,10 +492,17 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             for p in poly:
                 pts.extend([x + p.x(), y + p.y()])
             br = it.boundingRect()
-            cx = x + br.width() / 2.0
-            cy = y + br.height() / 2.0
+            cx = x + br.x() + br.width() / 2.0
+            cy = y + br.y() + br.height() / 2.0
             ang = it.rotation()
-            attr_str = _format_item_attributes(it)
+            label_id = None
+            if isinstance(it, ShapeLabelMixin) and getattr(it, "has_label", lambda: False)():
+                label_counter += 1
+                label_id = f"diamond_label_{label_counter}"
+            extra_attrs = []
+            if label_id:
+                extra_attrs.append(f"data_label_id='{label_id}'")
+            attr_str = _format_item_attributes(it, extra_attrs=extra_attrs)
             coord_str = ", ".join(f"{v:.2f}" for v in pts)
             if abs(ang) > 1e-6:
                 lines.append(
@@ -480,6 +513,19 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     f"    _diamond = draw.Lines({coord_str}, close=True, {attr_str})"
                 )
             lines.append("    d.append(_diamond)")
+            if label_id:
+                base_pos = (x + br.x(), y + br.y())
+                base_size = (br.width(), br.height())
+                _export_shape_label(
+                    it,
+                    lines,
+                    shape_id=label_id,
+                    angle=ang,
+                    base_pos=base_pos,
+                    base_size=base_size,
+                    var_name="diamond_label",
+                    label_kind="diamond",
+                )
             lines.append("")
 
         elif shape == "Block Arrow" and isinstance(it, BlockArrowItem):

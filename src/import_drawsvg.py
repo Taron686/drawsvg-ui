@@ -17,6 +17,7 @@ from items import (
     FolderTreeItem,
     LineItem,
     RectItem,
+    ShapeLabelMixin,
     SplitRoundedRectItem,
     TextItem,
     TriangleItem,
@@ -135,9 +136,9 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
         pending_block: dict[str, Any] | None = None
         pending_bracket: dict[str, Any] | None = None
         pending_line: LineItem | None = None
-        rect_label_targets: dict[str, RectItem] = {}
-        rect_label_pending: dict[str, dict[str, Any]] = {}
-        def _apply_rect_label(target: RectItem, data: dict[str, Any]) -> None:
+        shape_label_targets: dict[str, ShapeLabelMixin] = {}
+        shape_label_pending: dict[str, dict[str, Any]] = {}
+        def _apply_shape_label(target: ShapeLabelMixin, data: dict[str, Any]) -> None:
             target.set_label_text(str(data.get("text", "")))
             target.set_label_alignment(
                 horizontal=str(data.get("h")) if data.get("h") else None,
@@ -313,10 +314,10 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 label_id = kwargs.get("data_label_id")
                 if label_id:
                     key = str(label_id)
-                    rect_label_targets[key] = item
-                    pending = rect_label_pending.pop(key, None)
+                    shape_label_targets[key] = item
+                    pending = shape_label_pending.pop(key, None)
                     if pending:
-                        _apply_rect_label(item, pending)
+                        _apply_shape_label(item, pending)
                 scene.addItem(item)
             elif line.startswith("_ell = draw.Ellipse("):
                 args, kwargs = _parse_call(line)
@@ -372,6 +373,13 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 if "transform" in kwargs:
                     item.setRotation(_parse_rotate(kwargs["transform"]))
                 item.setData(0, "Diamond")
+                label_id = kwargs.get("data_label_id")
+                if label_id:
+                    key = str(label_id)
+                    shape_label_targets[key] = item
+                    pending = shape_label_pending.pop(key, None)
+                    if pending:
+                        _apply_shape_label(item, pending)
                 scene.addItem(item)
             elif line.startswith("_block_arrow = draw.Lines("):
                 args, kwargs = _parse_call(line)
@@ -496,18 +504,21 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 item.setData(0, "Line")
                 scene.addItem(item)
                 pending_line = item
-            elif line.startswith("_rect_label = draw.Text("):
+            elif "_label = draw.Text(" in line:
                 args, kwargs = _parse_call(line)
                 text = args[0]
-                if str(kwargs.get("data_rect_label")).lower() == 'true':
+                flag_value = kwargs.get("data_shape_label")
+                if flag_value is None:
+                    flag_value = kwargs.get("data_rect_label")
+                if str(flag_value).lower() == 'true':
                     label_id = kwargs.get("data_label_id")
                     key = str(label_id) if label_id is not None else None
                     data = {"text": text, "h": kwargs.get("data_label_h"), "v": kwargs.get("data_label_v"), "font_px": kwargs.get("data_font_px")}
-                    if key and key in rect_label_targets:
-                        _apply_rect_label(rect_label_targets[key], data)
+                    if key and key in shape_label_targets:
+                        _apply_shape_label(shape_label_targets[key], data)
                     elif key:
-                        rect_label_pending[key] = data
-                continue
+                        shape_label_pending[key] = data
+                    continue
 
             elif line.startswith("_text = draw.Text("):
                 args, kwargs = _parse_call(line)
