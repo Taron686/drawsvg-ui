@@ -2206,9 +2206,16 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
 
         if _should_draw_selection(self):
             painter.save()
-            painter.setPen(PEN_SELECTED)
+            selection_pen = QtGui.QPen(PEN_SELECTED)
+            selection_pen.setCapStyle(self.pen().capStyle())
+            selection_pen.setJoinStyle(self.pen().joinStyle())
+            selection_pen.setWidthF(max(selection_pen.widthF(), self.pen().widthF()))
+            selection_pen.setCosmetic(True)
+            painter.setPen(selection_pen)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-            painter.drawRect(self.boundingRect())
+            painter.drawPath(shaft_path)
+            for poly in arrow_polygons:
+                painter.drawPolygon(poly)
             painter.restore()
 
 
