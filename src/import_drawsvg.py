@@ -150,6 +150,8 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 except (TypeError, ValueError):
                     pass
 
+
+
         for raw in lines:
             line = raw.strip()
             if not line:
@@ -494,23 +496,25 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 item.setData(0, "Line")
                 scene.addItem(item)
                 pending_line = item
-            elif line.startswith("_text = draw.Text("):
+            elif line.startswith("_rect_label = draw.Text("):
                 args, kwargs = _parse_call(line)
                 text = args[0]
-                size = float(args[1])
-                text_x = float(args[2])
-                text_y = float(args[3])
-
                 if str(kwargs.get("data_rect_label")).lower() == 'true':
                     label_id = kwargs.get("data_label_id")
                     key = str(label_id) if label_id is not None else None
                     data = {"text": text, "h": kwargs.get("data_label_h"), "v": kwargs.get("data_label_v"), "font_px": kwargs.get("data_font_px")}
                     if key and key in rect_label_targets:
                         _apply_rect_label(rect_label_targets[key], data)
-                        rect_label_targets.pop(key, None)
                     elif key:
                         rect_label_pending[key] = data
-                    continue
+                continue
+
+            elif line.startswith("_text = draw.Text("):
+                args, kwargs = _parse_call(line)
+                text = args[0]
+                size = float(args[1])
+                text_x = float(args[2])
+                text_y = float(args[3])
 
                 item = TextItem(0, 0, 0, 0)
                 item.setPlainText(text)
@@ -582,6 +586,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             ensure_pages = getattr(view, "ensure_pages_for_scene_items", None)
             if callable(ensure_pages):
                 ensure_pages()
+
         if parent is not None:
             parent.statusBar().showMessage(f"Loaded: {path}", 5000)
     except Exception as e:
