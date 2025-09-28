@@ -1954,6 +1954,7 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         self.arrow_start = arrow_start
         self.arrow_end = arrow_end
         self._arrow_size = 10.0
+        self._selection_padding = 10.0
         if points is not None:
             self._points = [QtCore.QPointF(p) for p in points]
         else:
@@ -2065,10 +2066,34 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
 
     def boundingRect(self):  # type: ignore[override]
         br = super().boundingRect()
+        padding = self._selection_padding
         if self.arrow_start or self.arrow_end:
-            extra = self._arrow_size
-            return br.adjusted(-extra, -extra, extra, extra)
-        return br
+            padding += self._arrow_size
+        if padding <= 0.0:
+            return br
+        return br.adjusted(-padding, -padding, padding, padding)
+
+    def shape(self) -> QtGui.QPainterPath:  # type: ignore[override]
+        base_path = QtGui.QPainterPath(self.path())
+        if self.arrow_start or self.arrow_end:
+            pts = self._points
+            if len(pts) >= 2:
+                if self.arrow_start:
+                    start_poly, _ = self._arrow_head_geometry(pts[1], pts[0])
+                    base_path.addPolygon(start_poly)
+                if self.arrow_end:
+                    end_poly, _ = self._arrow_head_geometry(pts[-2], pts[-1])
+                    base_path.addPolygon(end_poly)
+        pen = self.pen()
+        stroker = QtGui.QPainterPathStroker()
+        stroker.setCapStyle(pen.capStyle())
+        stroker.setJoinStyle(pen.joinStyle())
+        stroker.setMiterLimit(4.0)
+        width = max(pen.widthF(), 0.1) + self._selection_padding * 2.0
+        stroker.setWidth(width)
+        stroked = stroker.createStroke(base_path)
+        stroked.addPath(base_path)
+        return stroked
 
     def update_handles(self) -> None:
         # Vertex-Handles
