@@ -1537,9 +1537,9 @@ class FolderTreeBranchDot(QtWidgets.QGraphicsEllipseItem):
 
 class FolderTreeItem(HandleAwareItemMixin, QtWidgets.QGraphicsItem):
     LINE_COLOR = QtGui.QColor("#7a7a7a")
-    FOLDER_COLOR = QtGui.QColor("#9bd97c")
-    FILE_COLOR = QtGui.QColor("#f58db2")
-    TEXT_COLOR = QtGui.QColor("#e7e7e7")
+    FOLDER_COLOR = QtGui.QColor("#000000")
+    FILE_COLOR = QtGui.QColor("#000000")
+    TEXT_COLOR = QtGui.QColor("#000000")
 
     def __init__(
         self,
@@ -1563,7 +1563,7 @@ class FolderTreeItem(HandleAwareItemMixin, QtWidgets.QGraphicsItem):
         self._indent = 54.0
         self._line_height = 28.0
         self._dot_radius = 6.0
-        self._text_gap = 12.0
+        self._text_gap = 10.0
         self._font = QtGui.QFont("Cascadia Code", 11)
 
         self._line_pen = QtGui.QPen(self.LINE_COLOR, 1.6)
@@ -1684,7 +1684,7 @@ class FolderTreeItem(HandleAwareItemMixin, QtWidgets.QGraphicsItem):
             row = info["row"]
             y = self._padding + row * self._line_height
             x = self._padding + depth * self._indent
-            text_x = x + self._dot_radius * 2.0 + self._text_gap
+            text_x = x + self._dot_radius + self._text_gap
             label = self._node_label(node)
             text_width = fm.horizontalAdvance(label)
             max_text_right = max(max_text_right, text_x + text_width)
@@ -1741,12 +1741,12 @@ class FolderTreeItem(HandleAwareItemMixin, QtWidgets.QGraphicsItem):
         delete_action = None
 
         if node.is_folder:
-            add_folder_action = menu.addAction("Neuen Ordner hinzufügen")
-            add_file_action = menu.addAction("Neue Datei hinzufügen")
+            add_folder_action = menu.addAction("Add Folder")
+            add_file_action = menu.addAction("Add File")
         if node.parent is not None:
             if menu.actions():
                 menu.addSeparator()
-            delete_action = menu.addAction("Eintrag entfernen")
+            delete_action = menu.addAction("Remove Entry")
 
         if isinstance(global_pos, QtCore.QPointF):
             global_point = QtCore.QPoint(round(global_pos.x()), round(global_pos.y()))
@@ -1789,8 +1789,8 @@ class FolderTreeItem(HandleAwareItemMixin, QtWidgets.QGraphicsItem):
         return name or None
 
     def _create_child(self, parent: FolderTreeNode, is_folder: bool) -> None:
-        title = "Neuen Ordner hinzufügen" if is_folder else "Neue Datei hinzufügen"
-        prompt = "Ordnername:" if is_folder else "Dateiname:"
+        title = "Add Folder" if is_folder else "Add File"
+        prompt = "Folder name:" if is_folder else "File name:"
         name = self._prompt_name(title, prompt)
         if not name:
             return
@@ -1803,8 +1803,8 @@ class FolderTreeItem(HandleAwareItemMixin, QtWidgets.QGraphicsItem):
         parent_widget = self._view_widget()
         reply = QtWidgets.QMessageBox.question(
             parent_widget,
-            "Eintrag entfernen",
-            f"Soll '{self._node_label(node)}' wirklich entfernt werden?",
+            "Remove Entry",
+            f"Remove '{self._node_label(node)}'?",
         )
         if reply != QtWidgets.QMessageBox.StandardButton.Yes:
             return
@@ -1813,8 +1813,8 @@ class FolderTreeItem(HandleAwareItemMixin, QtWidgets.QGraphicsItem):
 
     def _rename_node(self, node: FolderTreeNode) -> None:
         current = node.name
-        title = "Eintrag umbenennen"
-        prompt = "Neuer Name:"
+        title = "Rename Entry"
+        prompt = "New name:"
         name = self._prompt_name(title, prompt, current)
         if not name or name == current:
             return
