@@ -1570,6 +1570,10 @@ class CanvasView(QtWidgets.QGraphicsView):
             return
         pos = event.pos()
         item = self.itemAt(pos)
+        if isinstance(item, QtWidgets.QGraphicsTextItem):
+            parent = item.parentItem()
+            if isinstance(parent, ShapeLabelMixin) and getattr(parent, 'label_item', lambda: None)() is item:
+                item = parent
         if not item:
             menu = QtWidgets.QMenu(self)
             reset_act = menu.addAction("Reset zoom")

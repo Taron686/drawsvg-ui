@@ -919,10 +919,7 @@ class RectItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsRectItem):
             painter.save()
             painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-            if self.rx or self.ry:
-                painter.drawRoundedRect(self.rect(), self.rx, self.ry)
-            else:
-                painter.drawRect(self.rect())
+            painter.drawRect(self.boundingRect())
             painter.restore()
 
 
@@ -1086,10 +1083,7 @@ class SplitRoundedRectItem(ResizableItem, QtWidgets.QGraphicsRectItem):
             painter.save()
             painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-            if rx > 0.0 or ry > 0.0:
-                painter.drawRoundedRect(rect, rx, ry)
-            else:
-                painter.drawRect(rect)
+            painter.drawRect(self.boundingRect())
             painter.restore()
 
     def shape(self) -> QtGui.QPainterPath:  # type: ignore[override]
@@ -1127,7 +1121,7 @@ class EllipseItem(ResizableItem, QtWidgets.QGraphicsEllipseItem):
             painter.save()
             painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-            painter.drawRect(self.rect())
+            painter.drawRect(self.boundingRect())
             painter.restore()
 
 
@@ -1174,8 +1168,7 @@ class TriangleItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
             painter.save()
             painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-            rect = self.polygon().boundingRect()
-            painter.drawRect(rect)
+            painter.drawRect(self.boundingRect())
             painter.restore()
 
 
@@ -1227,6 +1220,17 @@ class DiamondItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsPolygonItem
     def setPen(self, pen: QtGui.QPen | QtGui.QColor) -> None:  # type: ignore[override]
         super().setPen(pen)
         self._update_label_color()
+
+    def paint(self, painter, option, widget=None):
+        opt = QtWidgets.QStyleOptionGraphicsItem(option)
+        opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
+        super().paint(painter, opt, widget)
+        if _should_draw_selection(self):
+            painter.save()
+            painter.setPen(PEN_SELECTED)
+            painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+            painter.drawRect(self.boundingRect())
+            painter.restore()
 
     def mouseDoubleClickEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:  # type: ignore[override]
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
@@ -1445,7 +1449,7 @@ class BlockArrowItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
             painter.save()
             painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-            painter.drawPolygon(self.polygon())
+            painter.drawRect(self.boundingRect())
             painter.restore()
 
 
@@ -1607,8 +1611,7 @@ class FolderTreeItem(HandleAwareItemMixin, QtWidgets.QGraphicsItem):
             painter.save()
             painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-            highlight = self._bounding_rect.adjusted(2.0, 2.0, -2.0, -2.0)
-            painter.drawRoundedRect(highlight, 8.0, 8.0)
+            painter.drawRect(self.boundingRect())
             painter.restore()
 
         painter.setPen(self._line_pen)
@@ -2180,9 +2183,7 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
             painter.save()
             painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-            painter.drawPath(shaft_path)
-            for poly in arrow_polygons:
-                painter.drawPolygon(poly)
+            painter.drawRect(self.boundingRect())
             painter.restore()
 
 
