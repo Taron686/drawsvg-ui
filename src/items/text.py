@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from .base import ResizableItem, ResizeHandle, RotationHandle, _should_draw_selection
-from ..constants import PEN_SELECTED
+from constants import PEN_SELECTED
 
 
 class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
