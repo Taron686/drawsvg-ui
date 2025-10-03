@@ -804,19 +804,36 @@ class ShapeLabelMixin:
         rect = self._label_available_rect()
         self._label.setTextWidth(rect.width())
         br = self._label.boundingRect()
-        x = rect.left()
-        if self._label_h_align == "center":
-            x = rect.left() + (rect.width() - br.width()) / 2.0
+        left = br.left()
+        right = br.right()
+        top = br.top()
+        bottom = br.bottom()
+        width = br.width()
+        height = br.height()
+
+        if self._label_h_align == "left":
+            x = rect.left() - left
         elif self._label_h_align == "right":
-            x = rect.right() - br.width()
-        y = rect.top()
-        if self._label_v_align == "middle":
-            y = rect.top() + (rect.height() - br.height()) / 2.0
+            x = rect.right() - right
+        else:
+            target_cx = rect.center().x()
+            x = target_cx - (left + width / 2.0)
+
+        if self._label_v_align == "top":
+            y = rect.top() - top
         elif self._label_v_align == "bottom":
-            y = rect.bottom() - br.height()
+            y = rect.bottom() - bottom
+        else:
+            target_cy = rect.center().y()
+            y = target_cy - (top + height / 2.0)
+
         base_rect = self._label_base_rect()
-        x = max(base_rect.left(), min(x, base_rect.right() - br.width()))
-        y = max(base_rect.top(), min(y, base_rect.bottom() - br.height()))
+        min_x = base_rect.left() - left
+        max_x = base_rect.right() - right
+        min_y = base_rect.top() - top
+        max_y = base_rect.bottom() - bottom
+        x = max(min_x, min(x, max_x))
+        y = max(min_y, min(y, max_y))
         self._label.setPos(x, y)
         self._label.setVisible(self.has_label())
 

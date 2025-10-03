@@ -140,30 +140,36 @@ def _export_shape_label(
     bw, bh = base_size
 
     label_pos = label_item.pos()
-    text_origin_x = bx + label_pos.x()
-    text_origin_y = by + label_pos.y()
     br = label_item.boundingRect()
+    text_left = bx + label_pos.x() + br.left()
+    text_top = by + label_pos.y() + br.top()
     h_align, v_align = getattr(item, "label_alignment", lambda: ("center", "middle"))()
-    anchor_x = text_origin_x
-    anchor_y = text_origin_y
-    if h_align == "center":
-        anchor_x += br.width() / 2.0
+
+    if h_align == "left":
+        anchor_x = text_left
     elif h_align == "right":
-        anchor_x += br.width()
-    if v_align == "middle":
-        anchor_y += br.height() / 2.0
-    elif v_align == "bottom":
-        anchor_y += br.height()
+        anchor_x = text_left + br.width()
+    else:
+        anchor_x = text_left + br.width() / 2.0
+
+    baseline_offset = 0.0
+    doc = label_item.document()
+    if doc is not None:
+        block = doc.begin()
+        if block.isValid():
+            layout = block.layout()
+            if layout is not None and layout.lineCount() > 0:
+                first_line = layout.lineAt(0)
+                baseline_offset = layout.position().y() + first_line.y() + first_line.ascent()
+    anchor_y = text_top + baseline_offset
 
     anchor_map = {"left": "start", "center": "middle", "right": "end"}
-    baseline_map = {"top": "text-before-edge", "middle": "middle", "bottom": "text-after-edge"}
 
     color = label_item.defaultTextColor()
     attrs = [
         f"fill='{color.name()}'",
         f"font_family='{font.family()}'",
         f"text_anchor='{anchor_map.get(h_align, 'middle')}'",
-        f"dominant_baseline='{baseline_map.get(v_align, 'middle')}'",
         "data_shape_label='true'",
         f"data_label_id='{shape_id}'",
         f"data_label_h='{h_align}'",
