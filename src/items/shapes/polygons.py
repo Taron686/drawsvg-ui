@@ -122,6 +122,15 @@ class DiamondItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsPolygonItem
             painter.drawRect(self.boundingRect())
             painter.restore()
 
+    def mouseDoubleClickEvent(
+        self, event: QtWidgets.QGraphicsSceneMouseEvent
+    ) -> None:  # type: ignore[override]
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            self._begin_label_edit()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
 
 class BlockArrowHandle(QtWidgets.QGraphicsEllipseItem):
     """Special orange handles for :class:`BlockArrowItem`."""
