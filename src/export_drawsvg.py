@@ -103,6 +103,7 @@ def _export_shape_label(
         return
     if not getattr(item, "has_label", lambda: False)():
         return
+
     text_value = getattr(item, "label_text", lambda: "")()
     if not text_value:
         return
@@ -111,9 +112,12 @@ def _export_shape_label(
     if label_item is None:
         return
 
-    raw_text = _escape_draw_text(text_value)
+    # --- Neu: NICHT \n escapen, sondern in Zeilen zerlegen ---
+    raw_lines = text_value.splitlines()  # behält auch leere Zeilen
 
     font = label_item.font()
+    fm = QtGui.QFontMetricsF(font)
+
     pixel_size = float(font.pixelSize())
     if pixel_size <= 0.0:
         point_size = font.pointSizeF()
@@ -122,17 +126,15 @@ def _export_shape_label(
             dpi = screen.logicalDotsPerInch() if screen else 96.0
             pixel_size = point_size * dpi / 72.0
     if pixel_size <= 0.0:
-        pixel_size = QtGui.QFontMetricsF(font).height()
+        pixel_size = fm.height()
 
     scale = label_item.scale() or 1.0
     size = pixel_size * scale
+    line_px = fm.lineSpacing() * scale  # Qt-Baseline-Abstand
 
     bounds = item.boundingRect()
     if base_pos is None:
-        base_pos = (
-            item.pos().x() + bounds.x(),
-            item.pos().y() + bounds.y(),
-        )
+        base_pos = (item.pos().x() + bounds.x(), item.pos().y() + bounds.y())
     if base_size is None:
         base_size = (bounds.width(), bounds.height())
 
@@ -142,16 +144,15 @@ def _export_shape_label(
     label_pos = label_item.pos()
     br = label_item.boundingRect()
     text_left = bx + label_pos.x() + br.left()
-    text_top = by + label_pos.y() + br.top()
+    text_top  = by + label_pos.y() + br.top()
+
     h_align, v_align = getattr(item, "label_alignment", lambda: ("center", "middle"))()
 
-    if h_align == "left":
-        anchor_x = text_left
-    elif h_align == "right":
-        anchor_x = text_left + br.width()
-    else:
-        anchor_x = text_left + br.width() / 2.0
+    # horizontales Anchor für SVG
+    anchor_map = {"left": "start", "center": "middle", "right": "end"}
+    text_anchor = anchor_map.get(h_align, "middle")
 
+    # Baseline der ersten Zeile bestimmen (wie vorher)
     baseline_offset = 0.0
     doc = label_item.document()
     if doc is not None:
@@ -161,15 +162,20 @@ def _export_shape_label(
             if layout is not None and layout.lineCount() > 0:
                 first_line = layout.lineAt(0)
                 baseline_offset = layout.position().y() + first_line.y() + first_line.ascent()
-    anchor_y = text_top + baseline_offset
 
-    anchor_map = {"left": "start", "center": "middle", "right": "end"}
+    anchor_x = (
+        text_left if h_align == "left"
+        else (text_left + br.width() if h_align == "right"
+              else text_left + br.width() / 2.0)
+    )
+    first_baseline_y = text_top + baseline_offset
 
     color = label_item.defaultTextColor()
     attrs = [
         f"fill='{color.name()}'",
         f"font_family='{font.family()}'",
-        f"text_anchor='{anchor_map.get(h_align, 'middle')}'",
+        f"text_anchor='{text_anchor}'",
+        "dominant_baseline='alphabetic'",  # Baseline-Logik wie Qt
         "data_shape_label='true'",
         f"data_label_id='{shape_id}'",
         f"data_label_h='{h_align}'",
@@ -184,16 +190,30 @@ def _export_shape_label(
         attrs.append(f"fill_opacity={color.alphaF():.2f}")
     attr_str = ", ".join(attrs)
 
+    # Rotation um Shape-Center beibehalten
     transform_suffix = ""
     if abs(angle) > 1e-6:
         cx = bx + bw / 2.0
         cy = by + bh / 2.0
         transform_suffix = f", transform='rotate({angle:.2f} {cx:.2f} {cy:.2f})'"
 
-    lines.append(
-        f"    _{var_name} = draw.Text('{raw_text}', {size:.2f}, {anchor_x:.2f}, {anchor_y:.2f}, {attr_str}{transform_suffix})"
-    )
-    lines.append(f"    d.append(_{var_name})")
+    # Hilfs-Escaper pro Zeile (ohne \n)
+    def _esc_line(val: str) -> str:
+        if not val:
+            return "\u00A0"  # NBSP für leere Zeilen
+        return val.replace("\\", "\\\\").replace("'", "\\'")
+
+    # Jede Zeile als eigener Textknoten auf passender Baseline
+    lines.append(f"    # Multiline label for {shape_id}")
+    for i, line in enumerate(raw_lines):
+        y_i = first_baseline_y + i * line_px
+        content = _esc_line(line)
+        lines.append(
+            f"    _{var_name} = draw.Text('{content}', {size:.2f}, {anchor_x:.2f}, {y_i:.2f}, {attr_str}{transform_suffix})"
+        )
+        lines.append(f"    d.append(_{var_name})")
+
+
 def _painter_path_to_svg(path: QtGui.QPainterPath) -> str:
     """Return a compact SVG path string for ``path``.
 
@@ -663,7 +683,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
         elif shape == "Text" and isinstance(it, QtWidgets.QGraphicsTextItem):
             br = it.boundingRect()
-            s = it.scale()
+            s = it.scale() or 1.0
             cx = it.pos().x() + br.width() / 2.0
             cy = it.pos().y() + br.height() / 2.0
 
@@ -674,6 +694,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             font = it.font()
             fm = QtGui.QFontMetricsF(font)
 
+            # robuste Pixelgröße aus Font bestimmen
             pixel_size = float(font.pixelSize())
             if pixel_size <= 0.0:
                 point_size = font.pointSizeF()
@@ -686,27 +707,27 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             size = pixel_size * s
 
+            # --- NEU: Multiline-Unterstützung ---
+            # Originaltext *ohne* \n-Escaping übernehmen
             raw_text = it.toPlainText()
-            raw_text = (
-                raw_text.replace("\\", "\\\\")
-                .replace("'", "\\'")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-            )
+            # Auf Zeilen splitten (behält leere Zeilen)
+            text_lines = raw_text.splitlines()
+
+            # Zeilenabstand so wie Qt es macht (Baseline-to-Baseline)
+            line_px = fm.lineSpacing() * s
 
             color = it.defaultTextColor()
             doc_margin = it.document().documentMargin() if it.document() else 0.0
 
-            # QTextDocument verwendet standardmaessig einen Rand von 4px, der auch im Canvas sichtbar ist.
-            # Beruecksichtigen wir ihn, bleiben die SVG-Positionen deckungsgleich mit Qt.
-
+            # QTextDocument hat typ. 4px Margin -> berücksichtigen
             text_x = x_top + doc_margin * s
             text_y = y_top + doc_margin * s
 
-            attrs = [
+            base_attrs = [
                 f"fill='{color.name()}'",
                 f"font_family='{font.family()}'",
                 "text_anchor='start'",
+                # Wir setzen von der oberen Kante weg und addieren pro Zeile line_px:
                 "dominant_baseline='text-before-edge'",
                 "alignment_baseline='text-before-edge'",
                 f"data_doc_margin={doc_margin:.4f}",
@@ -714,18 +735,32 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 f"data_scale={s:.6f}",
             ]
             if color.alphaF() < 1.0:
-                attrs.append(f"fill_opacity={color.alphaF():.2f}")
-            attr_str = ", ".join(attrs)
+                base_attrs.append(f"fill_opacity={color.alphaF():.2f}")
+            base_attr_str = ", ".join(base_attrs)
+
+            # Hilfsfunktion: SVG-String sicher escapen (ohne \n-Escapes!)
+            def _esc_line(val: str) -> str:
+                # nur minimal nötig, da wir in einfache Anführungszeichen schreiben
+                return val.replace("\\", "\\\\").replace("'", "\\'")
 
             if abs(ang) > 1e-6:
-                lines.append(
-                    f"    _text = draw.Text('{raw_text}', {size:.2f}, {text_x:.2f}, {text_y:.2f}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
-                )
+                lines.append(f"    _text_group = draw.Group(transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')")
+                for i, line in enumerate(text_lines):
+                    # Leere Zeile sichtbar machen (manche Renderer ignorieren sonst)
+                    content = _esc_line(line) if line else "&#160;"
+                    y_i = text_y + i * line_px
+                    lines.append(
+                        f"    _text_group.append(draw.Text('{content}', {size:.2f}, {text_x:.2f}, {y_i:.2f}, {base_attr_str}))"
+                    )
+                lines.append("    d.append(_text_group)")
             else:
-                lines.append(
-                    f"    _text = draw.Text('{raw_text}', {size:.2f}, {text_x:.2f}, {text_y:.2f}, {attr_str})"
-                )
-            lines.append("    d.append(_text)")
+                for i, line in enumerate(text_lines):
+                    content = _esc_line(line) if line else "&#160;"
+                    y_i = text_y + i * line_px
+                    lines.append(
+                        f"    _text = draw.Text('{content}', {size:.2f}, {text_x:.2f}, {y_i:.2f}, {base_attr_str})"
+                    )
+                    lines.append("    d.append(_text)")
             lines.append("")
         elif shape == "Folder Tree" and isinstance(it, FolderTreeItem):
             structure_json = json.dumps(it.structure(), ensure_ascii=False)

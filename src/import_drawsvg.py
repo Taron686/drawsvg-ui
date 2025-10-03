@@ -132,14 +132,29 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 cleared = True
         if not cleared:
             scene.clear()
+
         pending_split: dict[str, Any] | None = None
         pending_block: dict[str, Any] | None = None
         pending_bracket: dict[str, Any] | None = None
         pending_line: LineItem | None = None
+
+        # Neu: Mapping von Label-ID -> Ziel-Shape sowie Sammelcontainer für mehrzeilige Label
         shape_label_targets: dict[str, ShapeLabelMixin] = {}
         shape_label_pending: dict[str, dict[str, Any]] = {}
+
         def _apply_shape_label(target: ShapeLabelMixin, data: dict[str, Any]) -> None:
-            target.set_label_text(str(data.get("text", "")))
+            """
+            Wendet gesammelte Label-Daten auf ein Shape an.
+            Unterstützt sowohl 'text' (alt) als auch 'lines' (neu, mehrere Zeilen).
+            NBSP (U+00A0) wird als leere Zeile interpretiert.
+            """
+            if "lines" in data and isinstance(data["lines"], list):
+                norm = [("" if (s == "\u00A0" or s == "&#160;") else str(s)) for s in data["lines"]]
+                text_value = "\n".join(norm)
+            else:
+                text_value = str(data.get("text", ""))
+
+            target.set_label_text(text_value)
             target.set_label_alignment(
                 horizontal=str(data.get("h")) if data.get("h") else None,
                 vertical=str(data.get("v")) if data.get("v") else None,
@@ -151,8 +166,6 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 except (TypeError, ValueError):
                     pass
 
-
-
         for raw in lines:
             line = raw.strip()
             if not line:
@@ -161,6 +174,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 pending_bracket = None
                 pending_line = None
                 continue
+
             if line.startswith("#"):
                 if line.startswith("# SplitRoundedRect"):
                     info: dict[str, Any] = {}
@@ -174,7 +188,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                         info[key] = value
                     pending_split = info
                 elif line.startswith("# BlockArrow"):
-                    info: dict[str, Any] = {}
+                    info = {}
                     for part in line.split()[2:]:
                         if "=" not in part:
                             continue
@@ -185,7 +199,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                         info[key] = value
                     pending_block = info
                 elif line.startswith("# CurvyBracket"):
-                    info: dict[str, Any] = {}
+                    info = {}
                     for part in line.split()[2:]:
                         if "=" not in part:
                             continue
@@ -252,6 +266,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     )
                     pending_line = None
                 continue
+
             if line.startswith("d = draw.Drawing("):
                 args, kwargs = _parse_call(line)
                 if len(args) >= 2:
@@ -259,8 +274,10 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     if "origin" in kwargs and isinstance(kwargs["origin"], (tuple, list)):
                         ox, oy = map(float, kwargs["origin"][:2])
                     scene.setSceneRect(float(ox), float(oy), float(args[0]), float(args[1]))
+
             elif line.startswith("_folder_tree"):
                 continue
+
             elif line.startswith("_split_rect = draw.Rectangle("):
                 args, kwargs = _parse_call(line)
                 x, y, w, h = map(float, args[:4])
@@ -296,6 +313,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 item.setData(0, "Split Rounded Rectangle")
                 scene.addItem(item)
                 pending_split = None
+
             elif line.startswith("_rect = draw.Rectangle("):
                 args, kwargs = _parse_call(line)
                 x, y, w, h = map(float, args[:4])
@@ -319,6 +337,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     if pending:
                         _apply_shape_label(item, pending)
                 scene.addItem(item)
+
             elif line.startswith("_ell = draw.Ellipse("):
                 args, kwargs = _parse_call(line)
                 cx, cy, rx, ry = map(float, args[:4])
@@ -332,6 +351,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     item.setRotation(_parse_rotate(kwargs["transform"]))
                 item.setData(0, "Ellipse")
                 scene.addItem(item)
+
             elif line.startswith("_circ = draw.Circle("):
                 args, kwargs = _parse_call(line)
                 cx, cy, r = map(float, args[:3])
@@ -344,6 +364,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     item.setRotation(_parse_rotate(kwargs["transform"]))
                 item.setData(0, "Circle")
                 scene.addItem(item)
+
             elif line.startswith("_tri = draw.Lines("):
                 args, kwargs = _parse_call(line)
                 coords = [float(a) for a in args]
@@ -359,6 +380,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     item.setRotation(_parse_rotate(kwargs["transform"]))
                 item.setData(0, "Triangle")
                 scene.addItem(item)
+
             elif line.startswith("_diamond = draw.Lines("):
                 args, kwargs = _parse_call(line)
                 coords = [float(a) for a in args]
@@ -381,6 +403,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     if pending:
                         _apply_shape_label(item, pending)
                 scene.addItem(item)
+
             elif line.startswith("_block_arrow = draw.Lines("):
                 args, kwargs = _parse_call(line)
                 coords = [float(a) for a in args]
@@ -412,6 +435,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 item.setData(0, "Block Arrow")
                 scene.addItem(item)
                 pending_block = None
+
             elif line.startswith("_path = draw.Path("):
                 args, kwargs = _parse_call(line)
                 if pending_bracket is not None:
@@ -472,6 +496,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                             pending_line = item
                         else:
                             pending_line = None
+
             elif line.startswith("_line = draw.Lines("):
                 args, kwargs = _parse_call(line)
                 coords = list(map(float, args))
@@ -488,6 +513,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 item.setData(0, "Line")
                 scene.addItem(item)
                 pending_line = item
+
             elif line.startswith("_line = draw.Line("):
                 args, kwargs = _parse_call(line)
                 x1, y1, x2, y2 = map(float, args[:4])
@@ -504,20 +530,39 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 item.setData(0, "Line")
                 scene.addItem(item)
                 pending_line = item
+
+            # --- NEU: _label = draw.Text(...) mehrzeilig zusammenführen ---
             elif "_label = draw.Text(" in line:
                 args, kwargs = _parse_call(line)
                 text = args[0]
+
                 flag_value = kwargs.get("data_shape_label")
                 if flag_value is None:
                     flag_value = kwargs.get("data_rect_label")
-                if str(flag_value).lower() == 'true':
+
+                if str(flag_value).lower() == "true":
                     label_id = kwargs.get("data_label_id")
                     key = str(label_id) if label_id is not None else None
-                    data = {"text": text, "h": kwargs.get("data_label_h"), "v": kwargs.get("data_label_v"), "font_px": kwargs.get("data_font_px")}
-                    if key and key in shape_label_targets:
-                        _apply_shape_label(shape_label_targets[key], data)
-                    elif key:
-                        shape_label_pending[key] = data
+                    if key:
+                        data = shape_label_pending.setdefault(
+                            key, {"lines": [], "h": None, "v": None, "font_px": None}
+                        )
+                        if "data_label_h" in kwargs:
+                            data["h"] = kwargs.get("data_label_h")
+                        if "data_label_v" in kwargs:
+                            data["v"] = kwargs.get("data_label_v")
+                        if "data_font_px" in kwargs:
+                            data["font_px"] = kwargs.get("data_font_px")
+
+                        # NBSP normalisieren
+                        if text == "\u00A0" or text == "&#160;":
+                            text = "\u00A0"
+
+                        data["lines"].append(text)
+
+                        target = shape_label_targets.get(key)
+                        if target is not None:
+                            _apply_shape_label(target, data)
                     continue
 
             elif line.startswith("_text = draw.Text("):
@@ -534,8 +579,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 data_scale = kwargs.get("data_scale")
                 data_doc_margin = kwargs.get("data_doc_margin")
 
-                # Export speichert Schriftgroesse (Pixel) und Item-Skalierung separat,
-                # damit runde Trips keinen Versatz aufbauen.
+                # Export speichert Schriftgröße (Pixel) und Item-Skalierung separat
                 font = item.font()
                 base_px = None
                 if data_font_px is not None:
@@ -568,9 +612,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     else:
                         item.document().setDocumentMargin(base_doc_margin)
 
-                doc_margin = (
-                    item.document().documentMargin() if item.document() else 0.0
-                )
+                doc_margin = item.document().documentMargin() if item.document() else 0.0
 
                 if data_scale is not None:
                     try:
@@ -593,6 +635,14 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     item.setRotation(_parse_rotate(kwargs["transform"]))
                 item.setData(0, "Text")
                 scene.addItem(item)
+
+        # --- NEU: am Ende verbleibende pending Labels anwenden ---
+        for key, data in list(shape_label_pending.items()):
+            target = shape_label_targets.get(key)
+            if target is not None:
+                _apply_shape_label(target, data)
+                shape_label_pending.pop(key, None)
+
         if view is not None:
             ensure_pages = getattr(view, "ensure_pages_for_scene_items", None)
             if callable(ensure_pages):
