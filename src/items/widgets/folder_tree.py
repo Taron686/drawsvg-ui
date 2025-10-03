@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from ...constants import PEN_SELECTED
+from constants import PEN_SELECTED
 from ..base import HandleAwareItemMixin, _should_draw_selection
 
 

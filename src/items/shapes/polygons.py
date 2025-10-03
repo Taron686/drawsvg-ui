@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from ...constants import DEFAULT_FILL, PEN_NORMAL, PEN_SELECTED
+from constants import DEFAULT_FILL, PEN_NORMAL, PEN_SELECTED
 from ..base import (
     DIVIDER_HANDLE_COLOR,
     DIVIDER_HANDLE_DIAMETER,

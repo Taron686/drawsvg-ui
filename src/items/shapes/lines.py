@@ -6,7 +6,7 @@ import math
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from ...constants import PEN_NORMAL, PEN_SELECTED
+from constants import PEN_NORMAL, PEN_SELECTED
 from ..base import (
     HANDLE_COLOR,
     HANDLE_SIZE,

@@ -6,7 +6,7 @@ import math
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from ...constants import DEFAULT_FILL, PEN_NORMAL, PEN_SELECTED
+from constants import DEFAULT_FILL, PEN_NORMAL, PEN_SELECTED
 from ..base import ResizableItem, _should_draw_selection, build_curvy_bracket_path
 
 
