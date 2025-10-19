@@ -534,7 +534,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             # --- NEU: _label = draw.Text(...) mehrzeilig zusammenführen ---
             elif "_label = draw.Text(" in line:
                 args, kwargs = _parse_call(line)
-                text = args[0]
+                text_arg = args[0]
 
                 flag_value = kwargs.get("data_shape_label")
                 if flag_value is None:
@@ -554,11 +554,19 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                         if "data_font_px" in kwargs:
                             data["font_px"] = kwargs.get("data_font_px")
 
-                        # NBSP normalisieren
-                        if text == "\u00A0" or text == "&#160;":
-                            text = "\u00A0"
+                        def _normalize_entry(value: object) -> str:
+                            if isinstance(value, str):
+                                if value in {"\u00A0", "&#160;"}:
+                                    return ""
+                                return value
+                            return str(value)
 
-                        data["lines"].append(text)
+                        if isinstance(text_arg, (list, tuple)):
+                            data["lines"] = [_normalize_entry(entry) for entry in text_arg]
+                        else:
+                            normalized = _normalize_entry(text_arg)
+                            data.setdefault("lines", [])
+                            data["lines"].append(normalized)
 
                         target = shape_label_targets.get(key)
                         if target is not None:
@@ -567,7 +575,20 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             elif line.startswith("_text = draw.Text("):
                 args, kwargs = _parse_call(line)
-                text = args[0]
+                raw_text_arg = args[0]
+                if isinstance(raw_text_arg, (list, tuple)):
+                    parts = []
+                    for entry in raw_text_arg:
+                        if isinstance(entry, str):
+                            if entry in {"\u00A0", "&#160;"}:
+                                parts.append("")
+                            else:
+                                parts.append(entry)
+                        else:
+                            parts.append(str(entry))
+                    text = "\n".join(parts)
+                else:
+                    text = str(raw_text_arg)
                 size = float(args[1])
                 text_x = float(args[2])
                 text_y = float(args[3])

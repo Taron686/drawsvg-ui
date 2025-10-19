@@ -1,720 +1,1296 @@
 import json
+
 import math
+
 from collections.abc import Iterable
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from constants import SHAPES, PEN_STYLE_DASH_ARRAYS
+
 from items import (
+
     BlockArrowItem,
+
     CurvyBracketItem,
+
     DiamondItem,
+
     FolderTreeItem,
+
     LineItem,
+
     RectItem,
+
     ShapeLabelMixin,
+
     SplitRoundedRectItem,
+
 )
 
-
 def _format_item_attributes(
+
     item: QtWidgets.QGraphicsItem,
+
     *,
+
     include_fill: bool = True,
+
     extra_attrs: Iterable[str] | None = None,
+
 ) -> str:
+
     """Return a drawsvg-compatible attribute string for ``item``.
 
     Parameters
+
     ----------
+
     item:
+
         The graphics item whose pen/brush information should be exported.
+
     include_fill:
+
         Whether fill information should be included (set to ``False`` for
+
         stroke-only shapes).
+
     extra_attrs:
+
         Optional iterable of additional attributes that should be appended to
+
         the generated string (e.g., rounded corner radii).
+
     """
 
     attrs: list[str] = []
 
     if include_fill:
+
         brush_getter = getattr(item, "brush", None)
+
         if callable(brush_getter):
+
             brush = brush_getter()
+
             if brush.style() == QtCore.Qt.BrushStyle.NoBrush:
+
                 attrs.append("fill='none'")
+
             else:
+
                 color = brush.color()
+
                 attrs.append(f"fill='{color.name()}'")
+
                 attrs.append(f"fill_opacity={color.alphaF():.2f}")
+
         else:
+
             attrs.append("fill='none'")
 
     pen_getter = getattr(item, "pen", None)
+
     if callable(pen_getter):
+
         pen = pen_getter()
+
         attrs.append(f"stroke='{pen.color().name()}'")
+
         attrs.append(f"stroke_width={pen.widthF():.2f}")
+
         dash_str = _pen_dash_array_string(pen)
+
         if dash_str:
+
             attrs.append(f"stroke_dasharray='{dash_str}'")
 
     if extra_attrs:
+
         attrs.extend(extra_attrs)
 
     return ", ".join(attrs)
 
-
 def _pen_dash_array_string(pen: QtGui.QPen) -> str | None:
+
     dash_array = PEN_STYLE_DASH_ARRAYS.get(pen.style())
+
     if dash_array:
+
         return " ".join(f"{value:.2f}" for value in dash_array)
+
     pattern = pen.dashPattern()
+
     if pattern:
+
         return " ".join(f"{value:.2f}" for value in pattern)
+
     return None
 
-
-
-
 def _escape_draw_text(value: str) -> str:
+
     return (
+
         value.replace('\\', '\\\\')
+
         .replace("'", "\'")
+
         .replace('\n', '\\n')
+
         .replace('\r', '\\r')
+
     )
 
-
 def _export_shape_label(
+
     item: ShapeLabelMixin,
+
     lines: list[str],
+
     *,
+
     shape_id: str | None,
+
     angle: float,
+
     base_pos: tuple[float, float] | None = None,
+
     base_size: tuple[float, float] | None = None,
+
     var_name: str = "shape_label",
+
     label_kind: str | None = None,
+
 ) -> None:
+
     if not shape_id:
+
         return
+
     if not getattr(item, "has_label", lambda: False)():
+
         return
 
     text_value = getattr(item, "label_text", lambda: "")()
+
     if not text_value:
+
         return
 
     label_item = getattr(item, "label_item", lambda: None)()
+
     if label_item is None:
+
         return
 
-    # --- Neu: NICHT \n escapen, sondern in Zeilen zerlegen ---
-    raw_lines = text_value.splitlines()  # behält auch leere Zeilen
+    raw_lines = text_value.splitlines()
+
+    if text_value.endswith(("\r", "\n")):
+
+        raw_lines.append("")
+
+    if not raw_lines:
+
+        raw_lines = [text_value]
 
     font = label_item.font()
+
     fm = QtGui.QFontMetricsF(font)
 
     pixel_size = float(font.pixelSize())
+
     if pixel_size <= 0.0:
+
         point_size = font.pointSizeF()
+
         if point_size > 0.0:
+
             screen = QtGui.QGuiApplication.primaryScreen()
+
             dpi = screen.logicalDotsPerInch() if screen else 96.0
+
             pixel_size = point_size * dpi / 72.0
+
     if pixel_size <= 0.0:
+
         pixel_size = fm.height()
 
     scale = label_item.scale() or 1.0
+
     size = pixel_size * scale
-    line_px = fm.lineSpacing() * scale  # Qt-Baseline-Abstand
+
+    line_px = fm.lineSpacing() * scale
+
+    line_ratio = line_px / size if size > 0.0 else 1.0
 
     bounds = item.boundingRect()
+
     if base_pos is None:
+
         base_pos = (item.pos().x() + bounds.x(), item.pos().y() + bounds.y())
+
     if base_size is None:
+
         base_size = (bounds.width(), bounds.height())
 
     bx, by = base_pos
+
     bw, bh = base_size
 
     label_pos = label_item.pos()
+
     br = label_item.boundingRect()
+
     text_left = bx + label_pos.x() + br.left()
-    text_top  = by + label_pos.y() + br.top()
+
+    text_top = by + label_pos.y() + br.top()
 
     h_align, v_align = getattr(item, "label_alignment", lambda: ("center", "middle"))()
 
-    # horizontales Anchor für SVG
     anchor_map = {"left": "start", "center": "middle", "right": "end"}
+
     text_anchor = anchor_map.get(h_align, "middle")
 
-    # Baseline der ersten Zeile bestimmen (wie vorher)
     baseline_offset = 0.0
+
     doc = label_item.document()
+
     if doc is not None:
+
         block = doc.begin()
+
         if block.isValid():
+
             layout = block.layout()
+
             if layout is not None and layout.lineCount() > 0:
+
                 first_line = layout.lineAt(0)
+
                 baseline_offset = layout.position().y() + first_line.y() + first_line.ascent()
 
     anchor_x = (
+
         text_left if h_align == "left"
+
         else (text_left + br.width() if h_align == "right"
+
               else text_left + br.width() / 2.0)
+
     )
+
     first_baseline_y = text_top + baseline_offset
 
     color = label_item.defaultTextColor()
+
     attrs = [
+
         f"fill='{color.name()}'",
+
         f"font_family='{font.family()}'",
+
         f"text_anchor='{text_anchor}'",
-        "dominant_baseline='alphabetic'",  # Baseline-Logik wie Qt
+
+        "dominant_baseline='alphabetic'",
+
+        f"line_height={line_ratio:.6f}",
+
+        "xml__space='preserve'",
+
         "data_shape_label='true'",
+
         f"data_label_id='{shape_id}'",
+
         f"data_label_h='{h_align}'",
+
         f"data_label_v='{v_align}'",
+
         f"data_font_px={pixel_size:.4f}",
+
     ]
+
     if label_kind:
+
         attrs.append(f"data_label_kind='{label_kind}'")
+
     if label_kind == "rect":
+
         attrs.append("data_rect_label='true'")
+
     if color.alphaF() < 1.0:
+
         attrs.append(f"fill_opacity={color.alphaF():.2f}")
+
     attr_str = ", ".join(attrs)
 
-    # Rotation um Shape-Center beibehalten
     transform_suffix = ""
+
     if abs(angle) > 1e-6:
+
         cx = bx + bw / 2.0
+
         cy = by + bh / 2.0
+
         transform_suffix = f", transform='rotate({angle:.2f} {cx:.2f} {cy:.2f})'"
 
-    # Hilfs-Escaper pro Zeile (ohne \n)
-    def _esc_line(val: str) -> str:
-        if not val:
-            return "\u00A0"  # NBSP für leere Zeilen
-        return val.replace("\\", "\\\\").replace("'", "\\'")
+    json_lines = [line if line else "\u00A0" for line in raw_lines]
 
-    # Jede Zeile als eigener Textknoten auf passender Baseline
+    if len(json_lines) == 1:
+
+        text_literal = json.dumps(json_lines[0], ensure_ascii=False)
+
+    else:
+
+        text_literal = json.dumps(json_lines, ensure_ascii=False)
+
     lines.append(f"    # Multiline label for {shape_id}")
-    for i, line in enumerate(raw_lines):
-        y_i = first_baseline_y + i * line_px
-        content = _esc_line(line)
-        lines.append(
-            f"    _{var_name} = draw.Text('{content}', {size:.2f}, {anchor_x:.2f}, {y_i:.2f}, {attr_str}{transform_suffix})"
-        )
-        lines.append(f"    d.append(_{var_name})")
 
+    lines.append(
+
+        f"    _{var_name} = draw.Text({text_literal}, {size:.2f}, {anchor_x:.2f}, {first_baseline_y:.2f}, {attr_str}{transform_suffix})"
+
+    )
+
+    lines.append(f"    d.append(_{var_name})")
 
 def _painter_path_to_svg(path: QtGui.QPainterPath) -> str:
+
     """Return a compact SVG path string for ``path``.
 
     The conversion flattens the painter path into polygons and emits
+
     ``M/L`` commands for each subpath.  Rounded corners are approximated by
+
     straight segments using Qt's internal flattening tolerance which is
+
     sufficient for the exported preview rendering.
+
     """
 
     segments: list[str] = []
+
     for poly in path.toSubpathPolygons():
+
         if not poly:
+
             continue
+
         commands: list[str] = []
+
         points = list(poly)
+
         closed = False
+
         if len(points) >= 2:
+
             first = points[0]
+
             last = points[-1]
+
             if math.hypot(first.x() - last.x(), first.y() - last.y()) <= 1e-4:
+
                 closed = True
+
                 points = points[:-1]
+
         start = points[0]
+
         commands.append(f"M {start.x():.2f} {start.y():.2f}")
+
         for point in points[1:]:
+
             commands.append(f"L {point.x():.2f} {point.y():.2f}")
+
         if closed:
+
             commands.append("Z")
+
         segments.append(" ".join(commands))
+
     return " ".join(segments)
 
-
 def _arrowhead_polygon(
+
     start: QtCore.QPointF, end: QtCore.QPointF, size: float
+
 ) -> list[QtCore.QPointF]:
+
     """Return a list of points describing an arrowhead polygon."""
 
     line = QtCore.QLineF(start, end)
+
     angle = math.atan2(-line.dy(), line.dx())
+
     tip = QtCore.QPointF(end)
+
     side1 = QtCore.QPointF(
+
         math.sin(angle - math.pi / 3.0) * size,
+
         math.cos(angle - math.pi / 3.0) * size,
+
     )
+
     side2 = QtCore.QPointF(
+
         math.sin(angle - math.pi + math.pi / 3.0) * size,
+
         math.cos(angle - math.pi + math.pi / 3.0) * size,
+
     )
+
     return [
+
         tip,
+
         QtCore.QPointF(tip.x() + side1.x(), tip.y() + side1.y()),
+
         QtCore.QPointF(tip.x() + side2.x(), tip.y() + side2.y()),
+
     ]
 
-
 def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget | None = None):
+
     shape_items = [it for it in scene.items() if it.data(0) in SHAPES]
+
     if shape_items:
+
         rect = shape_items[0].sceneBoundingRect()
+
         for it in shape_items[1:]:
+
             rect = rect.united(it.sceneBoundingRect())
+
     else:
+
         rect = scene.itemsBoundingRect()
 
     padding = 5.0
+
     rect = rect.adjusted(-padding, -padding, padding, padding)
 
     left = math.floor(rect.left())
+
     top = math.floor(rect.top())
+
     right = math.ceil(rect.right())
+
     bottom = math.ceil(rect.bottom())
+
     width = max(1, int(right - left))
+
     height = max(1, int(bottom - top))
+
     ox = int(left)
+
     oy = int(top)
 
     items = list(reversed(shape_items))
+
     label_counter = 0
 
     lines = []
+
     lines.append("# Auto-generated from PySide6 Canvas to drawsvg")
+
     lines.append("import drawsvg as draw")
+
     lines.append("")
+
     lines.append("def build_drawing():")
+
     lines.append(f"    d = draw.Drawing({width}, {height}, origin=({ox}, {oy}), viewBox='{ox} {oy} {width} {height}')")
+
     lines.append(
+
         f"    d.append(draw.Rectangle({ox}, {oy}, {width}, {height}, fill='white', stroke='none'))"
+
     )
+
     lines.append("")
 
     for it in items:
+
         shape = it.data(0)
+
         if shape in ("Rectangle", "Rounded Rectangle") and isinstance(
+
             it, QtWidgets.QGraphicsRectItem
+
         ):
+
             r = it.rect()
+
             x = it.pos().x()
+
             y = it.pos().y()
+
             w = r.width()
+
             h = r.height()
+
             cx = x + w / 2.0
+
             cy = y + h / 2.0
+
             ang = it.rotation()
+
             rx = getattr(it, "rx", 0)
+
             ry = getattr(it, "ry", 0)
+
             label_id = None
+
             if isinstance(it, RectItem) and getattr(it, "has_label", lambda: False)():
+
                 label_counter += 1
+
                 label_id = f"rect_label_{label_counter}"
+
             extra_attrs = []
+
             if label_id:
+
                 extra_attrs.append(f"data_label_id='{label_id}'")
+
             if rx:
+
                 extra_attrs.append(f"rx={rx:.2f}")
+
             if ry:
+
                 extra_attrs.append(f"ry={ry:.2f}")
+
             attr_str = _format_item_attributes(it, extra_attrs=extra_attrs)
+
             if abs(ang) > 1e-6:
+
                 lines.append(
+
                     f"    _rect = draw.Rectangle({x:.2f}, {y:.2f}, {w:.2f}, {h:.2f}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
+
                 )
+
             else:
+
                 lines.append(
+
                     f"    _rect = draw.Rectangle({x:.2f}, {y:.2f}, {w:.2f}, {h:.2f}, {attr_str})"
+
                 )
+
             lines.append("    d.append(_rect)")
+
             if label_id:
+
                 _export_shape_label(
+
                     it,
+
                     lines,
+
                     shape_id=label_id,
+
                     angle=ang,
+
                     base_pos=(x, y),
+
                     base_size=(w, h),
+
                     var_name="rect_label",
+
                     label_kind="rect",
+
                 )
+
             lines.append("")
 
         elif shape == "Split Rounded Rectangle" and isinstance(it, SplitRoundedRectItem):
+
             r = it.rect()
+
             x = it.pos().x()
+
             y = it.pos().y()
+
             w = r.width()
+
             h = r.height()
+
             cx = x + w / 2.0
+
             cy = y + h / 2.0
+
             ang = it.rotation()
+
             rx_raw = getattr(it, "rx", 0.0)
+
             ry_raw = getattr(it, "ry", rx_raw)
+
             extra_attrs = []
+
             if rx_raw:
+
                 extra_attrs.append(f"rx={rx_raw:.2f}")
+
             if ry_raw:
+
                 extra_attrs.append(f"ry={ry_raw:.2f}")
+
             attr_str = _format_item_attributes(it, extra_attrs=extra_attrs)
+
             ratio = it.divider_ratio()
+
             top_brush = it.topBrush()
+
             if top_brush.style() == QtCore.Qt.BrushStyle.NoBrush:
+
                 top_fill = "none"
+
                 top_opacity = 1.0
+
             else:
+
                 top_color = top_brush.color()
+
                 top_fill = top_color.name()
+
                 top_opacity = top_color.alphaF()
+
             lines.append(
+
                 f"    # SplitRoundedRect ratio={ratio:.6f} top_fill='{top_fill}' top_opacity={top_opacity:.3f}"
+
             )
+
             if abs(ang) > 1e-6:
+
                 lines.append(
+
                     f"    _split_rect = draw.Rectangle({x:.2f}, {y:.2f}, {w:.2f}, {h:.2f}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
+
                 )
+
             else:
+
                 lines.append(
+
                     f"    _split_rect = draw.Rectangle({x:.2f}, {y:.2f}, {w:.2f}, {h:.2f}, {attr_str})"
+
                 )
+
             lines.append("    d.append(_split_rect)")
 
             rect_scene = QtCore.QRectF(x, y, w, h)
+
             rx = max(0.0, min(rx_raw, w / 2.0, 50.0))
+
             ry = max(0.0, min(ry_raw, h / 2.0, 50.0))
+
             base_path = QtGui.QPainterPath()
+
             if rx > 0.0 or ry > 0.0:
+
                 base_path.addRoundedRect(rect_scene, rx, ry)
+
             else:
+
                 base_path.addRect(rect_scene)
 
             line_y = y + h * ratio
+
             line_y = max(y, min(y + h, line_y))
+
             top_height = max(0.0, line_y - y)
+
             if top_height > 0.0 and top_brush.style() != QtCore.Qt.BrushStyle.NoBrush:
+
                 top_clip = QtGui.QPainterPath()
+
                 top_clip.addRect(x, y, w, top_height)
+
                 top_path = base_path.intersected(top_clip)
+
                 path_cmd = _painter_path_to_svg(top_path)
+
                 if path_cmd:
+
                     top_attrs = [f"fill='{top_fill}'", "stroke='none'"]
+
                     if top_fill != "none" and top_opacity < 1.0:
+
                         top_attrs.append(f"fill_opacity={top_opacity:.2f}")
+
                     attr = ", ".join(top_attrs)
+
                     if abs(ang) > 1e-6:
+
                         lines.append(
+
                             f"    _split_top = draw.Path('{path_cmd}', {attr}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
+
                         )
+
                     else:
+
                         lines.append(f"    _split_top = draw.Path('{path_cmd}', {attr})")
+
                     lines.append("    d.append(_split_top)")
 
             divider_pen = getattr(it, "_divider_pen", it.pen())
+
             divider_attrs = [
+
                 f"stroke='{divider_pen.color().name()}'",
+
                 f"stroke_width={divider_pen.widthF():.2f}",
+
             ]
+
             divider_attr = ", ".join(divider_attrs)
+
             x2 = x + w
+
             if abs(ang) > 1e-6:
+
                 lines.append(
+
                     f"    _split_div = draw.Line({x:.2f}, {line_y:.2f}, {x2:.2f}, {line_y:.2f}, {divider_attr}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
+
                 )
+
             else:
+
                 lines.append(
+
                     f"    _split_div = draw.Line({x:.2f}, {line_y:.2f}, {x2:.2f}, {line_y:.2f}, {divider_attr})"
+
                 )
+
             lines.append("    d.append(_split_div)")
+
             lines.append("")
 
         elif shape == "Ellipse" and isinstance(it, QtWidgets.QGraphicsEllipseItem):
+
             r = it.rect()
+
             x = it.pos().x()
+
             y = it.pos().y()
+
             w = r.width()
+
             h = r.height()
+
             cx = x + w / 2.0
+
             cy = y + h / 2.0
+
             rx = w / 2.0
+
             ry = h / 2.0
+
             ang = it.rotation()
+
             attr_str = _format_item_attributes(it)
+
             if abs(ang) > 1e-6:
+
                 lines.append(
+
                     f"    _ell = draw.Ellipse({cx:.2f}, {cy:.2f}, {rx:.2f}, {ry:.2f}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
+
                 )
+
             else:
+
                 lines.append(
+
                     f"    _ell = draw.Ellipse({cx:.2f}, {cy:.2f}, {rx:.2f}, {ry:.2f}, {attr_str})"
+
                 )
+
             lines.append("    d.append(_ell)")
+
             lines.append("")
 
         elif shape == "Circle" and isinstance(it, QtWidgets.QGraphicsEllipseItem):
+
             r = it.rect()
+
             x = it.pos().x()
+
             y = it.pos().y()
+
             w = r.width()
+
             h = r.height()
+
             d_avg = (w + h) / 2.0
+
             radius = d_avg / 2.0
+
             cx = x + w / 2.0
+
             cy = y + h / 2.0
+
             ang = it.rotation()
+
             attr_str = _format_item_attributes(it)
+
             if abs(ang) > 1e-6:
+
                 lines.append(
+
                     f"    _circ = draw.Circle({cx:.2f}, {cy:.2f}, {radius:.2f}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
+
                 )
+
             else:
+
                 lines.append(
+
                     f"    _circ = draw.Circle({cx:.2f}, {cy:.2f}, {radius:.2f}, {attr_str})"
+
                 )
+
             lines.append("    d.append(_circ)")
+
             lines.append("")
 
         elif shape == "Triangle" and isinstance(it, QtWidgets.QGraphicsPolygonItem):
+
             poly = it.polygon()
+
             x = it.pos().x()
+
             y = it.pos().y()
+
             pts = []
+
             for p in poly:
+
                 pts.extend([x + p.x(), y + p.y()])
+
             br = it.boundingRect()
+
             cx = x + br.width() / 2.0
+
             cy = y + br.height() / 2.0
+
             ang = it.rotation()
+
             attr_str = _format_item_attributes(it)
+
             coord_str = ", ".join(f"{v:.2f}" for v in pts)
+
             if abs(ang) > 1e-6:
+
                 lines.append(
+
                     f"    _tri = draw.Lines({coord_str}, close=True, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
+
                 )
+
             else:
+
                 lines.append(
+
                     f"    _tri = draw.Lines({coord_str}, close=True, {attr_str})"
+
                 )
+
             lines.append("    d.append(_tri)")
+
             lines.append("")
 
         elif shape == "Diamond" and isinstance(it, DiamondItem):
+
             poly = it.polygon()
+
             x = it.pos().x()
+
             y = it.pos().y()
+
             pts: list[float] = []
+
             for p in poly:
+
                 pts.extend([x + p.x(), y + p.y()])
+
             br = it.boundingRect()
+
             cx = x + br.x() + br.width() / 2.0
+
             cy = y + br.y() + br.height() / 2.0
+
             ang = it.rotation()
+
             label_id = None
+
             if isinstance(it, ShapeLabelMixin) and getattr(it, "has_label", lambda: False)():
+
                 label_counter += 1
+
                 label_id = f"diamond_label_{label_counter}"
+
             extra_attrs = []
+
             if label_id:
+
                 extra_attrs.append(f"data_label_id='{label_id}'")
+
             attr_str = _format_item_attributes(it, extra_attrs=extra_attrs)
+
             coord_str = ", ".join(f"{v:.2f}" for v in pts)
+
             if abs(ang) > 1e-6:
+
                 lines.append(
+
                     f"    _diamond = draw.Lines({coord_str}, close=True, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
+
                 )
+
             else:
+
                 lines.append(
+
                     f"    _diamond = draw.Lines({coord_str}, close=True, {attr_str})"
+
                 )
+
             lines.append("    d.append(_diamond)")
+
             if label_id:
+
                 base_pos = (x + br.x(), y + br.y())
+
                 base_size = (br.width(), br.height())
+
                 _export_shape_label(
+
                     it,
+
                     lines,
+
                     shape_id=label_id,
+
                     angle=ang,
+
                     base_pos=base_pos,
+
                     base_size=base_size,
+
                     var_name="diamond_label",
+
                     label_kind="diamond",
+
                 )
+
             lines.append("")
 
         elif shape == "Block Arrow" and isinstance(it, BlockArrowItem):
+
             poly = it.polygon()
+
             x = it.pos().x()
+
             y = it.pos().y()
+
             pts: list[float] = []
+
             for p in poly:
+
                 pts.extend([x + p.x(), y + p.y()])
+
             br = it.boundingRect()
+
             cx = x + br.width() / 2.0
+
             cy = y + br.height() / 2.0
+
             ang = it.rotation()
+
             attr_str = _format_item_attributes(it)
+
             lines.append(
+
                 f"    # BlockArrow head_ratio={it.head_ratio():.6f} shaft_ratio={it.shaft_ratio():.6f}"
+
             )
+
             coord_str = ", ".join(f"{v:.2f}" for v in pts)
+
             if abs(ang) > 1e-6:
+
                 lines.append(
+
                     f"    _block_arrow = draw.Lines({coord_str}, close=True, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
+
                 )
+
             else:
+
                 lines.append(
+
                     f"    _block_arrow = draw.Lines({coord_str}, close=True, {attr_str})"
+
                 )
+
             lines.append("    d.append(_block_arrow)")
+
             lines.append("")
 
         elif shape == "Curvy Right Bracket" and isinstance(it, CurvyBracketItem):
+
             x = it.pos().x()
+
             y = it.pos().y()
+
             w = it.width()
+
             h = it.height()
+
             cx = x + w / 2.0
+
             cy = y + h / 2.0
+
             ang = it.rotation()
+
             path = QtGui.QPainterPath(it.path())
+
             path.translate(x, y)
+
             path_cmd = _painter_path_to_svg(path)
+
             if not path_cmd:
+
                 continue
+
             attr_str = _format_item_attributes(it)
+
             lines.append(
+
                 f"    # CurvyBracket x={x:.2f} y={y:.2f} w={w:.2f} h={h:.2f} hook_ratio={it.hook_ratio():.6f}"
+
             )
+
             if abs(ang) > 1e-6:
+
                 lines.append(
+
                     f"    _path = draw.Path('{path_cmd}', {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
+
                 )
+
             else:
+
                 lines.append(f"    _path = draw.Path('{path_cmd}', {attr_str})")
+
             lines.append("    d.append(_path)")
+
             lines.append("")
 
         elif shape in ("Line", "Arrow") and isinstance(it, LineItem):
+
             pen = it.pen()
+
             ang = it.rotation()
+
             pos = it.pos()
+
             origin = it.transformOriginPoint()
+
             cx = pos.x() + origin.x()
+
             cy = pos.y() + origin.y()
+
             points = [
+
                 QtCore.QPointF(pos.x() + p.x(), pos.y() + p.y()) for p in it._points
+
             ]
+
             if not points:
+
                 continue
+
             path_cmd = "M " + " L ".join(f"{pt.x():.2f} {pt.y():.2f}" for pt in points)
+
             attrs = [
+
                 f"stroke='{pen.color().name()}'",
+
                 f"stroke_width={pen.widthF():.2f}",
+
                 "fill='none'",
+
             ]
+
             dash_str = _pen_dash_array_string(pen)
+
             if dash_str:
+
                 attrs.append(f"stroke_dasharray='{dash_str}'")
+
             attr_str = ", ".join(attrs)
+
             transform_suffix = ""
+
             if abs(ang) > 1e-6:
+
                 transform_suffix = f", transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})'"
+
             lines.append(f"    _path = draw.Path('{path_cmd}', {attr_str}{transform_suffix})")
+
             lines.append("    d.append(_path)")
+
             arrow_start = getattr(it, "arrow_start", False)
+
             arrow_end = getattr(it, "arrow_end", False)
+
             if arrow_start or arrow_end:
+
                 start_flag = "true" if arrow_start else "false"
+
                 end_flag = "true" if arrow_end else "false"
+
                 lines.append(
+
                     f"    # Arrowheads: start={start_flag}, end={end_flag}"
+
                 )
+
                 arrow_size = float(getattr(it, "_arrow_size", 10.0))
+
                 local_polys: list[list[QtCore.QPointF]] = []
+
                 if arrow_start and len(it._points) >= 2:
+
                     local_polys.append(
+
                         _arrowhead_polygon(it._points[1], it._points[0], arrow_size)
+
                     )
+
                 if arrow_end and len(it._points) >= 2:
+
                     local_polys.append(
+
                         _arrowhead_polygon(
+
                             it._points[-2], it._points[-1], arrow_size
+
                         )
+
                     )
+
                 color = pen.color()
+
                 arrow_attrs = [
+
                     f"fill='{color.name()}'",
+
                     f"stroke='{color.name()}'",
+
                     f"stroke_width={pen.widthF():.2f}",
+
                 ]
+
                 if color.alphaF() < 1.0:
+
                     arrow_attrs.append(f"fill_opacity={color.alphaF():.2f}")
+
                     arrow_attrs.append(f"stroke_opacity={color.alphaF():.2f}")
+
                 arrow_attr_str = ", ".join(arrow_attrs)
+
                 for poly in local_polys:
+
                     abs_poly = [
+
                         QtCore.QPointF(pos.x() + p.x(), pos.y() + p.y()) for p in poly
+
                     ]
+
                     arrow_cmd = (
+
                         "M "
+
                         + " L ".join(
+
                             f"{pt.x():.2f} {pt.y():.2f}" for pt in abs_poly
+
                         )
+
                         + " Z"
+
                     )
+
                     lines.append(
+
                         f"    _arrow_head = draw.Path('{arrow_cmd}', {arrow_attr_str}{transform_suffix})"
+
                     )
+
                     lines.append("    d.append(_arrow_head)")
+
             lines.append("")
 
         elif shape == "Text" and isinstance(it, QtWidgets.QGraphicsTextItem):
+
             br = it.boundingRect()
+
             s = it.scale() or 1.0
+
             cx = it.pos().x() + br.width() / 2.0
+
             cy = it.pos().y() + br.height() / 2.0
 
             x_top = cx - (br.width() * s) / 2.0
+
             y_top = cy - (br.height() * s) / 2.0
 
             ang = it.rotation()
+
             font = it.font()
+
             fm = QtGui.QFontMetricsF(font)
 
             # robuste Pixelgröße aus Font bestimmen
+
             pixel_size = float(font.pixelSize())
+
             if pixel_size <= 0.0:
+
                 point_size = font.pointSizeF()
+
                 if point_size > 0.0:
+
                     screen = QtGui.QGuiApplication.primaryScreen()
+
                     dpi = screen.logicalDotsPerInch() if screen else 96.0
+
                     pixel_size = point_size * dpi / 72.0
+
             if pixel_size <= 0.0:
+
                 pixel_size = fm.height()
 
             size = pixel_size * s
 
-            # --- NEU: Multiline-Unterstützung ---
-            # Originaltext *ohne* \n-Escaping übernehmen
             raw_text = it.toPlainText()
-            # Auf Zeilen splitten (behält leere Zeilen)
             text_lines = raw_text.splitlines()
+            if raw_text.endswith(("\r", "\n")):
+                text_lines.append("")
+            if not text_lines:
+                text_lines = [raw_text]
 
-            # Zeilenabstand so wie Qt es macht (Baseline-to-Baseline)
             line_px = fm.lineSpacing() * s
+            line_ratio = line_px / size if size > 0.0 else 1.0
 
             color = it.defaultTextColor()
             doc_margin = it.document().documentMargin() if it.document() else 0.0
@@ -731,7 +1307,6 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 except Exception:
                     text_dir = None
 
-            # QTextDocument hat typ. 4px Margin -> berücksichtigen
             text_x = x_top + doc_margin * s
             text_y = y_top + doc_margin * s
 
@@ -739,9 +1314,10 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 f"fill='{color.name()}'",
                 f"font_family='{font.family()}'",
                 "text_anchor='start'",
-                # Wir setzen von der oberen Kante weg und addieren pro Zeile line_px:
                 "dominant_baseline='text-before-edge'",
                 "alignment_baseline='text-before-edge'",
+                f"line_height={line_ratio:.6f}",
+                "xml__space='preserve'",
                 f"data_doc_margin={doc_margin:.4f}",
                 f"data_font_px={pixel_size:.4f}",
                 f"data_scale={s:.6f}",
@@ -758,135 +1334,219 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 base_attrs.append(f"fill_opacity={color.alphaF():.2f}")
             base_attr_str = ", ".join(base_attrs)
 
-            # Hilfsfunktion: SVG-String sicher escapen (ohne \n-Escapes!)
-            def _esc_line(val: str) -> str:
-                # nur minimal nötig, da wir in einfache Anführungszeichen schreiben
-                return val.replace("\\", "\\\\").replace("'", "\\'")
-
-            if abs(ang) > 1e-6:
-                lines.append(f"    _text_group = draw.Group(transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')")
-                for i, line in enumerate(text_lines):
-                    # Leere Zeile sichtbar machen (manche Renderer ignorieren sonst)
-                    content = _esc_line(line) if line else "&#160;"
-                    y_i = text_y + i * line_px
-                    lines.append(
-                        f"    _text_group.append(draw.Text('{content}', {size:.2f}, {text_x:.2f}, {y_i:.2f}, {base_attr_str}))"
-                    )
-                lines.append("    d.append(_text_group)")
+            json_lines = [line if line else "\u00A0" for line in text_lines]
+            if len(json_lines) == 1:
+                text_literal = json.dumps(json_lines[0], ensure_ascii=False)
             else:
-                for i, line in enumerate(text_lines):
-                    content = _esc_line(line) if line else "&#160;"
-                    y_i = text_y + i * line_px
-                    lines.append(
-                        f"    _text = draw.Text('{content}', {size:.2f}, {text_x:.2f}, {y_i:.2f}, {base_attr_str})"
-                    )
-                    lines.append("    d.append(_text)")
-            lines.append("")
-        elif shape == "Folder Tree" and isinstance(it, FolderTreeItem):
-            structure_json = json.dumps(it.structure(), ensure_ascii=False)
-            pos = it.pos()
-            rotation = it.rotation()
-            br = it.boundingRect()
-            transform = it.sceneTransform()
-            matrix = (
-                f"matrix({transform.m11():.6f} {transform.m12():.6f} {transform.m21():.6f} "
-                f"{transform.m22():.6f} {transform.m31():.2f} {transform.m32():.2f})"
-            )
+                text_literal = json.dumps(json_lines, ensure_ascii=False)
+
+            transform_suffix = ""
+            if abs(ang) > 1e-6:
+                transform_suffix = f", transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})'"
+
             lines.append(
-                f"    # FolderTree pos=({pos.x():.2f}, {pos.y():.2f}) size=({br.width():.2f}, {br.height():.2f}) rotation={rotation:.2f} structure={structure_json}"
+                f"    _text = draw.Text({text_literal}, {size:.2f}, {text_x:.2f}, {text_y:.2f}, {base_attr_str}{transform_suffix})"
             )
+            lines.append("    d.append(_text)")
+            lines.append("")
+
+        elif shape == "Folder Tree" and isinstance(it, FolderTreeItem):
+
+            structure_json = json.dumps(it.structure(), ensure_ascii=False)
+
+            pos = it.pos()
+
+            rotation = it.rotation()
+
+            br = it.boundingRect()
+
+            transform = it.sceneTransform()
+
+            matrix = (
+
+                f"matrix({transform.m11():.6f} {transform.m12():.6f} {transform.m21():.6f} "
+
+                f"{transform.m22():.6f} {transform.m31():.2f} {transform.m32():.2f})"
+
+            )
+
+            lines.append(
+
+                f"    # FolderTree pos=({pos.x():.2f}, {pos.y():.2f}) size=({br.width():.2f}, {br.height():.2f}) rotation={rotation:.2f} structure={structure_json}"
+
+            )
+
             lines.append(f"    _folder_tree = draw.Group(transform='{matrix}')")
 
             line_pen = getattr(it, "_line_pen", QtGui.QPen(QtGui.QColor("#7a7a7a")))
+
             folder_pen = getattr(it, "_folder_pen", QtGui.QPen(QtGui.QColor("#9bd97c")))
+
             file_pen = getattr(it, "_file_pen", QtGui.QPen(QtGui.QColor("#f58db2")))
+
             font = getattr(it, "_font", QtGui.QFont("Cascadia Code", 11))
+
             fm = QtGui.QFontMetricsF(font)
+
             dot_radius = float(getattr(it, "_dot_radius", 6.0))
+
             offset = dot_radius - 1.0
 
             order = list(getattr(it, "_order", []))
+
             info_map = getattr(it, "_node_info", {})
 
             line_attr = (
+
                 f"stroke='{line_pen.color().name()}', stroke_width={line_pen.widthF():.2f}"
+
             )
 
             for node in order:
+
                 node_parent = getattr(node, "parent", None)
+
                 if node_parent is None:
+
                     continue
+
                 info = info_map.get(node)
+
                 parent_info = info_map.get(node_parent)
+
                 if not info or not parent_info:
+
                     continue
+
                 parent_center = parent_info.get("dot_center")
+
                 child_center = info.get("dot_center")
+
                 if parent_center is None or child_center is None:
+
                     continue
+
                 start = QtCore.QPointF(parent_center.x(), parent_center.y() + offset)
+
                 end = QtCore.QPointF(parent_center.x(), child_center.y())
+
                 lines.append(
+
                     f"    _folder_tree.append(draw.Line({start.x():.2f}, {start.y():.2f}, {end.x():.2f}, {end.y():.2f}, {line_attr}))"
+
                 )
+
                 horizontal_start = QtCore.QPointF(parent_center.x(), child_center.y())
+
                 horizontal_end = QtCore.QPointF(
+
                     child_center.x() - (dot_radius - 1.0), child_center.y()
+
                 )
+
                 lines.append(
+
                     f"    _folder_tree.append(draw.Line({horizontal_start.x():.2f}, {horizontal_start.y():.2f}, {horizontal_end.x():.2f}, {horizontal_end.y():.2f}, {line_attr}))"
+
                 )
 
             for node in order:
+
                 info = info_map.get(node)
+
                 if not info:
+
                     continue
+
                 text_rect = info.get("text_rect")
+
                 if text_rect is None:
+
                     continue
+
                 label = it._node_label(node)
+
                 text = repr(label)[1:-1]
+
                 text_x = text_rect.left()
+
                 center_y = text_rect.center().y()
+
                 baseline = center_y + (fm.ascent() - fm.descent()) / 2.0
+
                 pen = folder_pen if getattr(node, "is_folder", False) else file_pen
+
                 color = pen.color()
+
                 font_size = font.pointSizeF()
+
                 if font_size <= 0.0:
+
                     font_size = float(font.pixelSize())
+
                 attrs = [
+
                     f"fill='{color.name()}'",
+
                     f"font_family='{font.family()}'",
+
                 ]
+
                 if color.alphaF() < 1.0:
+
                     attrs.append(f"fill_opacity={color.alphaF():.2f}")
+
                 attr_str = ", ".join(attrs)
+
                 lines.append(
+
                     f"    _folder_tree.append(draw.Text('{text}', {font_size:.2f}, {text_x:.2f}, {baseline:.2f}, {attr_str}))"
+
                 )
 
             lines.append("    d.append(_folder_tree)")
+
             lines.append("")
 
     lines.append("    return d")
+
     lines.append("")
+
     lines.append("if __name__ == '__main__':")
+
     lines.append("    d = build_drawing()")
+
     lines.append("    # Creates an SVG file next to the script:")
+
     lines.append("    d.save_svg('canvas.svg')")
 
     code = "\n".join(lines)
+
     path, _ = QtWidgets.QFileDialog.getSaveFileName(
+
         parent,
+
         "Save as drawsvg-.py…",
+
         "canvas_drawsvg.py",
+
         "Python (*.py)",
+
     )
+
     if path:
+
         try:
+
             with open(path, "w", encoding="utf-8") as f:
+
                 f.write(code)
+
             if parent is not None:
+
                 parent.statusBar().showMessage(f"Exported: {path}", 5000)
+
         except Exception as e:
+
             QtWidgets.QMessageBox.critical(parent, "Error saving file", str(e))
+
