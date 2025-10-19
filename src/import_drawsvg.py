@@ -578,6 +578,11 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 data_font_px = kwargs.get("data_font_px")
                 data_scale = kwargs.get("data_scale")
                 data_doc_margin = kwargs.get("data_doc_margin")
+                data_box_w = kwargs.get("data_box_w")
+                data_box_h = kwargs.get("data_box_h")
+                data_text_h = kwargs.get("data_text_h")
+                data_text_v = kwargs.get("data_text_v")
+                data_text_dir = kwargs.get("data_text_dir")
 
                 # Export speichert Schriftgröße (Pixel) und Item-Skalierung separat
                 font = item.font()
@@ -604,13 +609,29 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 item.setFont(font)
                 _apply_style(item, kwargs)
 
+                box_w = box_h = None
+                if data_box_w is not None:
+                    try:
+                        box_w = float(data_box_w)
+                    except (TypeError, ValueError):
+                        box_w = None
+                if data_box_h is not None:
+                    try:
+                        box_h = float(data_box_h)
+                    except (TypeError, ValueError):
+                        box_h = None
+                if box_w is not None or box_h is not None:
+                    current = item.boundingRect()
+                    width = box_w if box_w is not None else current.width()
+                    height = box_h if box_h is not None else current.height()
+                    item.set_size(width, height, adjust_origin=False)
+
                 if data_doc_margin is not None and item.document():
                     try:
                         base_doc_margin = float(data_doc_margin)
                     except (TypeError, ValueError):
                         base_doc_margin = item.document().documentMargin()
-                    else:
-                        item.document().setDocumentMargin(base_doc_margin)
+                    item.set_document_margin(base_doc_margin)
 
                 doc_margin = item.document().documentMargin() if item.document() else 0.0
 
@@ -624,6 +645,19 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 if not math.isfinite(scale_factor) or scale_factor <= 0.0:
                     scale_factor = 1.0
                 item.setScale(scale_factor)
+
+                if data_text_h is not None or data_text_v is not None:
+                    try:
+                        h_align = str(data_text_h) if data_text_h is not None else None
+                        v_align = str(data_text_v) if data_text_v is not None else None
+                        item.set_text_alignment(horizontal=h_align, vertical=v_align)
+                    except Exception:
+                        pass
+                if data_text_dir is not None:
+                    try:
+                        item.set_text_direction(str(data_text_dir))
+                    except Exception:
+                        pass
 
                 doc_margin_scene = doc_margin * scale_factor
                 x_pos = text_x - doc_margin_scene

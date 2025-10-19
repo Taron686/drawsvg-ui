@@ -1005,9 +1005,15 @@ class CanvasView(QtWidgets.QGraphicsView):
             clone.setPlainText(item.toPlainText())
             clone.setFont(item.font())
             clone.setDefaultTextColor(item.defaultTextColor())
+            doc = item.document()
+            if doc is not None:
+                clone.set_document_margin(doc.documentMargin())
+            h_align, v_align = item.text_alignment()
+            clone.set_text_alignment(horizontal=h_align, vertical=v_align)
+            clone.set_text_direction(item.text_direction())
+            clone.setScale(item.scale())
             br = clone.boundingRect()
             clone.setTransformOriginPoint(br.width() / 2.0, br.height() / 2.0)
-            clone.setScale(item.scale())
         elif isinstance(item, FolderTreeItem):
             clone = FolderTreeItem(item.x(), item.y(), 0.0, 0.0, structure=item.structure())
             clone.setScale(item.scale())
@@ -1428,7 +1434,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         def add_text_actions() -> None:
             text_color_action, text_color_callback = self._create_color_action(
                 menu,
-                "Set text color…",
+                "Set text color...",
                 "Text color",
                 lambda item=item: item.defaultTextColor(),
                 lambda color, item=item: item.setDefaultTextColor(color),
@@ -1439,12 +1445,10 @@ class CanvasView(QtWidgets.QGraphicsView):
                 font = item.font()
                 font.setPointSizeF(value)
                 item.setFont(font)
-                br = item.boundingRect()
-                item.setTransformOriginPoint(br.width() / 2.0, br.height() / 2.0)
 
             font_size_action, font_size_callback = self._create_double_action(
                 menu,
-                "Set font size…",
+                "Set font size...",
                 "Font size",
                 "Size:",
                 lambda item=item: item.font().pointSizeF(),
@@ -1454,6 +1458,29 @@ class CanvasView(QtWidgets.QGraphicsView):
                 1,
             )
             actions[font_size_action] = font_size_callback
+
+            align_menu = menu.addMenu("Alignment")
+            h_menu = align_menu.addMenu("Horizontal")
+            v_menu = align_menu.addMenu("Vertical")
+            h_align, v_align = item.text_alignment()
+            for title, key in (("Left", "left"), ("Center", "center"), ("Right", "right")):
+                action = h_menu.addAction(title)
+                action.setCheckable(True)
+                action.setChecked(h_align == key)
+                actions[action] = lambda item=item, key=key: item.set_text_alignment(horizontal=key)
+            for title, key in (("Top", "top"), ("Middle", "middle"), ("Bottom", "bottom")):
+                action = v_menu.addAction(title)
+                action.setCheckable(True)
+                action.setChecked(v_align == key)
+                actions[action] = lambda item=item, key=key: item.set_text_alignment(vertical=key)
+
+            dir_menu = align_menu.addMenu("Direction")
+            current_dir = item.text_direction()
+            for title, key in (("Left to right", "ltr"), ("Right to left", "rtl")):
+                action = dir_menu.addAction(title)
+                action.setCheckable(True)
+                action.setChecked(current_dir == key)
+                actions[action] = lambda item=item, key=key: item.set_text_direction(key)
 
         def add_split_rect_fill_actions() -> None:
             split_item: SplitRoundedRectItem = item  # type: ignore[assignment]

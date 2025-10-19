@@ -718,6 +718,18 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             color = it.defaultTextColor()
             doc_margin = it.document().documentMargin() if it.document() else 0.0
+            h_align = v_align = None
+            if hasattr(it, "text_alignment"):
+                try:
+                    h_align, v_align = it.text_alignment()
+                except Exception:
+                    h_align = v_align = None
+            text_dir = None
+            if hasattr(it, "text_direction"):
+                try:
+                    text_dir = it.text_direction()
+                except Exception:
+                    text_dir = None
 
             # QTextDocument hat typ. 4px Margin -> berücksichtigen
             text_x = x_top + doc_margin * s
@@ -734,6 +746,14 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 f"data_font_px={pixel_size:.4f}",
                 f"data_scale={s:.6f}",
             ]
+            base_attrs.append(f"data_box_w={br.width():.4f}")
+            base_attrs.append(f"data_box_h={br.height():.4f}")
+            if h_align:
+                base_attrs.append(f"data_text_h='{h_align}'")
+            if v_align:
+                base_attrs.append(f"data_text_v='{v_align}'")
+            if text_dir:
+                base_attrs.append(f"data_text_dir='{text_dir}'")
             if color.alphaF() < 1.0:
                 base_attrs.append(f"fill_opacity={color.alphaF():.2f}")
             base_attr_str = ", ".join(base_attrs)
