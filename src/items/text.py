@@ -175,10 +175,15 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
     ) -> None:
         width = max(self._MIN_DIMENSION, float(width))
         height = max(self._MIN_DIMENSION, float(height))
+        prev_width = self._box_size.width()
+        prev_height = self._box_size.height()
+        size_changed = (
+            abs(prev_width - width) > 1e-3 or abs(prev_height - height) > 1e-3
+        )
         if not from_init:
             self.prepareGeometryChange()
         self._box_size = QtCore.QSizeF(width, height)
-        self._update_document_constraints()
+        self._update_document_constraints(adjust_layout=size_changed and not from_init)
         if update_origin:
             self._update_transform_origin()
         if not from_init and _should_draw_selection(self):
@@ -189,21 +194,24 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
             if isinstance(snapped, QtCore.QPointF) and snapped != self.pos():
                 QtWidgets.QGraphicsTextItem.setPos(self, snapped)
 
-    def _update_document_constraints(self) -> None:
+    def _update_document_constraints(self, *, adjust_layout: bool = False) -> None:
         doc = self.document()
         if doc is None:
             return
         margin = doc.documentMargin()
         available_width = self._box_size.width() - 2.0 * margin
-        self.setTextWidth(available_width if available_width > 0.0 else -1.0)
-        doc.setPageSize(
-            QtCore.QSizeF(
-                max(0.0, available_width if available_width > 0.0 else self._box_size.width()),
-                max(self._MIN_DIMENSION, self._box_size.height()),
-            )
+        text_width = available_width if available_width > 0.0 else -1.0
+        page_width = (
+            available_width if available_width > 0.0 else self._box_size.width()
         )
+        doc_height = max(self._MIN_DIMENSION, self._box_size.height())
+        self.setTextWidth(text_width)
+        doc.setPageSize(QtCore.QSizeF(max(0.0, page_width), doc_height))
+        if adjust_layout:
+            doc.adjustSize()
+            self.setTextWidth(text_width)
+            doc.setPageSize(QtCore.QSizeF(max(0.0, page_width), doc_height))
         self._apply_text_alignment()
-        doc.adjustSize()
         self._update_content_offset()
 
     def _apply_text_alignment(self) -> None:

@@ -1333,11 +1333,34 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             size = pixel_size * s
 
             raw_text = it.toPlainText()
-            text_lines = raw_text.splitlines()
-            if raw_text.endswith(("\r", "\n")):
-                text_lines.append("")
-            if not text_lines:
-                text_lines = [raw_text]
+            text_lines: list[str]
+            doc = it.document()
+            layout = doc.documentLayout() if doc is not None else None
+            if doc is not None and layout is not None:
+                text_lines = []
+                block = doc.begin()
+                while block.isValid():
+                    layout.blockBoundingRect(block)
+                    block_text = block.text()
+                    block_layout = block.layout()
+                    if block_layout is not None and block_layout.lineCount() > 0:
+                        for idx in range(block_layout.lineCount()):
+                            line = block_layout.lineAt(idx)
+                            start = line.textStart()
+                            length = line.textLength()
+                            fragment = block_text[start : start + length]
+                            text_lines.append(fragment)
+                    else:
+                        text_lines.append(block_text)
+                    block = block.next()
+                if not text_lines:
+                    text_lines = [""]
+            else:
+                text_lines = raw_text.splitlines()
+                if raw_text.endswith(("\r", "\n")):
+                    text_lines.append("")
+                if not text_lines:
+                    text_lines = [raw_text]
 
             line_px = fm.lineSpacing() * s
             line_ratio = line_px / size if size > 0.0 else 1.0
