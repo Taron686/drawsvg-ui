@@ -75,6 +75,8 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         arrow_start: bool = False,
         arrow_end: bool = False,
         points: list[QtCore.QPointF] | None = None,
+        arrow_head_length: float | None = None,
+        arrow_head_width: float | None = None,
     ):
         super().__init__()
         self.setPos(x, y)
@@ -87,7 +89,15 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         self.setPen(QtGui.QPen(PEN_NORMAL))
         self.arrow_start = arrow_start
         self.arrow_end = arrow_end
-        self._arrow_size = 10.0
+        default_arrow_size = 10.0
+        if arrow_head_length is None:
+            self._arrow_head_length = default_arrow_size
+        else:
+            self._arrow_head_length = max(0.1, float(arrow_head_length))
+        if arrow_head_width is None:
+            self._arrow_head_width = default_arrow_size
+        else:
+            self._arrow_head_width = max(0.1, float(arrow_head_width))
         self._selection_padding = 10.0
         if points is not None:
             self._points = [QtCore.QPointF(p) for p in points]
@@ -193,6 +203,26 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
             self.arrow_end = value
             self.update()
 
+    def arrow_head_length(self) -> float:
+        return self._arrow_head_length
+
+    def arrow_head_width(self) -> float:
+        return self._arrow_head_width
+
+    def set_arrow_head_length(self, value: float) -> None:
+        new_value = max(0.1, float(value))
+        if not math.isclose(self._arrow_head_length, new_value, rel_tol=1e-6, abs_tol=1e-6):
+            self.prepareGeometryChange()
+            self._arrow_head_length = new_value
+            self.update()
+
+    def set_arrow_head_width(self, value: float) -> None:
+        new_value = max(0.1, float(value))
+        if not math.isclose(self._arrow_head_width, new_value, rel_tol=1e-6, abs_tol=1e-6):
+            self.prepareGeometryChange()
+            self._arrow_head_width = new_value
+            self.update()
+
     def set_pen_style(self, style: QtCore.Qt.PenStyle) -> None:
         pen = QtGui.QPen(self.pen())
         if pen.style() != style:
@@ -208,7 +238,8 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         rect = super().boundingRect()
         padding = self._selection_padding
         if self.arrow_start or self.arrow_end:
-            padding += self._arrow_size
+            arrow_padding = max(self._arrow_head_length, self._arrow_head_width / 2.0)
+            padding += arrow_padding
         if padding <= 0.0:
             return rect
         return rect.adjusted(-padding, -padding, padding, padding)
@@ -309,24 +340,28 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         self, start: QtCore.QPointF, end: QtCore.QPointF
     ) -> tuple[QtGui.QPolygonF, QtCore.QPointF]:
         line = QtCore.QLineF(start, end)
-        size = self._arrow_size
         tip = QtCore.QPointF(end)
-        if line.length() <= 1e-6:
+        length = line.length()
+        if length <= 1e-6:
             polygon = QtGui.QPolygonF([tip, tip, tip])
             return polygon, tip
-
-        angle = math.atan2(-line.dy(), line.dx())
-        left_point = tip + QtCore.QPointF(
-            math.sin(angle - math.pi / 3.0) * size,
-            math.cos(angle - math.pi / 3.0) * size,
-        )
-        right_point = tip + QtCore.QPointF(
-            math.sin(angle - math.pi + math.pi / 3.0) * size,
-            math.cos(angle - math.pi + math.pi / 3.0) * size,
-        )
+        arrow_length = self._arrow_head_length
+        arrow_width = self._arrow_head_width
+        direction = QtCore.QPointF(end - start)
+        unit_dir = QtCore.QPointF(direction.x() / length, direction.y() / length)
+        perp = QtCore.QPointF(-unit_dir.y(), unit_dir.x())
         base_center = QtCore.QPointF(
-            (left_point.x() + right_point.x()) / 2.0,
-            (left_point.y() + right_point.y()) / 2.0,
+            tip.x() - unit_dir.x() * arrow_length,
+            tip.y() - unit_dir.y() * arrow_length,
+        )
+        half_width = arrow_width / 2.0
+        left_point = QtCore.QPointF(
+            base_center.x() + perp.x() * half_width,
+            base_center.y() + perp.y() * half_width,
+        )
+        right_point = QtCore.QPointF(
+            base_center.x() - perp.x() * half_width,
+            base_center.y() - perp.y() * half_width,
         )
         polygon = QtGui.QPolygonF([tip, left_point, right_point])
         return polygon, base_center

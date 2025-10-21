@@ -246,21 +246,41 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     comment = line.split(":", 1)[1]
                     start_flag = False
                     end_flag = False
+                    length_value: float | None = None
+                    width_value: float | None = None
                     for part in comment.split(","):
                         if "=" not in part:
                             continue
                         key, value = part.split("=", 1)
-                        key = key.strip()
-                        value = value.strip().lower()
-                        flag = value in {"true", "1", "yes"}
+                        key = key.strip().lower()
+                        raw_value = value.strip()
+                        lower_value = raw_value.lower()
                         if key == "start":
-                            start_flag = flag
+                            start_flag = lower_value in {"true", "1", "yes"}
                         elif key == "end":
-                            end_flag = flag
+                            end_flag = lower_value in {"true", "1", "yes"}
+                        elif key == "length":
+                            try:
+                                length_value = float(raw_value)
+                            except (TypeError, ValueError):
+                                length_value = None
+                        elif key == "width":
+                            try:
+                                width_value = float(raw_value)
+                            except (TypeError, ValueError):
+                                width_value = None
                     if start_flag:
                         pending_line.set_arrow_start(True)
                     if end_flag:
                         pending_line.set_arrow_end(True)
+                    if length_value is not None:
+                        setter = getattr(pending_line, "set_arrow_head_length", None)
+                        if callable(setter):
+                            setter(length_value)
+                    if width_value is not None:
+                        setter = getattr(pending_line, "set_arrow_head_width", None)
+                        if callable(setter):
+                            setter(width_value)
                     pending_line.setData(
                         0, "Arrow" if (start_flag or end_flag) else "Line"
                     )
@@ -479,6 +499,40 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                             ]
                             arrow_start = "marker_start" in kwargs
                             arrow_end = "marker_end" in kwargs
+                            arrow_start_attr = kwargs.get("data_arrow_start")
+                            arrow_end_attr = kwargs.get("data_arrow_end")
+                            if arrow_start_attr is not None:
+                                arrow_start = (
+                                    arrow_start_attr
+                                    if isinstance(arrow_start_attr, bool)
+                                    else str(arrow_start_attr).strip().lower()
+                                    in {"true", "1", "yes"}
+                                )
+                            if arrow_end_attr is not None:
+                                arrow_end = (
+                                    arrow_end_attr
+                                    if isinstance(arrow_end_attr, bool)
+                                    else str(arrow_end_attr).strip().lower()
+                                    in {"true", "1", "yes"}
+                                )
+                            arrow_head_length = kwargs.get("data_arrow_head_length")
+                            arrow_head_width = kwargs.get("data_arrow_head_width")
+                            try:
+                                arrow_head_length_value = (
+                                    float(arrow_head_length)
+                                    if arrow_head_length is not None
+                                    else None
+                                )
+                            except (TypeError, ValueError):
+                                arrow_head_length_value = None
+                            try:
+                                arrow_head_width_value = (
+                                    float(arrow_head_width)
+                                    if arrow_head_width is not None
+                                    else None
+                                )
+                            except (TypeError, ValueError):
+                                arrow_head_width_value = None
                             angle = 0.0
                             if "transform" in kwargs:
                                 angle = _parse_rotate(kwargs["transform"])
@@ -488,6 +542,8 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                                 points=pts,
                                 arrow_start=arrow_start,
                                 arrow_end=arrow_end,
+                                arrow_head_length=arrow_head_length_value,
+                                arrow_head_width=arrow_head_width_value,
                             )
                             _apply_style(item, kwargs)
                             item.setRotation(angle)

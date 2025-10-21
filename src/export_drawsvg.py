@@ -412,7 +412,13 @@ def _painter_path_to_svg(path: QtGui.QPainterPath) -> str:
 
 def _arrowhead_polygon(
 
-    start: QtCore.QPointF, end: QtCore.QPointF, size: float
+    start: QtCore.QPointF,
+
+    end: QtCore.QPointF,
+
+    length: float,
+
+    width: float,
 
 ) -> list[QtCore.QPointF]:
 
@@ -420,23 +426,53 @@ def _arrowhead_polygon(
 
     line = QtCore.QLineF(start, end)
 
-    angle = math.atan2(-line.dy(), line.dx())
-
     tip = QtCore.QPointF(end)
 
-    side1 = QtCore.QPointF(
+    distance = line.length()
 
-        math.sin(angle - math.pi / 3.0) * size,
+    if distance <= 1e-6:
 
-        math.cos(angle - math.pi / 3.0) * size,
+        return [tip, tip, tip]
+
+    arrow_length = max(float(length), 0.0)
+
+    arrow_width = max(float(width), 0.0)
+
+    if arrow_length <= 1e-6 or arrow_width <= 1e-6:
+
+        return [tip, tip, tip]
+
+    unit_x = (end.x() - start.x()) / distance
+
+    unit_y = (end.y() - start.y()) / distance
+
+    perp_x = -unit_y
+
+    perp_y = unit_x
+
+    base_center = QtCore.QPointF(
+
+        tip.x() - unit_x * arrow_length,
+
+        tip.y() - unit_y * arrow_length,
 
     )
 
-    side2 = QtCore.QPointF(
+    half_width = arrow_width / 2.0
 
-        math.sin(angle - math.pi + math.pi / 3.0) * size,
+    left_point = QtCore.QPointF(
 
-        math.cos(angle - math.pi + math.pi / 3.0) * size,
+        base_center.x() + perp_x * half_width,
+
+        base_center.y() + perp_y * half_width,
+
+    )
+
+    right_point = QtCore.QPointF(
+
+        base_center.x() - perp_x * half_width,
+
+        base_center.y() - perp_y * half_width,
 
     )
 
@@ -444,9 +480,9 @@ def _arrowhead_polygon(
 
         tip,
 
-        QtCore.QPointF(tip.x() + side1.x(), tip.y() + side1.y()),
+        left_point,
 
-        QtCore.QPointF(tip.x() + side2.x(), tip.y() + side2.y()),
+        right_point,
 
     ]
 
@@ -1136,6 +1172,21 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
                 attrs.append(f"stroke_dasharray='{dash_str}'")
 
+            arrow_start = getattr(it, "arrow_start", False)
+            arrow_end = getattr(it, "arrow_end", False)
+            arrow_length = float(
+                getattr(it, "_arrow_head_length", getattr(it, "_arrow_size", 10.0))
+            )
+            arrow_width = float(
+                getattr(it, "_arrow_head_width", getattr(it, "_arrow_size", 10.0))
+            )
+
+            if arrow_start or arrow_end:
+                attrs.append(f"data_arrow_start={'True' if arrow_start else 'False'}")
+                attrs.append(f"data_arrow_end={'True' if arrow_end else 'False'}")
+                attrs.append(f"data_arrow_head_length={arrow_length:.2f}")
+                attrs.append(f"data_arrow_head_width={arrow_width:.2f}")
+
             attr_str = ", ".join(attrs)
 
             transform_suffix = ""
@@ -1146,12 +1197,6 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             lines.append(f"    _path = draw.Path('{path_cmd}', {attr_str}{transform_suffix})")
 
-            lines.append("    d.append(_path)")
-
-            arrow_start = getattr(it, "arrow_start", False)
-
-            arrow_end = getattr(it, "arrow_end", False)
-
             if arrow_start or arrow_end:
 
                 start_flag = "true" if arrow_start else "false"
@@ -1160,11 +1205,9 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
                 lines.append(
 
-                    f"    # Arrowheads: start={start_flag}, end={end_flag}"
+                    f"    # Arrowheads: start={start_flag}, end={end_flag}, length={arrow_length:.2f}, width={arrow_width:.2f}"
 
                 )
-
-                arrow_size = float(getattr(it, "_arrow_size", 10.0))
 
                 local_polys: list[list[QtCore.QPointF]] = []
 
@@ -1172,7 +1215,9 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
                     local_polys.append(
 
-                        _arrowhead_polygon(it._points[1], it._points[0], arrow_size)
+                        _arrowhead_polygon(
+                            it._points[1], it._points[0], arrow_length, arrow_width
+                        )
 
                     )
 
@@ -1182,7 +1227,10 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
                         _arrowhead_polygon(
 
-                            it._points[-2], it._points[-1], arrow_size
+                            it._points[-2],
+                            it._points[-1],
+                            arrow_length,
+                            arrow_width,
 
                         )
 
@@ -1237,6 +1285,8 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     )
 
                     lines.append("    d.append(_arrow_head)")
+
+            lines.append("    d.append(_path)")
 
             lines.append("")
 

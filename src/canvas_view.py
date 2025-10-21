@@ -772,6 +772,13 @@ class CanvasView(QtWidgets.QGraphicsView):
             ]
             base["arrow_start"] = bool(getattr(item, "arrow_start", False))
             base["arrow_end"] = bool(getattr(item, "arrow_end", False))
+            length_getter = getattr(item, "arrow_head_length", None)
+            width_getter = getattr(item, "arrow_head_width", None)
+            if callable(length_getter) and callable(width_getter):
+                base["arrow_head"] = {
+                    "length": float(length_getter()),
+                    "width": float(width_getter()),
+                }
             base["pen"] = _pen_to_data(item.pen())
         elif isinstance(item, CurvyBracketItem):
             base["size"] = [float(item.width()), float(item.height())]
@@ -896,7 +903,25 @@ class CanvasView(QtWidgets.QGraphicsView):
                         points.append(QtCore.QPointF(float(point[0]), float(point[1])))
             arrow_start = bool(data.get("arrow_start", False))
             arrow_end = bool(data.get("arrow_end", False))
-            item = LineItem(0.0, 0.0, points=points or None, arrow_start=arrow_start, arrow_end=arrow_end)
+            arrow_head_data = data.get("arrow_head")
+            arrow_head_length: float | None = None
+            arrow_head_width: float | None = None
+            if isinstance(arrow_head_data, Mapping):
+                length_value = arrow_head_data.get("length")
+                width_value = arrow_head_data.get("width")
+                if length_value is not None:
+                    arrow_head_length = float(length_value)
+                if width_value is not None:
+                    arrow_head_width = float(width_value)
+            item = LineItem(
+                0.0,
+                0.0,
+                points=points or None,
+                arrow_start=arrow_start,
+                arrow_end=arrow_end,
+                arrow_head_length=arrow_head_length,
+                arrow_head_width=arrow_head_width,
+            )
             item.setPen(_pen_from_data(pen_data))
         elif shape == "Curvy Right Bracket":
             if width is None or height is None:
@@ -1567,6 +1592,8 @@ class CanvasView(QtWidgets.QGraphicsView):
                 points=[QtCore.QPointF(p) for p in item._points],
                 arrow_start=getattr(item, "arrow_start", False),
                 arrow_end=getattr(item, "arrow_end", False),
+                arrow_head_length=getattr(item, "arrow_head_length", lambda: 10.0)(),
+                arrow_head_width=getattr(item, "arrow_head_width", lambda: 10.0)(),
             )
             clone.setPen(item.pen())
         elif isinstance(item, TextItem):
@@ -1984,6 +2011,38 @@ class CanvasView(QtWidgets.QGraphicsView):
                 item.set_arrow_end(action.isChecked())
 
             actions[end_action] = end_callback
+
+            length_getter = getattr(item, "arrow_head_length", None)
+            width_getter = getattr(item, "arrow_head_width", None)
+            length_setter = getattr(item, "set_arrow_head_length", None)
+            width_setter = getattr(item, "set_arrow_head_width", None)
+            if all(callable(fn) for fn in (length_getter, width_getter, length_setter, width_setter)):
+                style_menu = menu.addMenu("Arrowhead style")
+                height_action, height_callback = self._create_double_action(
+                    style_menu,
+                    "Set arrowhead height...",
+                    "Arrowhead height",
+                    "Height:",
+                    lambda item=item, getter=length_getter: getter(),
+                    lambda value, item=item, setter=length_setter: setter(value),
+                    1.0,
+                    500.0,
+                    1,
+                )
+                actions[height_action] = height_callback
+
+                width_action, width_callback = self._create_double_action(
+                    style_menu,
+                    "Set arrowhead width...",
+                    "Arrowhead width",
+                    "Width:",
+                    lambda item=item, getter=width_getter: getter(),
+                    lambda value, item=item, setter=width_setter: setter(value),
+                    1.0,
+                    500.0,
+                    1,
+                )
+                actions[width_action] = width_callback
 
         def add_line_style_actions() -> None:
             style_menu = menu.addMenu("Line style")
