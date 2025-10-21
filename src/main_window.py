@@ -50,15 +50,44 @@ class MainWindow(QtWidgets.QMainWindow):
         file_menu.addAction(act_quit)
 
         edit_menu = self.menuBar().addMenu("&Edit")
+
+        self.act_undo = QtGui.QAction("Undo", self)
+        self.act_undo.setShortcut(
+            QtGui.QKeySequence(QtGui.QKeySequence.StandardKey.Undo)
+        )
+        self.act_undo.setShortcutContext(
+            QtCore.Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
+        self.act_undo.triggered.connect(self.canvas.undo)
+        edit_menu.addAction(self.act_undo)
+
+        self.act_redo = QtGui.QAction("Redo", self)
+        self.act_redo.setShortcut(
+            QtGui.QKeySequence(QtGui.QKeySequence.StandardKey.Redo)
+        )
+        self.act_redo.setShortcutContext(
+            QtCore.Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
+        self.act_redo.triggered.connect(self.canvas.redo)
+        edit_menu.addAction(self.act_redo)
+
+        edit_menu.addSeparator()
+
         act_clear_canvas = QtGui.QAction("Clear canvas", self)
         act_clear_canvas.triggered.connect(self.canvas.clear_canvas)
         edit_menu.addAction(act_clear_canvas)
 
-        act_show_grid = QtGui.QAction("Show grid", self)
-        act_show_grid.setCheckable(True)
-        act_show_grid.setChecked(True)
-        act_show_grid.toggled.connect(self.canvas.set_grid_visible)
-        edit_menu.addAction(act_show_grid)
+        self.act_show_grid = QtGui.QAction("Show grid", self)
+        self.act_show_grid.setCheckable(True)
+        self.act_show_grid.setChecked(True)
+        self.act_show_grid.toggled.connect(self.canvas.set_grid_visible)
+        edit_menu.addAction(self.act_show_grid)
+
+        self.canvas.gridVisibilityChanged.connect(self.act_show_grid.setChecked)
+
+        history = self.canvas.history()
+        history.historyChanged.connect(self._update_history_actions)
+        self._update_history_actions(history.can_undo(), history.can_redo())
 
     def export_drawsvg_py(self):
         export_drawsvg_py(self.canvas.scene(), self)
@@ -68,3 +97,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _add_shape_at_center(self, shape: str) -> None:
         self.canvas.add_shape_at_view_center(shape)
+
+    def _update_history_actions(self, can_undo: bool, can_redo: bool) -> None:
+        self.act_undo.setEnabled(can_undo)
+        self.act_redo.setEnabled(can_redo)

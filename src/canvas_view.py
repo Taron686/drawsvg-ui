@@ -1,5 +1,7 @@
+import json
 import math
-from typing import Callable
+from collections.abc import Mapping
+from typing import Any, Callable
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtGui import QTransform
@@ -19,6 +21,215 @@ def _snap_coordinate(value: float, spacing: float, origin: float) -> float:
     if spacing <= 0.0:
         return value
     return round((value - origin) / spacing) * spacing + origin
+
+
+def _color_to_data(color: QtGui.QColor) -> dict[str, float | str]:
+    return {"name": color.name(), "alpha": float(color.alphaF())}
+
+
+def _color_from_data(data: Mapping[str, Any] | None) -> QtGui.QColor:
+    name = "#000000"
+    alpha = 1.0
+    if data:
+        name = str(data.get("name", name))
+        alpha = float(data.get("alpha", alpha))
+    color = QtGui.QColor(name)
+    color.setAlphaF(alpha)
+    return color
+
+
+def _brush_to_data(brush: QtGui.QBrush) -> dict[str, Any]:
+    style = int(brush.style())
+    data: dict[str, Any] = {"style": style}
+    if style != int(QtCore.Qt.BrushStyle.NoBrush):
+        data["color"] = _color_to_data(brush.color())
+    return data
+
+
+def _brush_from_data(data: Mapping[str, Any] | None) -> QtGui.QBrush:
+    style_val = int(data.get("style", int(QtCore.Qt.BrushStyle.NoBrush))) if data else int(QtCore.Qt.BrushStyle.NoBrush)
+    brush = QtGui.QBrush(QtCore.Qt.BrushStyle(style_val))
+    if style_val != int(QtCore.Qt.BrushStyle.NoBrush) and data is not None:
+        color_data = data.get("color")
+        if isinstance(color_data, Mapping):
+            brush.setColor(_color_from_data(color_data))
+    return brush
+
+
+def _pen_to_data(pen: QtGui.QPen) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "color": _color_to_data(pen.color()),
+        "width": float(pen.widthF()),
+        "style": int(pen.style()),
+        "cap": int(pen.capStyle()),
+        "join": int(pen.joinStyle()),
+        "cosmetic": bool(pen.isCosmetic()),
+    }
+    pattern = pen.dashPattern()
+    if pattern:
+        data["dash"] = [float(value) for value in pattern]
+    return data
+
+
+def _pen_from_data(data: Mapping[str, Any] | None) -> QtGui.QPen:
+    pen = QtGui.QPen()
+    if not data:
+        return pen
+    color_data = data.get("color")
+    if isinstance(color_data, Mapping):
+        pen.setColor(_color_from_data(color_data))
+    if "width" in data:
+        pen.setWidthF(float(data["width"]))
+    if "style" in data:
+        try:
+            pen.setStyle(QtCore.Qt.PenStyle(int(data["style"])))
+        except ValueError:
+            pass
+    if "cap" in data:
+        try:
+            pen.setCapStyle(QtCore.Qt.PenCapStyle(int(data["cap"])))
+        except ValueError:
+            pass
+    if "join" in data:
+        try:
+            pen.setJoinStyle(QtCore.Qt.PenJoinStyle(int(data["join"])))
+        except ValueError:
+            pass
+    if "cosmetic" in data:
+        pen.setCosmetic(bool(data["cosmetic"]))
+    if pen.style() == QtCore.Qt.PenStyle.CustomDashLine and "dash" in data:
+        pattern = data.get("dash")
+        if isinstance(pattern, (list, tuple)):
+            pen.setDashPattern([float(value) for value in pattern])
+    return pen
+
+
+def _serialize_shape_label(item: ShapeLabelMixin) -> dict[str, Any] | None:
+    if not isinstance(item, ShapeLabelMixin):
+        return None
+    label = item.label_item()
+    data: dict[str, Any] = {
+        "text": item.label_text(),
+        "alignment": list(item.label_alignment()),
+        "font": label.font().toString(),
+        "color": _color_to_data(label.defaultTextColor()),
+    }
+    return data
+
+
+def _apply_shape_label(item: ShapeLabelMixin, data: Mapping[str, Any] | None) -> None:
+    if not data:
+        return
+    text = data.get("text")
+    if isinstance(text, str):
+        item.set_label_text(text)
+    alignment = data.get("alignment")
+    if isinstance(alignment, (list, tuple)) and len(alignment) == 2:
+        horizontal, vertical = alignment
+        item.set_label_alignment(horizontal=str(horizontal), vertical=str(vertical))
+    font_data = data.get("font")
+    if isinstance(font_data, str):
+        font = QtGui.QFont()
+        font.fromString(font_data)
+        item.label_item().setFont(font)
+    color_data = data.get("color")
+    if isinstance(color_data, Mapping):
+        item.label_item().setDefaultTextColor(_color_from_data(color_data))
+
+
+class SceneHistory(QtCore.QObject):
+    historyChanged = QtCore.Signal(bool, bool)
+
+    def __init__(self, view: "CanvasView", *, max_states: int = 50) -> None:
+        super().__init__(view)
+        self._view = view
+        self._max_states = max(1, int(max_states))
+        self._states: list[str] = []
+        self._index = -1
+        self._ignore_changes = False
+        self._timer = QtCore.QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(250)
+        self._timer.timeout.connect(self._capture_snapshot)
+        scene = view.scene()
+        if scene is not None:
+            scene.changed.connect(self._on_scene_changed)
+
+    def capture_initial_state(self) -> None:
+        self._states.clear()
+        self._index = -1
+        self._capture_snapshot(force=True)
+        self._notify()
+
+    def mark_dirty(self) -> None:
+        if self._ignore_changes:
+            return
+        self._timer.start()
+
+    def capture_now(self) -> None:
+        self._capture_snapshot()
+
+    def undo(self) -> None:
+        if not self.can_undo():
+            return
+        self._index -= 1
+        self._apply_current_state()
+        self._notify()
+
+    def redo(self) -> None:
+        if not self.can_redo():
+            return
+        self._index += 1
+        self._apply_current_state()
+        self._notify()
+
+    def can_undo(self) -> bool:
+        return self._index > 0
+
+    def can_redo(self) -> bool:
+        return 0 <= self._index < len(self._states) - 1
+
+    def _notify(self) -> None:
+        self.historyChanged.emit(self.can_undo(), self.can_redo())
+
+    def _on_scene_changed(self, _region: list[QtCore.QRectF]) -> None:  # type: ignore[override]
+        if self._ignore_changes:
+            return
+        self._timer.start()
+
+    def _serialize_state(self) -> str:
+        state = self._view._serialize_scene_state()
+        return json.dumps(state, sort_keys=True, separators=(",", ":"))
+
+    def _capture_snapshot(self, force: bool = False) -> None:
+        if self._ignore_changes:
+            return
+        state_str = self._serialize_state()
+        if not force and self._index >= 0 and self._states[self._index] == state_str:
+            return
+        if self._index < len(self._states) - 1:
+            self._states = self._states[: self._index + 1]
+        self._states.append(state_str)
+        if len(self._states) > self._max_states:
+            overflow = len(self._states) - self._max_states
+            self._states = self._states[overflow:]
+            self._index = len(self._states) - 1
+        else:
+            self._index = len(self._states) - 1
+        self._notify()
+
+    def _apply_current_state(self) -> None:
+        if not (0 <= self._index < len(self._states)):
+            return
+        state_str = self._states[self._index]
+        state = json.loads(state_str)
+        self._ignore_changes = True
+        self._timer.stop()
+        try:
+            self._view._restore_scene_state(state)
+        finally:
+            self._ignore_changes = False
+
 from items import (
     RectItem,
     SplitRoundedRectItem,
@@ -394,6 +605,8 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
 
 
 class CanvasView(QtWidgets.QGraphicsView):
+    gridVisibilityChanged = QtCore.Signal(bool)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
@@ -439,6 +652,353 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._prev_drag_mode = self.dragMode()
         self._right_button_pressed = False
         self._suppress_context_menu = False
+
+        self._history = SceneHistory(self)
+        self._history.capture_initial_state()
+
+    def history(self) -> SceneHistory:
+        return self._history
+
+    def undo(self) -> None:
+        self._history.undo()
+
+    def redo(self) -> None:
+        self._history.redo()
+
+    # --- Serialization helpers for undo/redo ---
+    def _is_serializable_item(self, item: QtWidgets.QGraphicsItem) -> bool:
+        if isinstance(item, A4PageItem):
+            return False
+        name = item.__class__.__name__
+        if name.endswith("Handle"):
+            return False
+        if isinstance(item, QtWidgets.QGraphicsItemGroup) and name == "QGraphicsItemGroup":
+            return False
+        return True
+
+    def _item_sort_key(self, item: QtWidgets.QGraphicsItem) -> tuple[float, str, float, float]:
+        shape = str(item.data(0)) if item.data(0) else item.__class__.__name__
+        pos = item.pos()
+        return (
+            round(float(item.zValue()), 6),
+            shape,
+            round(float(pos.x()), 6),
+            round(float(pos.y()), 6),
+        )
+
+    def _serialize_scene_state(self) -> dict[str, Any]:
+        scene = self.scene()
+        if scene is None:
+            return {"items": [], "grid_visible": bool(self._show_grid)}
+        items = [
+            item
+            for item in scene.items()
+            if self._is_serializable_item(item) and item.parentItem() is None
+        ]
+        items.sort(key=self._item_sort_key)
+        return {
+            "items": [self._serialize_item(item) for item in items],
+            "grid_visible": bool(self._show_grid),
+        }
+
+    def _serialize_item(self, item: QtWidgets.QGraphicsItem) -> dict[str, Any]:
+        shape_value = item.data(0)
+        shape = str(shape_value) if shape_value else item.__class__.__name__
+        base: dict[str, Any] = {
+            "shape": shape,
+            "class": item.__class__.__name__,
+            "pos": [float(item.pos().x()), float(item.pos().y())],
+            "rotation": float(item.rotation()),
+            "scale": float(item.scale()),
+            "z": float(item.zValue()),
+        }
+
+        if isinstance(item, RectItem):
+            rect = item.rect()
+            base["size"] = [float(rect.width()), float(rect.height())]
+            base["rx"] = float(getattr(item, "rx", 0.0))
+            base["ry"] = float(getattr(item, "ry", 0.0))
+            base["pen"] = _pen_to_data(item.pen())
+            base["brush"] = _brush_to_data(item.brush())
+            label = _serialize_shape_label(item)
+            if label:
+                base["label"] = label
+        elif isinstance(item, SplitRoundedRectItem):
+            rect = item.rect()
+            base["size"] = [float(rect.width()), float(rect.height())]
+            base["rx"] = float(getattr(item, "rx", 0.0))
+            base["ry"] = float(getattr(item, "ry", 0.0))
+            base["divider_ratio"] = float(item.divider_ratio())
+            base["pen"] = _pen_to_data(item.pen())
+            base["bottom_brush"] = _brush_to_data(item.bottomBrush())
+            base["top_brush"] = _brush_to_data(item.topBrush())
+        elif isinstance(item, EllipseItem):
+            rect = item.rect()
+            base["size"] = [float(rect.width()), float(rect.height())]
+            base["pen"] = _pen_to_data(item.pen())
+            base["brush"] = _brush_to_data(item.brush())
+        elif isinstance(item, TriangleItem):
+            rect = item.boundingRect()
+            base["size"] = [float(rect.width()), float(rect.height())]
+            base["pen"] = _pen_to_data(item.pen())
+            base["brush"] = _brush_to_data(item.brush())
+        elif isinstance(item, DiamondItem):
+            rect = item.boundingRect()
+            base["size"] = [float(rect.width()), float(rect.height())]
+            base["pen"] = _pen_to_data(item.pen())
+            base["brush"] = _brush_to_data(item.brush())
+            label = _serialize_shape_label(item)
+            if label:
+                base["label"] = label
+        elif isinstance(item, BlockArrowItem):
+            rect = item.boundingRect()
+            base["size"] = [float(rect.width()), float(rect.height())]
+            base["pen"] = _pen_to_data(item.pen())
+            base["brush"] = _brush_to_data(item.brush())
+            base["head_ratio"] = float(item.head_ratio())
+            base["shaft_ratio"] = float(item.shaft_ratio())
+        elif isinstance(item, LineItem):
+            points = getattr(item, "_points", [])
+            base["points"] = [
+                [float(point.x()), float(point.y())]
+                for point in points
+            ]
+            base["arrow_start"] = bool(getattr(item, "arrow_start", False))
+            base["arrow_end"] = bool(getattr(item, "arrow_end", False))
+            base["pen"] = _pen_to_data(item.pen())
+        elif isinstance(item, CurvyBracketItem):
+            base["size"] = [float(item.width()), float(item.height())]
+            base["hook_ratio"] = float(item.hook_ratio())
+            base["pen"] = _pen_to_data(item.pen())
+        elif isinstance(item, TextItem):
+            rect = item.boundingRect()
+            base["size"] = [float(rect.width()), float(rect.height())]
+            base["text"] = item.toPlainText()
+            base["font"] = item.font().toString()
+            base["color"] = _color_to_data(item.defaultTextColor())
+            doc = item.document()
+            if doc is not None:
+                base["document_margin"] = float(doc.documentMargin())
+            h_align, v_align = item.text_alignment()
+            base["alignment"] = [h_align, v_align]
+            base["direction"] = item.text_direction()
+        elif isinstance(item, FolderTreeItem):
+            base["structure"] = item.structure()
+        elif isinstance(item, GroupItem):
+            children = [
+                child
+                for child in item.childItems()
+                if self._is_serializable_item(child)
+            ]
+            children.sort(key=self._item_sort_key)
+            base["children"] = [self._serialize_item(child) for child in children]
+        else:
+            rect = item.boundingRect()
+            base["size"] = [float(rect.width()), float(rect.height())]
+        return base
+
+    def _apply_item_transform(self, item: QtWidgets.QGraphicsItem, data: Mapping[str, Any]) -> None:
+        pos = data.get("pos", [0.0, 0.0])
+        if isinstance(pos, (list, tuple)) and len(pos) == 2:
+            item.setPos(float(pos[0]), float(pos[1]))
+        rotation = data.get("rotation")
+        if rotation is not None:
+            item.setRotation(float(rotation))
+        scale = data.get("scale")
+        if scale is not None:
+            item.setScale(float(scale))
+        z_val = data.get("z")
+        if z_val is not None:
+            item.setZValue(float(z_val))
+
+    def _instantiate_item(self, data: Mapping[str, Any]) -> QtWidgets.QGraphicsItem | None:
+        shape = str(data.get("shape", ""))
+        size = data.get("size")
+        width = height = None
+        if isinstance(size, (list, tuple)) and len(size) == 2:
+            width = float(size[0])
+            height = float(size[1])
+        pen_data = data.get("pen") if isinstance(data, Mapping) else None
+        brush_data = data.get("brush") if isinstance(data, Mapping) else None
+        item: QtWidgets.QGraphicsItem | None = None
+
+        if shape in ("Rectangle", "Rounded Rectangle"):
+            if width is None or height is None:
+                width, height = DEFAULTS.get(shape, (160.0, 100.0))
+            rx = float(data.get("rx", 0.0))
+            ry = float(data.get("ry", rx))
+            item = RectItem(0.0, 0.0, width, height, rx, ry)
+            item.setPen(_pen_from_data(pen_data))
+            item.setBrush(_brush_from_data(brush_data))
+            label_data = data.get("label") if isinstance(data, Mapping) else None
+            if label_data:
+                _apply_shape_label(item, label_data)  # type: ignore[arg-type]
+        elif shape == "Split Rounded Rectangle":
+            if width is None or height is None:
+                width, height = DEFAULTS.get(shape, (180.0, 120.0))
+            rx = float(data.get("rx", 0.0))
+            ry = float(data.get("ry", rx))
+            item = SplitRoundedRectItem(0.0, 0.0, width, height, rx, ry)
+            item.setPen(_pen_from_data(pen_data))
+            bottom_data = data.get("bottom_brush") if isinstance(data, Mapping) else None
+            top_data = data.get("top_brush") if isinstance(data, Mapping) else None
+            item.setBottomBrush(_brush_from_data(bottom_data))
+            item.setTopBrush(_brush_from_data(top_data))
+            divider = data.get("divider_ratio")
+            if divider is not None:
+                item.set_divider_ratio(float(divider))
+        elif shape in ("Ellipse", "Circle"):
+            if width is None or height is None:
+                width, height = DEFAULTS.get(shape, (160.0, 100.0))
+            item = EllipseItem(0.0, 0.0, width, height)
+            item.setPen(_pen_from_data(pen_data))
+            item.setBrush(_brush_from_data(brush_data))
+        elif shape == "Triangle":
+            if width is None or height is None:
+                width, height = DEFAULTS.get(shape, (160.0, 100.0))
+            item = TriangleItem(0.0, 0.0, width, height)
+            item.setPen(_pen_from_data(pen_data))
+            item.setBrush(_brush_from_data(brush_data))
+        elif shape == "Diamond":
+            if width is None or height is None:
+                width, height = DEFAULTS.get(shape, (140.0, 140.0))
+            item = DiamondItem(0.0, 0.0, width, height)
+            item.setPen(_pen_from_data(pen_data))
+            item.setBrush(_brush_from_data(brush_data))
+            label_data = data.get("label") if isinstance(data, Mapping) else None
+            if label_data:
+                _apply_shape_label(item, label_data)
+        elif shape == "Block Arrow":
+            if width is None or height is None:
+                width, height = DEFAULTS.get(shape, (200.0, 120.0))
+            item = BlockArrowItem(0.0, 0.0, width, height)
+            item.setPen(_pen_from_data(pen_data))
+            item.setBrush(_brush_from_data(brush_data))
+            head_ratio = data.get("head_ratio")
+            if head_ratio is not None:
+                item.set_head_ratio(float(head_ratio))
+            shaft_ratio = data.get("shaft_ratio")
+            if shaft_ratio is not None:
+                item.set_shaft_ratio(float(shaft_ratio))
+        elif shape in ("Line", "Arrow"):
+            points_raw = data.get("points")
+            points: list[QtCore.QPointF] = []
+            if isinstance(points_raw, list):
+                for point in points_raw:
+                    if isinstance(point, (list, tuple)) and len(point) == 2:
+                        points.append(QtCore.QPointF(float(point[0]), float(point[1])))
+            arrow_start = bool(data.get("arrow_start", False))
+            arrow_end = bool(data.get("arrow_end", False))
+            item = LineItem(0.0, 0.0, points=points or None, arrow_start=arrow_start, arrow_end=arrow_end)
+            item.setPen(_pen_from_data(pen_data))
+        elif shape == "Curvy Right Bracket":
+            if width is None or height is None:
+                width, height = DEFAULTS.get(shape, (80.0, 160.0))
+            hook_ratio = float(data.get("hook_ratio", CurvyBracketItem.DEFAULT_HOOK_RATIO))
+            item = CurvyBracketItem(0.0, 0.0, width, height, hook_ratio)
+            item.setPen(_pen_from_data(pen_data))
+            item.setBrush(_brush_from_data(brush_data))
+        elif shape == "Text":
+            if width is None or height is None:
+                width, height = DEFAULTS.get(shape, (100.0, 30.0))
+            item = TextItem(0.0, 0.0, width, height)
+            text_value = data.get("text")
+            if isinstance(text_value, str):
+                item.setPlainText(text_value)
+            font_value = data.get("font")
+            if isinstance(font_value, str):
+                font = QtGui.QFont()
+                font.fromString(font_value)
+                item.setFont(font)
+            color_value = data.get("color")
+            if isinstance(color_value, Mapping):
+                item.setDefaultTextColor(_color_from_data(color_value))
+            margin_value = data.get("document_margin")
+            if margin_value is not None:
+                item.set_document_margin(float(margin_value))
+            alignment = data.get("alignment")
+            if isinstance(alignment, (list, tuple)) and len(alignment) == 2:
+                item.set_text_alignment(horizontal=str(alignment[0]), vertical=str(alignment[1]))
+            direction = data.get("direction")
+            if isinstance(direction, str):
+                item.set_text_direction(direction)
+        elif shape == "Folder Tree":
+            structure = data.get("structure")
+            if not isinstance(structure, Mapping):
+                structure = None
+            item = FolderTreeItem(0.0, 0.0, 0.0, 0.0, structure=structure)  # type: ignore[arg-type]
+        elif shape == "Group":
+            item = GroupItem()
+        else:
+            return None
+
+        if shape and shape != "Group" and item is not None:
+            item.setData(0, shape)
+        return item
+
+    def _restore_group_children(
+        self,
+        group: GroupItem,
+        children_data: list[Mapping[str, Any]],
+    ) -> None:
+        scene = self.scene()
+        if scene is None:
+            return
+        for child_data in children_data:
+            if not isinstance(child_data, Mapping):
+                continue
+            child = self._instantiate_item(child_data)
+            if child is None:
+                continue
+            scene.addItem(child)
+            group.addToGroup(child)
+            self._apply_item_transform(child, child_data)
+            child.setSelected(False)
+            child.setFlag(
+                QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
+                False,
+            )
+            child.setFlag(
+                QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
+                False,
+            )
+            if isinstance(child, ResizableItem):
+                child.hide_handles()
+            if isinstance(child, GroupItem):
+                sub_children = child_data.get("children")
+                if isinstance(sub_children, list):
+                    self._restore_group_children(child, sub_children)
+
+    def _restore_scene_state(self, state: Mapping[str, Any]) -> None:
+        scene = self.scene()
+        if scene is None:
+            return
+        self.clear_canvas()
+        restored: list[QtWidgets.QGraphicsItem] = []
+        items_data = state.get("items") if isinstance(state, Mapping) else None
+        if isinstance(items_data, list):
+            for data in items_data:
+                if not isinstance(data, Mapping):
+                    continue
+                item = self._instantiate_item(data)
+                if item is None:
+                    continue
+                scene.addItem(item)
+                if isinstance(item, GroupItem):
+                    children = data.get("children")
+                    if isinstance(children, list):
+                        self._restore_group_children(item, children)
+                self._apply_item_transform(item, data)
+                restored.append(item)
+        self._ensure_pages_for_items(restored)
+        scene.clearSelection()
+        grid_visible = bool(state.get("grid_visible", self._show_grid))
+        self._show_grid = grid_visible
+        for page in self._pages.values():
+            page.set_grid_visible(grid_visible)
+        self.viewport().update()
+        self._update_scene_rect()
+        self.gridVisibilityChanged.emit(self._show_grid)
 
     def _page_top_left_for_index(self, index: tuple[int, int]) -> QtCore.QPointF:
         row, col = index
@@ -672,6 +1232,9 @@ class CanvasView(QtWidgets.QGraphicsView):
         for page in self._pages.values():
             page.set_grid_visible(visible)
         self.viewport().update()
+        if hasattr(self, "_history"):
+            self._history.mark_dirty()
+        self.gridVisibilityChanged.emit(self._show_grid)
 
     def _update_scene_rect(self):
         scene = self.scene()
