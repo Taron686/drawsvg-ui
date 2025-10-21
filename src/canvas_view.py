@@ -7,10 +7,34 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtGui import QTransform
 
 from constants import PALETTE_MIME, SHAPES, DEFAULTS
+from items import (
+    BlockArrowItem,
+    CurvyBracketItem,
+    DiamondItem,
+    EllipseItem,
+    FolderTreeItem,
+    GroupItem,
+    LineItem,
+    RectItem,
+    ResizableItem,
+    ResizeHandle,
+    RotationHandle,
+    ShapeLabelMixin,
+    SplitRoundedRectItem,
+    TextItem,
+    TriangleItem,
+)
 
 A4_WIDTH_MM = 210
 A4_HEIGHT_MM = 297
 SCREEN_DPI = 96  # Typical desktop DPI
+
+
+def _enum_to_int(value: Any) -> int:
+    """Return an integer value for Qt enum instances."""
+    if hasattr(value, "value"):
+        value = value.value
+    return int(value)
 
 
 def mm_to_px(mm: float, dpi: float = SCREEN_DPI) -> float:
@@ -39,17 +63,18 @@ def _color_from_data(data: Mapping[str, Any] | None) -> QtGui.QColor:
 
 
 def _brush_to_data(brush: QtGui.QBrush) -> dict[str, Any]:
-    style = int(brush.style())
+    style = _enum_to_int(brush.style())
     data: dict[str, Any] = {"style": style}
-    if style != int(QtCore.Qt.BrushStyle.NoBrush):
+    if style != _enum_to_int(QtCore.Qt.BrushStyle.NoBrush):
         data["color"] = _color_to_data(brush.color())
     return data
 
 
 def _brush_from_data(data: Mapping[str, Any] | None) -> QtGui.QBrush:
-    style_val = int(data.get("style", int(QtCore.Qt.BrushStyle.NoBrush))) if data else int(QtCore.Qt.BrushStyle.NoBrush)
+    default_style = _enum_to_int(QtCore.Qt.BrushStyle.NoBrush)
+    style_val = int(data.get("style", default_style)) if data else default_style
     brush = QtGui.QBrush(QtCore.Qt.BrushStyle(style_val))
-    if style_val != int(QtCore.Qt.BrushStyle.NoBrush) and data is not None:
+    if style_val != _enum_to_int(QtCore.Qt.BrushStyle.NoBrush) and data is not None:
         color_data = data.get("color")
         if isinstance(color_data, Mapping):
             brush.setColor(_color_from_data(color_data))
@@ -60,9 +85,9 @@ def _pen_to_data(pen: QtGui.QPen) -> dict[str, Any]:
     data: dict[str, Any] = {
         "color": _color_to_data(pen.color()),
         "width": float(pen.widthF()),
-        "style": int(pen.style()),
-        "cap": int(pen.capStyle()),
-        "join": int(pen.joinStyle()),
+        "style": _enum_to_int(pen.style()),
+        "cap": _enum_to_int(pen.capStyle()),
+        "join": _enum_to_int(pen.joinStyle()),
         "cosmetic": bool(pen.isCosmetic()),
     }
     pattern = pen.dashPattern()
@@ -229,24 +254,6 @@ class SceneHistory(QtCore.QObject):
             self._view._restore_scene_state(state)
         finally:
             self._ignore_changes = False
-
-from items import (
-    RectItem,
-    SplitRoundedRectItem,
-    EllipseItem,
-    LineItem,
-    TextItem,
-    TriangleItem,
-    DiamondItem,
-    BlockArrowItem,
-    ShapeLabelMixin,
-    CurvyBracketItem,
-    GroupItem,
-    ResizableItem,
-    ResizeHandle,
-    RotationHandle,
-    FolderTreeItem,
-)
 
 # Minimum mouse movement (in scene coordinates) required before
 # showing duplicates when Ctrl+dragging selected items.
