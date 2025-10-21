@@ -223,7 +223,7 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         base_path = QtGui.QPainterPath(self.path())
 
         selection_path = QtGui.QPainterPath()
-        selection_path.setFillRule(QtCore.Qt.FillRule.OddEvenFill)
+        selection_path.setFillRule(QtCore.Qt.FillRule.WindingFill)
 
         if half_width > 0.0 and len(points) >= 2:
             for start_point, end_point in zip(points, points[1:]):
@@ -238,17 +238,13 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
                 extension = QtCore.QPointF(unit_dir.x() * half_width, unit_dir.y() * half_width)
                 offset = QtCore.QPointF(perp.x() * half_width, perp.y() * half_width)
 
-                rect_polygon = QtGui.QPolygonF(
-                    [
-                        start_point - extension + offset,
-                        start_point - extension - offset,
-                        end_point + extension - offset,
-                        end_point + extension + offset,
-                    ]
-                )
-                segment_path = QtGui.QPainterPath()
-                segment_path.addPolygon(rect_polygon)
-                selection_path.addPath(segment_path)
+                rect_path = QtGui.QPainterPath()
+                rect_path.moveTo(start_point - extension + offset)
+                rect_path.lineTo(start_point - extension - offset)
+                rect_path.lineTo(end_point + extension - offset)
+                rect_path.lineTo(end_point + extension + offset)
+                rect_path.closeSubpath()
+                selection_path.addPath(rect_path)
 
         if self.arrow_start or self.arrow_end:
             if len(points) >= 2:
