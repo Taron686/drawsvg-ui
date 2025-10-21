@@ -1688,6 +1688,18 @@ class CanvasView(QtWidgets.QGraphicsView):
                 event.accept()
                 return
         mods = event.modifiers()
+        if mods & QtCore.Qt.KeyboardModifier.ControlModifier:
+            if event.key() == QtCore.Qt.Key.Key_Z:
+                if mods & QtCore.Qt.KeyboardModifier.ShiftModifier:
+                    self.redo()
+                else:
+                    self.undo()
+                event.accept()
+                return
+            if event.key() == QtCore.Qt.Key.Key_Y:
+                self.redo()
+                event.accept()
+                return
         if (
             event.key() == QtCore.Qt.Key.Key_G
             and mods == QtCore.Qt.KeyboardModifier.ControlModifier
