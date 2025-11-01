@@ -22,7 +22,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.canvas = CanvasView()
         self.palette.shapeClicked.connect(self._add_shape_at_center)
 
-        self.properties_panel = PropertiesPanel()
+        self.properties_panel = PropertiesPanel(self.canvas)
 
         self.splitter.addWidget(self.palette)
         self.splitter.addWidget(self.canvas)

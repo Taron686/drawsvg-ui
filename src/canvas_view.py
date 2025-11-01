@@ -870,7 +870,13 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     def _build_properties_for_item(
         self, item: QtWidgets.QGraphicsItem
-    ) -> tuple[str, list[tuple[str, str]], list[tuple[str, str]] | None]:
+    ) -> tuple[
+        str,
+        list[tuple[str, str]],
+        list[tuple[str, str]] | None,
+        dict[str, Any],
+        dict[str, Any] | None,
+    ]:
         data = self._serialize_item(item)
         title = str(data.get("shape", item.__class__.__name__))
 
@@ -914,7 +920,9 @@ class CanvasView(QtWidgets.QGraphicsView):
                     (self._format_property_name(str(key)), self._format_property_value(value))
                 )
 
-        return title, object_properties, text_properties
+        plain_text_data: dict[str, Any] | None = dict(text_data) if text_data else None
+
+        return title, object_properties, text_properties, object_data, plain_text_data
 
     def _build_selection_snapshot(self) -> dict[str, Any]:
         scene = self.scene()
@@ -926,12 +934,22 @@ class CanvasView(QtWidgets.QGraphicsView):
             if self._is_serializable_item(item)
         ]
         if len(selected) == 1:
-            title, object_props, text_props = self._build_properties_for_item(selected[0])
+            item = selected[0]
+            (
+                title,
+                object_props,
+                text_props,
+                object_data,
+                text_data,
+            ) = self._build_properties_for_item(item)
             return {
                 "selection_type": "single",
                 "title": title,
                 "properties": object_props,
                 "text_properties": text_props,
+                "item": item,
+                "object_data": object_data,
+                "text_data": text_data,
             }
         if selected:
             return {"selection_type": "multi", "count": len(selected)}
