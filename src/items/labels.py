@@ -2,16 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from PySide6 import QtCore, QtGui, QtWidgets
-
-if TYPE_CHECKING:  # pragma: no cover - only for type checkers
-    from .shapes.rects import RectItem
 
 
 class _ShapeLabelItem(QtWidgets.QGraphicsTextItem):
-    def __init__(self, parent: "RectItem") -> None:
+    def __init__(self, parent: "ShapeLabelMixin") -> None:
         super().__init__("", parent)
         self.setDefaultTextColor(QtGui.QColor("#222"))
         self.setVisible(False)

@@ -833,7 +833,21 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             ang = it.rotation()
 
-            attr_str = _format_item_attributes(it)
+            label_id = None
+
+            if isinstance(it, ShapeLabelMixin) and getattr(it, "has_label", lambda: False)():
+
+                label_counter += 1
+
+                label_id = f"ellipse_label_{label_counter}"
+
+            extra_attrs: list[str] = []
+
+            if label_id:
+
+                extra_attrs.append(f"data_label_id='{label_id}'")
+
+            attr_str = _format_item_attributes(it, extra_attrs=extra_attrs)
 
             if abs(ang) > 1e-6:
 
@@ -852,6 +866,28 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 )
 
             lines.append("    d.append(_ell)")
+
+            if label_id:
+
+                _export_shape_label(
+
+                    it,
+
+                    lines,
+
+                    shape_id=label_id,
+
+                    angle=ang,
+
+                    base_pos=(x, y),
+
+                    base_size=(w, h),
+
+                    var_name="ellipse_label",
+
+                    label_kind="ellipse",
+
+                )
 
             lines.append("")
 
@@ -877,7 +913,21 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             ang = it.rotation()
 
-            attr_str = _format_item_attributes(it)
+            label_id = None
+
+            if isinstance(it, ShapeLabelMixin) and getattr(it, "has_label", lambda: False)():
+
+                label_counter += 1
+
+                label_id = f"circle_label_{label_counter}"
+
+            extra_attrs: list[str] = []
+
+            if label_id:
+
+                extra_attrs.append(f"data_label_id='{label_id}'")
+
+            attr_str = _format_item_attributes(it, extra_attrs=extra_attrs)
 
             if abs(ang) > 1e-6:
 
@@ -896,6 +946,28 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 )
 
             lines.append("    d.append(_circ)")
+
+            if label_id:
+
+                _export_shape_label(
+
+                    it,
+
+                    lines,
+
+                    shape_id=label_id,
+
+                    angle=ang,
+
+                    base_pos=(x, y),
+
+                    base_size=(w, h),
+
+                    var_name="circle_label",
+
+                    label_kind="circle",
+
+                )
 
             lines.append("")
 

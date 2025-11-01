@@ -8,9 +8,10 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from constants import DEFAULT_FILL, PEN_NORMAL, PEN_SELECTED
 from ..base import ResizableItem, _should_draw_selection, build_curvy_bracket_path
+from ..labels import ShapeLabelMixin
 
 
-class EllipseItem(ResizableItem, QtWidgets.QGraphicsEllipseItem):
+class EllipseItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsEllipseItem):
     def __init__(self, x, y, w, h):
         QtWidgets.QGraphicsEllipseItem.__init__(self, 0, 0, w, h)
         ResizableItem.__init__(self)
@@ -22,8 +23,29 @@ class EllipseItem(ResizableItem, QtWidgets.QGraphicsEllipseItem):
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
         )
+        self._init_shape_label()
         self.setPen(PEN_NORMAL)
         self.setBrush(DEFAULT_FILL)
+
+    def _label_base_rect(self) -> QtCore.QRectF:
+        return QtCore.QRectF(self.rect())
+
+    def setRect(self, x: float, y: float, w: float, h: float) -> None:  # type: ignore[override]
+        QtWidgets.QGraphicsEllipseItem.setRect(self, x, y, w, h)
+        self._update_label_geometry()
+
+    def setPen(self, pen):  # type: ignore[override]
+        super().setPen(pen)
+        self._update_label_color()
+
+    def mouseDoubleClickEvent(
+        self, event: QtWidgets.QGraphicsSceneMouseEvent
+    ) -> None:  # type: ignore[override]
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            self._begin_label_edit()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     def paint(self, painter, option, widget=None):
         opt = QtWidgets.QStyleOptionGraphicsItem(option)

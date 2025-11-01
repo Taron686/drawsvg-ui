@@ -387,6 +387,13 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 if "transform" in kwargs:
                     item.setRotation(_parse_rotate(kwargs["transform"]))
                 item.setData(0, "Ellipse")
+                label_id = kwargs.get("data_label_id")
+                if label_id:
+                    key = str(label_id)
+                    shape_label_targets[key] = item
+                    pending = shape_label_pending.pop(key, None)
+                    if pending:
+                        _apply_shape_label(item, pending)
                 scene.addItem(item)
 
             elif line.startswith("_circ = draw.Circle("):
@@ -400,6 +407,13 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 if "transform" in kwargs:
                     item.setRotation(_parse_rotate(kwargs["transform"]))
                 item.setData(0, "Circle")
+                label_id = kwargs.get("data_label_id")
+                if label_id:
+                    key = str(label_id)
+                    shape_label_targets[key] = item
+                    pending = shape_label_pending.pop(key, None)
+                    if pending:
+                        _apply_shape_label(item, pending)
                 scene.addItem(item)
 
             elif line.startswith("_tri = draw.Lines("):
