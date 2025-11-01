@@ -775,6 +775,9 @@ class CanvasView(QtWidgets.QGraphicsView):
             base["size"] = [float(rect.width()), float(rect.height())]
             base["pen"] = _pen_to_data(item.pen())
             base["brush"] = _brush_to_data(item.brush())
+            label = _serialize_shape_label(item)
+            if label:
+                base["label"] = label
         elif isinstance(item, TriangleItem):
             rect = item.boundingRect()
             base["size"] = [float(rect.width()), float(rect.height())]
