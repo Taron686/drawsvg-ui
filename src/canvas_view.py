@@ -139,6 +139,8 @@ def _serialize_shape_label(item: ShapeLabelMixin) -> dict[str, Any] | None:
         "font": label.font().toString(),
         "color": _color_to_data(label.defaultTextColor()),
     }
+    if item.label_has_custom_color():
+        data["color_override"] = True
     return data
 
 
@@ -158,8 +160,14 @@ def _apply_shape_label(item: ShapeLabelMixin, data: Mapping[str, Any] | None) ->
         font.fromString(font_data)
         item.label_item().setFont(font)
     color_data = data.get("color")
+    color_override = bool(data.get("color_override", False))
     if isinstance(color_data, Mapping):
-        item.label_item().setDefaultTextColor(_color_from_data(color_data))
+        color = _color_from_data(color_data)
+        if color_override:
+            item.set_label_color(color)
+        else:
+            item.reset_label_color(update=False)
+            item.label_item().setDefaultTextColor(color)
 
 
 class SceneHistory(QtCore.QObject):
@@ -1907,6 +1915,16 @@ class CanvasView(QtWidgets.QGraphicsView):
         actions[edit_action] = lambda item=item: item.edit_label()
 
         has_label = item.has_label()
+
+        color_action, color_callback = self._create_color_action(
+            label_menu,
+            "Set font color...",
+            "Label font color",
+            lambda item=item: item.label_color(),
+            lambda color, item=item: item.set_label_color(color),
+        )
+        color_action.setEnabled(has_label)
+        actions[color_action] = color_callback
 
         font_action = label_menu.addAction("Set font size...")
         font_action.setEnabled(has_label)

@@ -37,6 +37,7 @@ class _ShapeLabelItem(QtWidgets.QGraphicsTextItem):
 
 class ShapeLabelMixin:
     def _init_shape_label(self) -> None:
+        self._label_color_override: QtGui.QColor | None = None
         self._label = _ShapeLabelItem(self)
         self._label_h_align = "center"
         self._label_v_align = "middle"
@@ -90,6 +91,25 @@ class ShapeLabelMixin:
         font.setPixelSize(int(value))
         self._label.setFont(font)
         self._update_label_geometry()
+
+    def label_color(self) -> QtGui.QColor:
+        return QtGui.QColor(self._label.defaultTextColor())
+
+    def label_has_custom_color(self) -> bool:
+        override = getattr(self, "_label_color_override", None)
+        return isinstance(override, QtGui.QColor) and override.isValid()
+
+    def set_label_color(self, color: QtGui.QColor | str) -> None:
+        qcolor = QtGui.QColor(color)
+        if not qcolor.isValid():
+            return
+        self._label_color_override = QtGui.QColor(qcolor)
+        self._label.setDefaultTextColor(self._label_color_override)
+
+    def reset_label_color(self, *, update: bool = True) -> None:
+        self._label_color_override = None
+        if update:
+            self._update_label_color()
 
     def label_item(self) -> QtWidgets.QGraphicsTextItem:
         return self._label
@@ -153,8 +173,12 @@ class ShapeLabelMixin:
 
     def _update_label_color(self) -> None:
         if hasattr(self, "_label") and self._label is not None:
-            color = self.pen().color() if hasattr(self, "pen") else QtGui.QColor("#222")
-            self._label.setDefaultTextColor(color)
+            override = getattr(self, "_label_color_override", None)
+            if isinstance(override, QtGui.QColor) and override.isValid():
+                self._label.setDefaultTextColor(QtGui.QColor(override))
+            else:
+                color = self.pen().color() if hasattr(self, "pen") else QtGui.QColor("#222")
+                self._label.setDefaultTextColor(color)
 
     def _begin_label_edit(self) -> None:
         self._label.setVisible(True)
@@ -191,7 +215,11 @@ class ShapeLabelMixin:
         self._label_h_align, self._label_v_align = other.label_alignment()
         other_label = other.label_item()
         self._label.setFont(QtGui.QFont(other_label.font()))
-        self._label.setDefaultTextColor(other_label.defaultTextColor())
+        if other.label_has_custom_color():
+            self.set_label_color(other.label_color())
+        else:
+            self.reset_label_color(update=False)
+            self._label.setDefaultTextColor(other_label.defaultTextColor())
         self._apply_label_alignment()
         self.set_label_text(other.label_text())
 

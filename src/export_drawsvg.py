@@ -309,6 +309,9 @@ def _export_shape_label(
         f"data_font_px={pixel_size:.4f}",
 
     ]
+    if item.label_has_custom_color():
+
+        attrs.append("data_label_color_override='true'")
 
     if label_kind:
 

@@ -165,6 +165,23 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     target.set_label_font_pixel_size(float(font_px))
                 except (TypeError, ValueError):
                     pass
+            color_value = data.get("color")
+            if color_value is not None:
+                color = QtGui.QColor(str(color_value))
+                if color.isValid():
+                    override_flag = data.get("color_override")
+                    override = False
+                    if isinstance(override_flag, str):
+                        override = override_flag.strip().lower() in {"1", "true", "yes", "on"}
+                    elif isinstance(override_flag, (int, float)):
+                        override = bool(override_flag)
+                    elif isinstance(override_flag, bool):
+                        override = override_flag
+                    if override:
+                        target.set_label_color(color)
+                    else:
+                        target.reset_label_color(update=False)
+                        target.label_item().setDefaultTextColor(color)
 
         for raw in lines:
             line = raw.strip()
@@ -601,7 +618,15 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     key = str(label_id) if label_id is not None else None
                     if key:
                         data = shape_label_pending.setdefault(
-                            key, {"lines": [], "h": None, "v": None, "font_px": None}
+                            key,
+                            {
+                                "lines": [],
+                                "h": None,
+                                "v": None,
+                                "font_px": None,
+                                "color": None,
+                                "color_override": None,
+                            },
                         )
                         if "data_label_h" in kwargs:
                             data["h"] = kwargs.get("data_label_h")
@@ -609,6 +634,10 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                             data["v"] = kwargs.get("data_label_v")
                         if "data_font_px" in kwargs:
                             data["font_px"] = kwargs.get("data_font_px")
+                        if "fill" in kwargs and kwargs["fill"] is not None:
+                            data["color"] = kwargs.get("fill")
+                        if "data_label_color_override" in kwargs:
+                            data["color_override"] = kwargs.get("data_label_color_override")
 
                         def _normalize_entry(value: object) -> str:
                             if isinstance(value, str):
