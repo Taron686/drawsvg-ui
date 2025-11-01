@@ -26,6 +26,7 @@ if TYPE_CHECKING:  # pragma: no cover - only for typing
 
 Number = float
 
+MAX_WIDGET_SIZE = 16777215  # Qt default maximum widget dimension
 
 class ColorButton(QtWidgets.QToolButton):
     """Tool button that displays and edits a QColor."""
@@ -173,20 +174,38 @@ class PropertiesPanel(QtWidgets.QWidget):
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
+        self._layout = layout
 
         self._title_label = QtWidgets.QLabel("Eigenschaften")
         title_font = self._title_label.font()
         title_font.setBold(True)
         self._title_label.setFont(title_font)
+        self._title_label.setSizePolicy(
+            QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Maximum)
+        )
         layout.addWidget(self._title_label)
 
         self._info_label = QtWidgets.QLabel("Kein Objekt ausgewählt.")
         self._info_label.setWordWrap(True)
+        self._info_label.setAlignment(
+            QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop
+        )
+        self._info_label.setSizePolicy(
+            QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Maximum)
+        )
         layout.addWidget(self._info_label)
 
         self._tab_widget = QtWidgets.QTabWidget(self)
         self._tab_widget.setDocumentMode(True)
         self._tab_widget.setMovable(False)
+        self._tab_default_policy = self._copy_size_policy(self._tab_widget.sizePolicy())
+        self._tab_collapsed_policy = QtWidgets.QSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Preferred,
+            QtWidgets.QSizePolicy.Policy.Fixed,
+        )
+        self._tab_collapsed_policy.setHorizontalPolicy(self._tab_default_policy.horizontalPolicy())
+        self._tab_collapsed_policy.setHorizontalStretch(self._tab_default_policy.horizontalStretch())
+        self._tab_collapsed_policy.setVerticalStretch(0)
 
         self._object_scroll = QtWidgets.QScrollArea(self)
         self._object_scroll.setWidgetResizable(True)
@@ -203,13 +222,21 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._text_form: QtWidgets.QFormLayout | None = None
         self._reset_text_form()
         self._tab_widget.addTab(self._text_scroll, "Text")
-        self._tab_widget.hide()
+        self._set_tab_widget_active(False)
 
-        layout.addWidget(self._tab_widget, 1)
+        layout.addWidget(self._tab_widget)
 
     # ------------------------------------------------------------------ #
     # Public API                                                         #
     # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _copy_size_policy(policy: QtWidgets.QSizePolicy) -> QtWidgets.QSizePolicy:
+        clone = QtWidgets.QSizePolicy(policy.horizontalPolicy(), policy.verticalPolicy())
+        clone.setHorizontalStretch(policy.horizontalStretch())
+        clone.setVerticalStretch(policy.verticalStretch())
+        clone.setControlType(policy.controlType())
+        return clone
 
     def _reset_object_form(self) -> None:
         previous = self._object_scroll.takeWidget()
@@ -239,25 +266,25 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._title_label.setText("Eigenschaften")
         self._info_label.setText("Kein Objekt ausgewählt.")
         self._info_label.show()
-        self._tab_widget.hide()
         self._current_item = None
         self._latest_object_data = {}
         self._latest_text_data = {}
         self._clear_bindings()
         self._reset_object_form()
         self._reset_text_form()
+        self._set_tab_widget_active(False)
 
     def show_multi_selection(self, count: int) -> None:
         self._title_label.setText("Eigenschaften")
         self._info_label.setText(f"{count} Objekte ausgewählt.")
         self._info_label.show()
-        self._tab_widget.hide()
         self._current_item = None
         self._latest_object_data = {}
         self._latest_text_data = {}
         self._clear_bindings()
         self._reset_object_form()
         self._reset_text_form()
+        self._set_tab_widget_active(False)
 
     def update_snapshot(self, payload: object) -> None:
         if not isinstance(payload, dict):
@@ -308,7 +335,7 @@ class PropertiesPanel(QtWidgets.QWidget):
 
         if hasattr(self._tab_widget, "setCurrentIndex") and self._tab_widget.currentIndex() == -1:
             self._tab_widget.setCurrentIndex(0)
-        self._tab_widget.show()
+        self._set_tab_widget_active(True)
 
     def _rebuild_for_item(
         self,
@@ -342,6 +369,27 @@ class PropertiesPanel(QtWidgets.QWidget):
             binding.refresh()
         for binding in self._text_bindings:
             binding.refresh()
+
+    def _set_tab_widget_active(self, active: bool) -> None:
+        tab_index = self._layout.indexOf(self._tab_widget) if hasattr(self, "_layout") else -1
+        if active:
+            self._tab_widget.setSizePolicy(self._copy_size_policy(self._tab_default_policy))
+            self._tab_widget.setMinimumHeight(0)
+            self._tab_widget.setMaximumHeight(MAX_WIDGET_SIZE)
+            self._tab_widget.show()
+            if tab_index >= 0:
+                self._layout.setStretch(tab_index, 1)
+        else:
+            self._tab_widget.hide()
+            self._tab_widget.setSizePolicy(self._copy_size_policy(self._tab_collapsed_policy))
+            self._tab_widget.setMinimumHeight(0)
+            self._tab_widget.setMaximumHeight(0)
+            if tab_index >= 0:
+                self._layout.setStretch(tab_index, 0)
+        layout = self.layout()
+        if layout is not None:
+            layout.invalidate()
+        self._tab_widget.updateGeometry()
 
     def _after_property_change(self) -> None:
         if self._canvas is not None:
