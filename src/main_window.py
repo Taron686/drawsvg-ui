@@ -2,6 +2,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from canvas_view import CanvasView
 from palette import PaletteList
+from properties_panel import PropertiesPanel
 from export_drawsvg import export_drawsvg_py
 from import_drawsvg import import_drawsvg_py
 
@@ -21,11 +22,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self.canvas = CanvasView()
         self.palette.shapeClicked.connect(self._add_shape_at_center)
 
+        self.properties_panel = PropertiesPanel()
+
         self.splitter.addWidget(self.palette)
         self.splitter.addWidget(self.canvas)
+        self.splitter.addWidget(self.properties_panel)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
+        self.splitter.setStretchFactor(2, 0)
         self.setCentralWidget(self.splitter)
+
+        self.properties_panel.clear()
+        self.canvas.selectionSnapshotChanged.connect(
+            self._handle_selection_snapshot
+        )
 
         self._build_menu()
         self.statusBar().showMessage(
@@ -101,3 +111,6 @@ class MainWindow(QtWidgets.QMainWindow):
     def _update_history_actions(self, can_undo: bool, can_redo: bool) -> None:
         self.act_undo.setEnabled(can_undo)
         self.act_redo.setEnabled(can_redo)
+
+    def _handle_selection_snapshot(self, payload: dict) -> None:
+        self.properties_panel.update_snapshot(payload)

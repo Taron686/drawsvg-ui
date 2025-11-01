@@ -613,6 +613,7 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
 
 class CanvasView(QtWidgets.QGraphicsView):
     gridVisibilityChanged = QtCore.Signal(bool)
+    selectionSnapshotChanged = QtCore.Signal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -662,6 +663,10 @@ class CanvasView(QtWidgets.QGraphicsView):
 
         self._history = SceneHistory(self)
         self._history.capture_initial_state()
+
+        scene.selectionChanged.connect(self._notify_selection_snapshot)
+        scene.changed.connect(self._on_scene_contents_changed)
+        self._notify_selection_snapshot()
 
     def history(self) -> SceneHistory:
         return self._history
@@ -810,6 +815,71 @@ class CanvasView(QtWidgets.QGraphicsView):
             rect = item.boundingRect()
             base["size"] = [float(rect.width()), float(rect.height())]
         return base
+
+    def _format_property_name(self, key: str) -> str:
+        if not key:
+            return ""
+        parts = key.split("_")
+        return " ".join(part.capitalize() if part else "" for part in parts)
+
+    def _format_property_value(self, value: Any) -> str:
+        if isinstance(value, float):
+            return f"{value:.2f}"
+        if isinstance(value, bool):
+            return "True" if value else "False"
+        if isinstance(value, (list, tuple)):
+            return ", ".join(self._format_property_value(v) for v in value)
+        if isinstance(value, Mapping):
+            return "; ".join(
+                f"{self._format_property_name(str(k))}: {self._format_property_value(v)}"
+                for k, v in value.items()
+            )
+        return str(value)
+
+    def _build_properties_for_item(
+        self, item: QtWidgets.QGraphicsItem
+    ) -> tuple[str, list[tuple[str, str]]]:
+        data = self._serialize_item(item)
+        title = str(data.get("shape", item.__class__.__name__))
+        properties: list[tuple[str, str]] = []
+        for key, value in data.items():
+            if key == "shape":
+                continue
+            properties.append(
+                (self._format_property_name(str(key)), self._format_property_value(value))
+            )
+        return title, properties
+
+    def _build_selection_snapshot(self) -> dict[str, Any]:
+        scene = self.scene()
+        if scene is None:
+            return {"selection_type": "none"}
+        selected = [
+            item
+            for item in scene.selectedItems()
+            if self._is_serializable_item(item)
+        ]
+        if len(selected) == 1:
+            title, properties = self._build_properties_for_item(selected[0])
+            return {
+                "selection_type": "single",
+                "title": title,
+                "properties": properties,
+            }
+        if selected:
+            return {"selection_type": "multi", "count": len(selected)}
+        return {"selection_type": "none"}
+
+    def _notify_selection_snapshot(self) -> None:
+        payload = self._build_selection_snapshot()
+        self.selectionSnapshotChanged.emit(payload)
+
+    def _on_scene_contents_changed(self, _changes) -> None:
+        scene = self.scene()
+        if scene is None:
+            return
+        if any(self._is_serializable_item(item) for item in scene.selectedItems()):
+            self._notify_selection_snapshot()
 
     def _apply_item_transform(self, item: QtWidgets.QGraphicsItem, data: Mapping[str, Any]) -> None:
         pos = data.get("pos", [0.0, 0.0])
