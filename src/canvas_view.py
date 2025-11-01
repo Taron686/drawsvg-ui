@@ -129,6 +129,21 @@ def _pen_from_data(data: Mapping[str, Any] | None) -> QtGui.QPen:
     return pen
 
 
+def _describe_font_size(font: QtGui.QFont) -> str | None:
+    pixel_size = font.pixelSize()
+    if pixel_size and pixel_size > 0:
+        return f"{pixel_size:g} px"
+    point_size_f = font.pointSizeF()
+    if point_size_f and point_size_f > 0:
+        if abs(point_size_f - round(point_size_f)) < 0.01:
+            return f"{int(round(point_size_f))} pt"
+        return f"{point_size_f:.1f} pt"
+    point_size = font.pointSize()
+    if point_size and point_size > 0:
+        return f"{point_size:g} pt"
+    return None
+
+
 def _serialize_shape_label(item: ShapeLabelMixin) -> dict[str, Any] | None:
     if not isinstance(item, ShapeLabelMixin):
         return None
@@ -139,6 +154,9 @@ def _serialize_shape_label(item: ShapeLabelMixin) -> dict[str, Any] | None:
         "font": label.font().toString(),
         "color": _color_to_data(label.defaultTextColor()),
     }
+    font_size = _describe_font_size(label.font())
+    if font_size:
+        data["font_size"] = font_size
     if item.label_has_custom_color():
         data["color_override"] = True
     return data
@@ -802,6 +820,9 @@ class CanvasView(QtWidgets.QGraphicsView):
             base["size"] = [float(rect.width()), float(rect.height())]
             base["text"] = item.toPlainText()
             base["font"] = item.font().toString()
+            font_size = _describe_font_size(item.font())
+            if font_size:
+                base["font_size"] = font_size
             base["color"] = _color_to_data(item.defaultTextColor())
             doc = item.document()
             if doc is not None:
@@ -846,17 +867,51 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     def _build_properties_for_item(
         self, item: QtWidgets.QGraphicsItem
-    ) -> tuple[str, list[tuple[str, str]]]:
+    ) -> tuple[str, list[tuple[str, str]], list[tuple[str, str]] | None]:
         data = self._serialize_item(item)
         title = str(data.get("shape", item.__class__.__name__))
-        properties: list[tuple[str, str]] = []
-        for key, value in data.items():
+
+        object_data = dict(data)
+        text_data: Mapping[str, Any] | dict[str, Any] | None = None
+
+        if isinstance(item, ShapeLabelMixin):
+            label_data = object_data.pop("label", None)
+            if isinstance(label_data, Mapping):
+                text_data = dict(label_data)
+        elif isinstance(item, TextItem):
+            text_keys = (
+                "text",
+                "font",
+                "font_size",
+                "color",
+                "document_margin",
+                "alignment",
+                "direction",
+            )
+            text_section: dict[str, Any] = {}
+            for key in text_keys:
+                if key in object_data:
+                    text_section[key] = object_data.pop(key)
+            if text_section:
+                text_data = text_section
+
+        object_properties: list[tuple[str, str]] = []
+        for key, value in object_data.items():
             if key == "shape":
                 continue
-            properties.append(
+            object_properties.append(
                 (self._format_property_name(str(key)), self._format_property_value(value))
             )
-        return title, properties
+
+        text_properties: list[tuple[str, str]] | None = None
+        if text_data:
+            text_properties = []
+            for key, value in text_data.items():
+                text_properties.append(
+                    (self._format_property_name(str(key)), self._format_property_value(value))
+                )
+
+        return title, object_properties, text_properties
 
     def _build_selection_snapshot(self) -> dict[str, Any]:
         scene = self.scene()
@@ -868,11 +923,12 @@ class CanvasView(QtWidgets.QGraphicsView):
             if self._is_serializable_item(item)
         ]
         if len(selected) == 1:
-            title, properties = self._build_properties_for_item(selected[0])
+            title, object_props, text_props = self._build_properties_for_item(selected[0])
             return {
                 "selection_type": "single",
                 "title": title,
-                "properties": properties,
+                "properties": object_props,
+                "text_properties": text_props,
             }
         if selected:
             return {"selection_type": "multi", "count": len(selected)}
