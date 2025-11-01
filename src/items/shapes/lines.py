@@ -409,7 +409,7 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
             painter.setBrush(self.pen().color())
             for polygon in arrow_polygons:
                 painter.drawPolygon(polygon)
-        painter.restore()
+            painter.restore()
 
         if _should_draw_selection(self):
             highlight_path = self.shape()
