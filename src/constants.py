@@ -33,11 +33,12 @@ DEFAULTS = {
     "Folder Tree": (240.0, 200.0), # auto-sized, reference bbox
 }
 
-PEN_NORMAL = QtGui.QPen(QtGui.QColor("#222"), 2)
+PEN_NORMAL = QtGui.QPen(QtGui.QColor("#000"), 2)
 SELECTED_COLOR = QtGui.QColor("#16CCFA")
 PEN_SELECTED = QtGui.QPen(SELECTED_COLOR, 1, QtCore.Qt.PenStyle.DashLine)
 PEN_SELECTED.setCosmetic(True)
 DEFAULT_FILL = QtGui.QBrush(QtCore.Qt.white)
+DEFAULT_TEXT_COLOR = QtGui.QColor("#000")
 
 # Default dash patterns used when exporting/importing common pen styles.
 PEN_STYLE_DASH_ARRAYS = {
