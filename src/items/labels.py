@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui, QtWidgets
-
+from constants import DEFAULT_TEXT_COLOR
 if TYPE_CHECKING:  # pragma: no cover - only for type checkers
     from .shapes.rects import RectItem
 
@@ -13,7 +13,7 @@ if TYPE_CHECKING:  # pragma: no cover - only for type checkers
 class _ShapeLabelItem(QtWidgets.QGraphicsTextItem):
     def __init__(self, parent: "RectItem") -> None:
         super().__init__("", parent)
-        self.setDefaultTextColor(QtGui.QColor("#222"))
+        self.setDefaultTextColor(DEFAULT_TEXT_COLOR)
         self.setVisible(False)
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.NoButton)
         self.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.NoTextInteraction)
@@ -177,7 +177,7 @@ class ShapeLabelMixin:
             if isinstance(override, QtGui.QColor) and override.isValid():
                 self._label.setDefaultTextColor(QtGui.QColor(override))
             else:
-                color = self.pen().color() if hasattr(self, "pen") else QtGui.QColor("#222")
+                color = self.pen().color() if hasattr(self, "pen") else DEFAULT_TEXT_COLOR
                 self._label.setDefaultTextColor(color)
 
     def _begin_label_edit(self) -> None:
