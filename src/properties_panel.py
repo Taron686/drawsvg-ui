@@ -176,7 +176,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         layout.setSpacing(6)
         self._layout = layout
 
-        self._title_label = QtWidgets.QLabel("Eigenschaften")
+        self._title_label = QtWidgets.QLabel("Properties")
         title_font = self._title_label.font()
         title_font.setBold(True)
         self._title_label.setFont(title_font)
@@ -185,7 +185,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         )
         layout.addWidget(self._title_label)
 
-        self._info_label = QtWidgets.QLabel("Kein Objekt ausgewählt.")
+        self._info_label = QtWidgets.QLabel("No object selected.")
         self._info_label.setWordWrap(True)
         self._info_label.setAlignment(
             QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop
@@ -213,7 +213,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._object_container: QtWidgets.QWidget | None = None
         self._object_form: QtWidgets.QFormLayout | None = None
         self._reset_object_form()
-        self._tab_widget.addTab(self._object_scroll, "Objekt")
+        self._tab_widget.addTab(self._object_scroll, "Object")
 
         self._text_scroll = QtWidgets.QScrollArea(self)
         self._text_scroll.setWidgetResizable(True)
@@ -263,8 +263,8 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._text_scroll.setWidget(self._text_container)
 
     def clear(self) -> None:
-        self._title_label.setText("Eigenschaften")
-        self._info_label.setText("Kein Objekt ausgewählt.")
+        self._title_label.setText("Properties")
+        self._info_label.setText("No object selected.")
         self._info_label.show()
         self._current_item = None
         self._latest_object_data = {}
@@ -275,8 +275,8 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._set_tab_widget_active(False)
 
     def show_multi_selection(self, count: int) -> None:
-        self._title_label.setText("Eigenschaften")
-        self._info_label.setText(f"{count} Objekte ausgewählt.")
+        self._title_label.setText("Properties")
+        self._info_label.setText(f"{count} objects selected.")
         self._info_label.show()
         self._current_item = None
         self._latest_object_data = {}
@@ -297,7 +297,7 @@ class PropertiesPanel(QtWidgets.QWidget):
             if not isinstance(item, QtWidgets.QGraphicsItem):
                 self.clear()
                 return
-            title = str(payload.get("title", "Objekt"))
+            title = str(payload.get("title", "Object"))
             object_data = payload.get("object_data")
             if not isinstance(object_data, dict):
                 object_data = {}
@@ -322,7 +322,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         object_data: dict[str, Any],
         text_data: dict[str, Any],
     ) -> None:
-        self._title_label.setText(f"Eigenschaften – {title}")
+        self._title_label.setText(f"Properties – {title}")
         self._info_label.hide()
 
         if item is not self._current_item:
@@ -690,7 +690,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         if self._object_form is None:
             return
         form = self._object_form
-        self._add_section_header(form, "Transformieren")
+        self._add_section_header(form, "Transform")
         self._add_double_spin(
             form,
             "Position X",
@@ -724,7 +724,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         )
         self._add_double_spin(
             form,
-            "Skalierung",
+            "Scale",
             lambda: float(item.scale()),
             lambda value: self._set_item_scale(item, value),
             decimals=2,
@@ -734,7 +734,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         )
         self._add_double_spin(
             form,
-            "Z-Wert",
+            "Z Value",
             lambda: float(item.zValue()),
             lambda value: self._set_item_z(item, value),
             decimals=1,
@@ -745,10 +745,10 @@ class PropertiesPanel(QtWidgets.QWidget):
 
         size_value = object_data.get("size")
         if isinstance(size_value, (list, tuple)) and len(size_value) == 2:
-            self._add_section_header(form, "Größe")
+            self._add_section_header(form, "Size")
             self._add_double_spin(
                 form,
-                "Breite",
+                "Width",
                 lambda: float(item.boundingRect().width()),
                 lambda value: self._set_item_size(item, width=value),
                 decimals=1,
@@ -759,7 +759,7 @@ class PropertiesPanel(QtWidgets.QWidget):
             )
             self._add_double_spin(
                 form,
-                "Höhe",
+                "Height",
                 lambda: float(item.boundingRect().height()),
                 lambda value: self._set_item_size(item, height=value),
                 decimals=1,
@@ -770,7 +770,7 @@ class PropertiesPanel(QtWidgets.QWidget):
             )
 
         if isinstance(item, (RectItem, SplitRoundedRectItem)) or hasattr(item, "rx"):
-            self._add_section_header(form, "Abgerundete Ecken")
+            self._add_section_header(form, "Rounded Corners")
             self._add_double_spin(
                 form,
                 "Radius X",
@@ -793,22 +793,22 @@ class PropertiesPanel(QtWidgets.QWidget):
             )
 
         if isinstance(item, SplitRoundedRectItem):
-            self._add_section_header(form, "Bereiche")
+            self._add_section_header(form, "Sections")
             self._add_color_field(
                 form,
-                "Füllung oben",
+                "Top Fill",
                 lambda: item.topBrush().color(),
                 lambda color: self._set_split_brush_color(item, "top", color),
             )
             self._add_color_field(
                 form,
-                "Füllung unten",
+                "Bottom Fill",
                 lambda: item.bottomBrush().color(),
                 lambda color: self._set_split_brush_color(item, "bottom", color),
             )
             self._add_double_spin(
                 form,
-                "Trennverhältnis",
+                "Divider Ratio",
                 lambda: float(item.divider_ratio()),
                 lambda value: self._set_split_ratio(item, value),
                 decimals=2,
@@ -818,16 +818,16 @@ class PropertiesPanel(QtWidgets.QWidget):
             )
 
         if hasattr(item, "pen") and not isinstance(item, TextItem):
-            self._add_section_header(form, "Linie")
+            self._add_section_header(form, "Stroke")
             self._add_color_field(
                 form,
-                "Linienfarbe",
+                "Stroke Color",
                 lambda: item.pen().color(),
                 lambda color: self._set_pen_color(item, color),
             )
             self._add_double_spin(
                 form,
-                "Linienstärke",
+                "Stroke Width",
                 lambda: float(item.pen().widthF()),
                 lambda value: self._set_pen_width(item, value),
                 decimals=2,
@@ -838,19 +838,19 @@ class PropertiesPanel(QtWidgets.QWidget):
             )
 
         if hasattr(item, "brush") and not isinstance(item, LineItem):
-            self._add_section_header(form, "Füllung")
+            self._add_section_header(form, "Fill")
             self._add_color_field(
                 form,
-                "Füllfarbe",
+                "Fill Color",
                 lambda: item.brush().color(),
                 lambda color: self._set_brush_color(item, color),
             )
 
         if isinstance(item, BlockArrowItem):
-            self._add_section_header(form, "Pfeilform")
+            self._add_section_header(form, "Arrow Shape")
             self._add_double_spin(
                 form,
-                "Kopfanteil",
+                "Head Ratio",
                 item.head_ratio,
                 lambda value: self._set_block_arrow_ratio(item, "head", value),
                 decimals=3,
@@ -860,7 +860,7 @@ class PropertiesPanel(QtWidgets.QWidget):
             )
             self._add_double_spin(
                 form,
-                "Schaftanteil",
+                "Shaft Ratio",
                 item.shaft_ratio,
                 lambda value: self._set_block_arrow_ratio(item, "shaft", value),
                 decimals=3,
@@ -870,10 +870,10 @@ class PropertiesPanel(QtWidgets.QWidget):
             )
 
         if isinstance(item, CurvyBracketItem):
-            self._add_section_header(form, "Klammer")
+            self._add_section_header(form, "Bracket")
             self._add_double_spin(
                 form,
-                "Hakentiefe",
+                "Hook Depth",
                 item.hook_ratio,
                 lambda value: self._set_bracket_hook_ratio(item, value),
                 decimals=3,
@@ -883,22 +883,22 @@ class PropertiesPanel(QtWidgets.QWidget):
             )
 
         if isinstance(item, LineItem):
-            self._add_section_header(form, "Pfeile")
+            self._add_section_header(form, "Arrows")
             self._add_checkbox(
                 form,
-                "Pfeil am Anfang",
+                "Arrow at Start",
                 lambda: bool(item.arrow_start),
                 lambda value: self._toggle_line_arrow(item, "start", value),
             )
             self._add_checkbox(
                 form,
-                "Pfeil am Ende",
+                "Arrow at End",
                 lambda: bool(item.arrow_end),
                 lambda value: self._toggle_line_arrow(item, "end", value),
             )
             self._add_double_spin(
                 form,
-                "Pfeillänge",
+                "Arrow Length",
                 item.arrow_head_length,
                 lambda value: self._set_line_arrow_metric(item, "length", value),
                 decimals=1,
@@ -909,7 +909,7 @@ class PropertiesPanel(QtWidgets.QWidget):
             )
             self._add_double_spin(
                 form,
-                "Pfeilbreite",
+                "Arrow Width",
                 item.arrow_head_width,
                 lambda value: self._set_line_arrow_metric(item, "width", value),
                 decimals=1,
@@ -935,7 +935,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         form = self._text_form
         if form is None:
             return
-        self._add_section_header(form, "Beschriftung")
+        self._add_section_header(form, "Label")
         self._add_line_edit(
             form,
             "Text",
@@ -943,9 +943,23 @@ class PropertiesPanel(QtWidgets.QWidget):
             lambda value: self._set_label_text(item, value),
             group="text",
         )
+        font_combo = QtWidgets.QFontComboBox()
+        font_combo.setCurrentFont(item.label_item().font())
+        form.addRow("Font Family", font_combo)
+        binding = PropertyBinding(
+            font_combo,
+            lambda: item.label_item().font(),
+            lambda font: self._set_label_font_family(item, font),
+            font_combo.currentFontChanged,
+            lambda w: w.currentFont(),
+            lambda w, value: w.setCurrentFont(value),
+            self._after_property_change,
+        )
+        binding.refresh()
+        self._bindings_for("text").append(binding)
         self._add_double_spin(
             form,
-            "Schriftgröße",
+            "Font Size",
             lambda: float(self._label_font_size(item)),
             lambda value: self._set_label_font_size(item, value),
             decimals=0,
@@ -957,7 +971,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         )
         self._add_color_field(
             form,
-            "Schriftfarbe",
+            "Font Color",
             item.label_color,
             lambda color: self._set_label_color(item, color),
             group="text",
@@ -966,15 +980,15 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._add_combobox(
             form,
             "Horizontal",
-            [("Links", "left"), ("Zentriert", "center"), ("Rechts", "right")],
+            [("Left", "left"), ("Centered", "center"), ("Right", "right")],
             lambda: item.label_alignment()[0],
             lambda value: self._set_label_alignment(item, horizontal=value),
             group="text",
         )
         self._add_combobox(
             form,
-            "Vertikal",
-            [("Oben", "top"), ("Mittig", "middle"), ("Unten", "bottom")],
+            "Vertical",
+            [("Top", "top"), ("Center", "middle"), ("Bottom", "bottom")],
             lambda: item.label_alignment()[1],
             lambda value: self._set_label_alignment(item, vertical=value),
             group="text",
@@ -987,7 +1001,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._add_section_header(form, "Text")
         self._add_plain_text(
             form,
-            "Inhalt",
+            "Content",
             item.toPlainText,
             lambda value: self._set_text_item_content(item, value),
             group="text",
@@ -996,7 +1010,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._add_section_header(form, "Format")
         font_combo = QtWidgets.QFontComboBox()
         font_combo.setCurrentFont(item.font())
-        form.addRow("Schriftart", font_combo)
+        form.addRow("Font Family", font_combo)
         binding = PropertyBinding(
             font_combo,
             lambda: item.font(),
@@ -1011,7 +1025,7 @@ class PropertiesPanel(QtWidgets.QWidget):
 
         self._add_double_spin(
             form,
-            "Schriftgröße",
+            "Font Size",
             lambda: float(self._text_point_size(item)),
             lambda value: self._set_text_point_size(item, value),
             decimals=1,
@@ -1023,14 +1037,14 @@ class PropertiesPanel(QtWidgets.QWidget):
         )
         self._add_color_field(
             form,
-            "Schriftfarbe",
+            "Font Color",
             item.defaultTextColor,
             lambda color: self._set_text_color(item, color),
             group="text",
         )
         self._add_double_spin(
             form,
-            "Innenabstand",
+            "Padding",
             lambda: float(item.document().documentMargin()) if item.document() else 0.0,
             lambda value: self._set_text_margin(item, value),
             decimals=1,
@@ -1043,23 +1057,23 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._add_combobox(
             form,
             "Horizontal",
-            [("Links", "left"), ("Zentriert", "center"), ("Rechts", "right")],
+            [("Left", "left"), ("Centered", "center"), ("Right", "right")],
             lambda: item.text_alignment()[0],
             lambda value: self._set_text_alignment(item, horizontal=value),
             group="text",
         )
         self._add_combobox(
             form,
-            "Vertikal",
-            [("Oben", "top"), ("Mittig", "middle"), ("Unten", "bottom")],
+            "Vertical",
+            [("Top", "top"), ("Center", "middle"), ("Bottom", "bottom")],
             lambda: item.text_alignment()[1],
             lambda value: self._set_text_alignment(item, vertical=value),
             group="text",
         )
         self._add_combobox(
             form,
-            "Textrichtung",
-            [("Links nach rechts", "ltr"), ("Rechts nach links", "rtl")],
+            "Text Direction",
+            [("Left to Right", "ltr"), ("Right to Left", "rtl")],
             item.text_direction,
             lambda value: self._set_text_direction(item, value),
             group="text",
@@ -1296,6 +1310,16 @@ class PropertiesPanel(QtWidgets.QWidget):
         if item.label_text() == text:
             return False
         item.set_label_text(text)
+        return True
+
+    @staticmethod
+    def _set_label_font_family(item: ShapeLabelMixin, font: QtGui.QFont) -> bool:
+        current_font = item.label_item().font()
+        if current_font.family() == font.family():
+            return False
+        new_font = QtGui.QFont(current_font)
+        new_font.setFamily(font.family())
+        item.label_item().setFont(new_font)
         return True
 
     @staticmethod
