@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui, QtWidgets
-from constants import DEFAULT_TEXT_COLOR
+from constants import DEFAULT_TEXT_COLOR, DEFAULT_FONT_FAMILY
 if TYPE_CHECKING:  # pragma: no cover - only for type checkers
     from .shapes.rects import RectItem
 
@@ -13,7 +13,7 @@ if TYPE_CHECKING:  # pragma: no cover - only for type checkers
 class _ShapeLabelItem(QtWidgets.QGraphicsTextItem):
     def __init__(self, parent: "RectItem") -> None:
         super().__init__("", parent)
-        self.setFont(QtGui.QFont("Arial"))
+        self.setFont(QtGui.QFont(DEFAULT_FONT_FAMILY))
         self.setDefaultTextColor(DEFAULT_TEXT_COLOR)
         self.setVisible(False)
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.NoButton)

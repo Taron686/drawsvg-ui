@@ -175,6 +175,19 @@ class PropertiesPanel(QtWidgets.QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
         self._layout = layout
+        self._empty_spacer = QtWidgets.QSpacerItem(
+            0,
+            0,
+            QtWidgets.QSizePolicy.Policy.Minimum,
+            QtWidgets.QSizePolicy.Policy.Expanding,
+        )
+        self._spacer_visible = False
+        self._empty_spacer = QtWidgets.QSpacerItem(
+            0,
+            0,
+            QtWidgets.QSizePolicy.Policy.Minimum,
+            QtWidgets.QSizePolicy.Policy.Expanding,
+        )
 
         self._title_label = QtWidgets.QLabel("Properties")
         title_font = self._title_label.font()
@@ -225,6 +238,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._set_tab_widget_active(False)
 
         layout.addWidget(self._tab_widget)
+        self._set_empty_spacer_visible(True)
 
     # ------------------------------------------------------------------ #
     # Public API                                                         #
@@ -273,6 +287,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._reset_object_form()
         self._reset_text_form()
         self._set_tab_widget_active(False)
+        self._set_empty_spacer_visible(True)
 
     def show_multi_selection(self, count: int) -> None:
         self._title_label.setText("Properties")
@@ -285,6 +300,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._reset_object_form()
         self._reset_text_form()
         self._set_tab_widget_active(False)
+        self._set_empty_spacer_visible(True)
 
     def update_snapshot(self, payload: object) -> None:
         if not isinstance(payload, dict):
@@ -336,6 +352,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         if hasattr(self._tab_widget, "setCurrentIndex") and self._tab_widget.currentIndex() == -1:
             self._tab_widget.setCurrentIndex(0)
         self._set_tab_widget_active(True)
+        self._set_empty_spacer_visible(False)
 
     def _rebuild_for_item(
         self,
@@ -390,6 +407,16 @@ class PropertiesPanel(QtWidgets.QWidget):
         if layout is not None:
             layout.invalidate()
         self._tab_widget.updateGeometry()
+
+    def _set_empty_spacer_visible(self, visible: bool) -> None:
+        if self._layout is None or self._empty_spacer is None:
+            return
+        if visible and not self._spacer_visible:
+            self._layout.addItem(self._empty_spacer)
+            self._spacer_visible = True
+        elif not visible and self._spacer_visible:
+            self._layout.removeItem(self._empty_spacer)
+            self._spacer_visible = False
 
     def _after_property_change(self) -> None:
         if self._canvas is not None:

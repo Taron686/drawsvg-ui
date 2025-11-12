@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from constants import PEN_SELECTED
+from constants import PEN_SELECTED, DEFAULT_FONT_FAMILY
 from ..base import HandleAwareItemMixin, _should_draw_selection
 
 
@@ -121,7 +121,7 @@ class FolderTreeItem(HandleAwareItemMixin, QtWidgets.QGraphicsItem):
         self._line_height = 28.0
         self._dot_radius = 6.0
         self._text_gap = 10.0
-        self._font = QtGui.QFont("Arial", 11)
+        self._font = QtGui.QFont(DEFAULT_FONT_FAMILY, 11)
 
         self._line_pen = QtGui.QPen(self.LINE_COLOR, 1.6)
         self._line_pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)

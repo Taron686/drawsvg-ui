@@ -39,6 +39,7 @@ PEN_SELECTED = QtGui.QPen(SELECTED_COLOR, 1, QtCore.Qt.PenStyle.DashLine)
 PEN_SELECTED.setCosmetic(True)
 DEFAULT_FILL = QtGui.QBrush(QtCore.Qt.white)
 DEFAULT_TEXT_COLOR = QtGui.QColor("#000")
+DEFAULT_FONT_FAMILY = "Arial"
 
 # Default dash patterns used when exporting/importing common pen styles.
 PEN_STYLE_DASH_ARRAYS = {

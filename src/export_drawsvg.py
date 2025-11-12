@@ -6,7 +6,7 @@ from collections.abc import Iterable
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from constants import SHAPES, PEN_STYLE_DASH_ARRAYS
+from constants import SHAPES, PEN_STYLE_DASH_ARRAYS, DEFAULT_FONT_FAMILY
 
 from items import (
 
@@ -1532,7 +1532,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             file_pen = getattr(it, "_file_pen", QtGui.QPen(QtGui.QColor("#f58db2")))
 
-            font = getattr(it, "_font", QtGui.QFont("Arial", 11))
+            font = getattr(it, "_font", QtGui.QFont(DEFAULT_FONT_FAMILY, 11))
 
             fm = QtGui.QFontMetricsF(font)
 

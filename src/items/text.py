@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from .base import ResizableItem, ResizeHandle, RotationHandle, _should_draw_selection
-from constants import PEN_SELECTED,DEFAULT_TEXT_COLOR
+from constants import PEN_SELECTED, DEFAULT_TEXT_COLOR, DEFAULT_FONT_FAMILY
 
 
 class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
@@ -28,7 +28,7 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
         self._text_direction = "ltr"
         self._content_offset = QtCore.QPointF()
         ResizableItem.__init__(self)
-        font = QtGui.QFont("Arial")
+        font = QtGui.QFont(DEFAULT_FONT_FAMILY)
         font.setPointSizeF(24.0)
         super().setFont(font)
         self.setDefaultTextColor(DEFAULT_TEXT_COLOR)
