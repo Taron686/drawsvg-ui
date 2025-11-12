@@ -180,8 +180,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     if override:
                         target.set_label_color(color)
                     else:
-                        target.reset_label_color(update=False)
-                        target.label_item().setDefaultTextColor(color)
+                        target.reset_label_color(update=True, base_color=color)
 
         for raw in lines:
             line = raw.strip()

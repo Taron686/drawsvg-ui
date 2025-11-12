@@ -184,8 +184,7 @@ def _apply_shape_label(item: ShapeLabelMixin, data: Mapping[str, Any] | None) ->
         if color_override:
             item.set_label_color(color)
         else:
-            item.reset_label_color(update=False)
-            item.label_item().setDefaultTextColor(color)
+            item.reset_label_color(update=True, base_color=color)
 
 
 class SceneHistory(QtCore.QObject):

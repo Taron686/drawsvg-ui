@@ -39,6 +39,7 @@ class _ShapeLabelItem(QtWidgets.QGraphicsTextItem):
 class ShapeLabelMixin:
     def _init_shape_label(self) -> None:
         self._label_color_override: QtGui.QColor | None = None
+        self._label_base_color: QtGui.QColor = QtGui.QColor(DEFAULT_TEXT_COLOR)
         self._label = _ShapeLabelItem(self)
         self._label_h_align = "center"
         self._label_v_align = "middle"
@@ -107,8 +108,20 @@ class ShapeLabelMixin:
         self._label_color_override = QtGui.QColor(qcolor)
         self._label.setDefaultTextColor(self._label_color_override)
 
-    def reset_label_color(self, *, update: bool = True) -> None:
+    def reset_label_color(
+        self,
+        *,
+        update: bool = True,
+        base_color: QtGui.QColor | str | None = None,
+    ) -> None:
         self._label_color_override = None
+        if base_color is None:
+            base = QtGui.QColor(DEFAULT_TEXT_COLOR)
+        else:
+            base = QtGui.QColor(base_color)
+            if not base.isValid():
+                base = QtGui.QColor(DEFAULT_TEXT_COLOR)
+        self._label_base_color = base
         if update:
             self._update_label_color()
 
@@ -176,10 +189,11 @@ class ShapeLabelMixin:
         if hasattr(self, "_label") and self._label is not None:
             override = getattr(self, "_label_color_override", None)
             if isinstance(override, QtGui.QColor) and override.isValid():
-                self._label.setDefaultTextColor(QtGui.QColor(override))
+                target = QtGui.QColor(override)
             else:
-                color = self.pen().color() if hasattr(self, "pen") else DEFAULT_TEXT_COLOR
-                self._label.setDefaultTextColor(color)
+                base = getattr(self, "_label_base_color", QtGui.QColor(DEFAULT_TEXT_COLOR))
+                target = QtGui.QColor(base)
+            self._label.setDefaultTextColor(target)
 
     def _begin_label_edit(self) -> None:
         self._label.setVisible(True)
@@ -219,8 +233,7 @@ class ShapeLabelMixin:
         if other.label_has_custom_color():
             self.set_label_color(other.label_color())
         else:
-            self.reset_label_color(update=False)
-            self._label.setDefaultTextColor(other_label.defaultTextColor())
+            self.reset_label_color(update=True, base_color=other_label.defaultTextColor())
         self._apply_label_alignment()
         self.set_label_text(other.label_text())
 
