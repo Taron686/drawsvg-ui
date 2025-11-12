@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import math
-from pathlib import Path
 from typing import Any, Callable, TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui, QtWidgets
-from PySide6.QtUiTools import QUiLoader
 
 from items import (
     BlockArrowItem,
@@ -29,7 +27,6 @@ if TYPE_CHECKING:  # pragma: no cover - only for typing
 Number = float
 
 MAX_WIDGET_SIZE = 16777215  # Qt default maximum widget dimension
-_UI_PATH = Path(__file__).resolve().parent / "ui" / "properties_panel.ui"
 
 class ColorButton(QtWidgets.QToolButton):
     """Tool button that displays and edits a QColor."""
@@ -166,6 +163,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         parent: QtWidgets.QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        self.setMinimumWidth(260)
         self._canvas = canvas
         self._current_item: QtWidgets.QGraphicsItem | None = None
         self._object_bindings: list[PropertyBinding] = []
@@ -173,21 +171,33 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._latest_object_data: dict[str, Any] = {}
         self._latest_text_data: dict[str, Any] = {}
 
-        self.setMinimumWidth(260)
-        self._ui_root = self._load_ui()
-        self._layout = self._require_layout(QtWidgets.QVBoxLayout, "mainLayout")
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+        self._layout = layout
 
-        self._title_label = self._require_widget(QtWidgets.QLabel, "titleLabel")
+        self._title_label = QtWidgets.QLabel("Properties")
         title_font = self._title_label.font()
         title_font.setBold(True)
         self._title_label.setFont(title_font)
         self._title_label.setSizePolicy(
             QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Maximum)
         )
+        layout.addWidget(self._title_label)
 
-        self._info_label = self._require_widget(QtWidgets.QLabel, "infoLabel")
+        self._info_label = QtWidgets.QLabel("No object selected.")
+        self._info_label.setWordWrap(True)
+        self._info_label.setAlignment(
+            QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop
+        )
+        self._info_label.setSizePolicy(
+            QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Maximum)
+        )
+        layout.addWidget(self._info_label)
 
-        self._tab_widget = self._require_widget(QtWidgets.QTabWidget, "tabWidget")
+        self._tab_widget = QtWidgets.QTabWidget(self)
+        self._tab_widget.setDocumentMode(True)
+        self._tab_widget.setMovable(False)
         self._tab_default_policy = self._copy_size_policy(self._tab_widget.sizePolicy())
         self._tab_collapsed_policy = QtWidgets.QSizePolicy(
             QtWidgets.QSizePolicy.Policy.Preferred,
@@ -197,14 +207,24 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._tab_collapsed_policy.setHorizontalStretch(self._tab_default_policy.horizontalStretch())
         self._tab_collapsed_policy.setVerticalStretch(0)
 
-        self._object_scroll = self._require_widget(QtWidgets.QScrollArea, "objectScrollArea")
-        self._object_form = self._require_layout(QtWidgets.QFormLayout, "objectFormLayout")
-        self._clear_layout(self._object_form)
+        self._object_scroll = QtWidgets.QScrollArea(self)
+        self._object_scroll.setWidgetResizable(True)
+        self._object_scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        self._object_container: QtWidgets.QWidget | None = None
+        self._object_form: QtWidgets.QFormLayout | None = None
+        self._reset_object_form()
+        self._tab_widget.addTab(self._object_scroll, "Object")
 
-        self._text_scroll = self._require_widget(QtWidgets.QScrollArea, "textScrollArea")
-        self._text_form = self._require_layout(QtWidgets.QFormLayout, "textFormLayout")
-        self._clear_layout(self._text_form)
+        self._text_scroll = QtWidgets.QScrollArea(self)
+        self._text_scroll.setWidgetResizable(True)
+        self._text_scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        self._text_container: QtWidgets.QWidget | None = None
+        self._text_form: QtWidgets.QFormLayout | None = None
+        self._reset_text_form()
+        self._tab_widget.addTab(self._text_scroll, "Text")
         self._set_tab_widget_active(False)
+
+        layout.addWidget(self._tab_widget)
 
     # ------------------------------------------------------------------ #
     # Public API                                                         #
@@ -218,58 +238,29 @@ class PropertiesPanel(QtWidgets.QWidget):
         clone.setControlType(policy.controlType())
         return clone
 
-    def _load_ui(self) -> QtWidgets.QWidget:
-        loader = QUiLoader()
-        ui_file = QtCore.QFile(str(_UI_PATH))
-        if not ui_file.open(QtCore.QIODevice.OpenModeFlag.ReadOnly):
-            raise RuntimeError(f"Could not open UI file: {_UI_PATH}")
-        form = loader.load(ui_file, self)
-        ui_file.close()
-        if form is None:
-            raise RuntimeError(f"Failed to load UI from {_UI_PATH}")
-        wrapper = QtWidgets.QVBoxLayout(self)
-        wrapper.setContentsMargins(0, 0, 0, 0)
-        wrapper.setSpacing(0)
-        wrapper.addWidget(form)
-        return form
+    def _reset_object_form(self) -> None:
+        previous = self._object_scroll.takeWidget()
+        if previous is not None:
+            previous.deleteLater()
+        self._object_container = QtWidgets.QWidget(self)
+        self._object_form = QtWidgets.QFormLayout(self._object_container)
+        self._object_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        self._object_form.setRowWrapPolicy(QtWidgets.QFormLayout.RowWrapPolicy.DontWrapRows)
+        self._object_form.setContentsMargins(0, 0, 0, 0)
+        self._object_form.setSpacing(6)
+        self._object_scroll.setWidget(self._object_container)
 
-    def _require_widget(
-        self,
-        widget_type: type[QtWidgets.QWidget],
-        object_name: str,
-    ) -> QtWidgets.QWidget:
-        root = getattr(self, "_ui_root", None)
-        widget = root.findChild(widget_type, object_name) if root is not None else None
-        if widget is None:
-            raise RuntimeError(f"Missing widget '{object_name}' in UI file '{_UI_PATH.name}'")
-        return widget
-
-    def _require_layout(
-        self,
-        layout_type: type[QtWidgets.QLayout],
-        object_name: str,
-    ) -> QtWidgets.QLayout:
-        root = getattr(self, "_ui_root", None)
-        layout = root.findChild(layout_type, object_name) if root is not None else None
-        if layout is None:
-            raise RuntimeError(f"Missing layout '{object_name}' in UI file '{_UI_PATH.name}'")
-        return layout
-
-    @staticmethod
-    def _clear_layout(layout: QtWidgets.QLayout) -> None:
-        while layout.count():
-            item = layout.takeAt(0)
-            if item is None:
-                continue
-            child_layout = item.layout()
-            if child_layout is not None:
-                PropertiesPanel._clear_layout(child_layout)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-            spacer = item.spacerItem()
-            if spacer is not None:
-                del spacer
+    def _reset_text_form(self) -> None:
+        previous = self._text_scroll.takeWidget()
+        if previous is not None:
+            previous.deleteLater()
+        self._text_container = QtWidgets.QWidget(self)
+        self._text_form = QtWidgets.QFormLayout(self._text_container)
+        self._text_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        self._text_form.setRowWrapPolicy(QtWidgets.QFormLayout.RowWrapPolicy.DontWrapRows)
+        self._text_form.setContentsMargins(0, 0, 0, 0)
+        self._text_form.setSpacing(6)
+        self._text_scroll.setWidget(self._text_container)
 
     def clear(self) -> None:
         self._title_label.setText("Properties")
@@ -279,10 +270,8 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._latest_object_data = {}
         self._latest_text_data = {}
         self._clear_bindings()
-        if self._object_form is not None:
-            self._clear_layout(self._object_form)
-        if self._text_form is not None:
-            self._clear_layout(self._text_form)
+        self._reset_object_form()
+        self._reset_text_form()
         self._set_tab_widget_active(False)
 
     def show_multi_selection(self, count: int) -> None:
@@ -293,10 +282,8 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._latest_object_data = {}
         self._latest_text_data = {}
         self._clear_bindings()
-        if self._object_form is not None:
-            self._clear_layout(self._object_form)
-        if self._text_form is not None:
-            self._clear_layout(self._text_form)
+        self._reset_object_form()
+        self._reset_text_form()
         self._set_tab_widget_active(False)
 
     def update_snapshot(self, payload: object) -> None:
@@ -359,10 +346,8 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._latest_object_data = dict(object_data)
         self._latest_text_data = dict(text_data)
         self._clear_bindings()
-        if self._object_form is not None:
-            self._clear_layout(self._object_form)
-        if self._text_form is not None:
-            self._clear_layout(self._text_form)
+        self._reset_object_form()
+        self._reset_text_form()
         self._build_object_section(item, object_data)
         self._build_text_section(item)
         self._update_text_tab_visibility()
@@ -627,10 +612,9 @@ class PropertiesPanel(QtWidgets.QWidget):
         setter: Callable[[str], bool | None],
         *,
         group: str = "object",
-        min_height: int | None = None,
     ) -> PlainTextEditor:
         editor = PlainTextEditor()
-        editor.setMinimumHeight(int(min_height) if min_height is not None else 140)
+        editor.setMinimumHeight(140)
         layout.addRow(label, editor)
         binding = PropertyBinding(
             editor,
@@ -1015,15 +999,12 @@ class PropertiesPanel(QtWidgets.QWidget):
         if form is None:
             return
         self._add_section_header(form, "Text")
-        content_height = item.boundingRect().height()
-        min_height = int(max(80.0, min(400.0, content_height + 20.0)))
         self._add_plain_text(
             form,
             "Content",
             item.toPlainText,
             lambda value: self._set_text_item_content(item, value),
             group="text",
-            min_height=min_height,
         )
 
         self._add_section_header(form, "Format")

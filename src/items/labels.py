@@ -13,7 +13,7 @@ if TYPE_CHECKING:  # pragma: no cover - only for type checkers
 class _ShapeLabelItem(QtWidgets.QGraphicsTextItem):
     def __init__(self, parent: "RectItem") -> None:
         super().__init__("", parent)
-        self.setFont(QtGui.QFont("Noto Sans"))
+        self.setFont(QtGui.QFont("Arial"))
         self.setDefaultTextColor(DEFAULT_TEXT_COLOR)
         self.setVisible(False)
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.NoButton)

@@ -1532,7 +1532,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             file_pen = getattr(it, "_file_pen", QtGui.QPen(QtGui.QColor("#f58db2")))
 
-            font = getattr(it, "_font", QtGui.QFont("Noto Sans", 11))
+            font = getattr(it, "_font", QtGui.QFont("Arial", 11))
 
             fm = QtGui.QFontMetricsF(font)
 

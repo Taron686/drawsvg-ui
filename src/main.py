@@ -8,7 +8,7 @@ from main_window import MainWindow
 
 def main():
     app = QtWidgets.QApplication(sys.argv)
-    app.setFont(QtGui.QFont("Noto Sans"))
+    app.setFont(QtGui.QFont("Arial"))
     win = MainWindow()
     win.show()
     sys.exit(app.exec())

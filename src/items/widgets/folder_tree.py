@@ -121,7 +121,7 @@ class FolderTreeItem(HandleAwareItemMixin, QtWidgets.QGraphicsItem):
         self._line_height = 28.0
         self._dot_radius = 6.0
         self._text_gap = 10.0
-        self._font = QtGui.QFont("Noto Sans", 11)
+        self._font = QtGui.QFont("Arial", 11)
 
         self._line_pen = QtGui.QPen(self.LINE_COLOR, 1.6)
         self._line_pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)

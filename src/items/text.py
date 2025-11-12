@@ -28,7 +28,7 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
         self._text_direction = "ltr"
         self._content_offset = QtCore.QPointF()
         ResizableItem.__init__(self)
-        font = QtGui.QFont("Noto Sans")
+        font = QtGui.QFont("Arial")
         font.setPointSizeF(24.0)
         super().setFont(font)
         self.setDefaultTextColor(DEFAULT_TEXT_COLOR)
