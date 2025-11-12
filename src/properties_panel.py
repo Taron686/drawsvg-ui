@@ -749,7 +749,7 @@ class PropertiesPanel(QtWidgets.QWidget):
             self._add_double_spin(
                 form,
                 "Width",
-                lambda: float(item.boundingRect().width()),
+                lambda item=item: float(self._item_dimensions(item)[0]),
                 lambda value: self._set_item_size(item, width=value),
                 decimals=1,
                 step=1.0,
@@ -760,7 +760,7 @@ class PropertiesPanel(QtWidgets.QWidget):
             self._add_double_spin(
                 form,
                 "Height",
-                lambda: float(item.boundingRect().height()),
+                lambda item=item: float(self._item_dimensions(item)[1]),
                 lambda value: self._set_item_size(item, height=value),
                 decimals=1,
                 step=1.0,
@@ -1133,9 +1133,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         width: Number | None = None,
         height: Number | None = None,
     ) -> bool:
-        bounds = item.boundingRect()
-        current_w = float(bounds.width())
-        current_h = float(bounds.height())
+        current_w, current_h = self._item_dimensions(item)
         target_w = float(width) if width is not None else current_w
         target_h = float(height) if height is not None else current_h
         target_w = max(1.0, target_w)
@@ -1176,6 +1174,21 @@ class PropertiesPanel(QtWidgets.QWidget):
         if hasattr(item, "update_handles"):
             item.update_handles()
         return True
+
+    @staticmethod
+    def _item_dimensions(item: QtWidgets.QGraphicsItem) -> tuple[float, float]:
+        if isinstance(item, QtWidgets.QGraphicsRectItem):
+            rect = item.rect()
+            return float(rect.width()), float(rect.height())
+        if isinstance(item, QtWidgets.QGraphicsEllipseItem):
+            rect = item.rect()
+            return float(rect.width()), float(rect.height())
+        width_attr = getattr(item, "_w", None)
+        height_attr = getattr(item, "_h", None)
+        if isinstance(width_attr, (int, float)) and isinstance(height_attr, (int, float)):
+            return float(width_attr), float(height_attr)
+        bounds = item.boundingRect()
+        return float(bounds.width()), float(bounds.height())
 
     @staticmethod
     def _set_corner_radius(item: Any, attr: str, value: Number) -> bool:

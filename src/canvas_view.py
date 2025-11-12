@@ -843,8 +843,8 @@ class CanvasView(QtWidgets.QGraphicsView):
             children.sort(key=self._item_sort_key)
             base["children"] = [self._serialize_item(child) for child in children]
         else:
-            rect = item.boundingRect()
-            base["size"] = [float(rect.width()), float(rect.height())]
+            width, height = self._item_dimensions(item)
+            base["size"] = [width, height]
         return base
 
     def _format_property_name(self, key: str) -> str:
@@ -953,6 +953,21 @@ class CanvasView(QtWidgets.QGraphicsView):
         if selected:
             return {"selection_type": "multi", "count": len(selected)}
         return {"selection_type": "none"}
+
+    @staticmethod
+    def _item_dimensions(item: QtWidgets.QGraphicsItem) -> tuple[float, float]:
+        if isinstance(item, QtWidgets.QGraphicsRectItem):
+            rect = item.rect()
+            return float(rect.width()), float(rect.height())
+        if isinstance(item, QtWidgets.QGraphicsEllipseItem):
+            rect = item.rect()
+            return float(rect.width()), float(rect.height())
+        width_attr = getattr(item, "_w", None)
+        height_attr = getattr(item, "_h", None)
+        if isinstance(width_attr, (int, float)) and isinstance(height_attr, (int, float)):
+            return float(width_attr), float(height_attr)
+        bounds = item.boundingRect()
+        return float(bounds.width()), float(bounds.height())
 
     def _notify_selection_snapshot(self) -> None:
         payload = self._build_selection_snapshot()
