@@ -650,6 +650,8 @@ class CanvasView(QtWidgets.QGraphicsView):
         )
         self.setAcceptDrops(True)
         self.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
+        # Keep the view centered when splitter widths change so the canvas does not drift.
+        self.setResizeAnchor(QtWidgets.QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.setViewportUpdateMode(
             QtWidgets.QGraphicsView.ViewportUpdateMode.FullViewportUpdate
         )

@@ -123,6 +123,10 @@ class MainWindow(QtWidgets.QMainWindow):
         palette_container = self.paletteContainer
         canvas_container = self.canvasContainer
         properties_container = self.propertiesContainer
+        properties_container.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Preferred,
+            QtWidgets.QSizePolicy.Policy.Expanding,
+        )
 
         self.palette = PaletteList(palette_container)
         self.palette.setMinimumWidth(220)
@@ -131,6 +135,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.canvas = CanvasView(canvas_container)
 
         self.properties_panel = PropertiesPanel(self.canvas)
+        properties_min_width = max(
+            260,
+            self.properties_panel.minimumWidth(),
+            self.properties_panel.minimumSizeHint().width(),
+        )
+        properties_container.setMinimumWidth(properties_min_width)
 
         self._replace_placeholder(palette_container, self.palettePlaceholder, self.palette)
         self._replace_placeholder(canvas_container, self.canvasPlaceholder, self.canvas)
@@ -141,6 +151,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setStretchFactor(2, 0)
+        self.splitter.setCollapsible(2, True)
+        self.splitter.setSizes([self.palette.minimumWidth(), 900, properties_min_width + 40])
 
     @staticmethod
     def _replace_placeholder(
