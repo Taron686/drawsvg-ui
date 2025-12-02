@@ -1,0 +1,5 @@
+__pycache__/
+*.svg
+.venv/
+dist/
+src/drawsvg_ui.egg-info/

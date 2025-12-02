@@ -41,3 +41,13 @@ include = ["items*", "ui*"]
 
 [tool.setuptools.package-data]
 ui = ["*.ui"]
+
+[tool.bumpversion]
+current_version = "0.3.0"
+commit = true
+tag = true
+
+[[tool.bumpversion.files]]
+filename = "pyproject.toml"
+search = 'version = "{current_version}"'
+replace = 'version = "{new_version}"'
