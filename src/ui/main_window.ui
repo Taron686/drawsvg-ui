@@ -49,7 +49,7 @@
          <number>0</number>
         </property>
         <item>
-         <widget class="QWidget" name="propertiesPlaceholder"/>
+         <widget class="QWidget" name="propertiesPlaceholder" native="true"/>
         </item>
        </layout>
       </widget>
@@ -85,8 +85,15 @@
     <addaction name="actionClear_canvas"/>
     <addaction name="actionShow_grid"/>
    </widget>
+   <widget class="QMenu" name="menuAbout">
+    <property name="title">
+     <string>About</string>
+    </property>
+    <addaction name="actionInfo"/>
+   </widget>
    <addaction name="menuFile"/>
    <addaction name="menuEdit"/>
+   <addaction name="menuAbout"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <action name="actionLoad_drawsvg_py">
@@ -129,14 +136,19 @@
    </property>
   </action>
   <action name="actionShow_grid">
-   <property name="text">
-    <string>Show grid</string>
-   </property>
    <property name="checkable">
     <bool>true</bool>
    </property>
    <property name="checked">
     <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Show grid</string>
+   </property>
+  </action>
+  <action name="actionInfo">
+   <property name="text">
+    <string>Information</string>
    </property>
   </action>
  </widget>

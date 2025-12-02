@@ -5,6 +5,7 @@ from pathlib import Path
 from PySide6 import QtCore, QtWidgets, QtGui
 from PySide6.QtUiTools import QUiLoader
 
+from app_info import GITHUB_URL, get_version
 from canvas_view import CanvasView
 from export_drawsvg import export_drawsvg_py
 from import_drawsvg import import_drawsvg_py
@@ -84,6 +85,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "actionRedo",
             "actionClear_canvas",
             "actionShow_grid",
+            "actionInfo",
         ]
         for name in action_names:
             action = form.findChild(QtGui.QAction, name)
@@ -201,6 +203,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.actionShow_grid.toggled.connect(self._handle_toggle_grid)
         self.canvas.gridVisibilityChanged.connect(self.actionShow_grid.setChecked)
 
+        self.actionInfo.triggered.connect(self._show_about_dialog)
+
     def _handle_undo(self) -> None:
         self.canvas.undo()
 
@@ -212,6 +216,26 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _handle_toggle_grid(self, visible: bool) -> None:
         self.canvas.set_grid_visible(visible)
+
+    def _show_about_dialog(self) -> None:
+        version = get_version()
+        body = (
+            "<b>DrawSVG UI</b><br>"
+            f"Version: {version}<br>"
+            f'<a href="{GITHUB_URL}">{GITHUB_URL}</a>'
+        )
+
+        dialog = QtWidgets.QMessageBox(self)
+        dialog.setIcon(QtWidgets.QMessageBox.Icon.Information)
+        dialog.setWindowTitle("About")
+        dialog.setTextFormat(QtCore.Qt.TextFormat.RichText)
+        dialog.setText(body)
+        dialog.setTextInteractionFlags(
+            QtCore.Qt.TextInteractionFlag.TextBrowserInteraction
+            | QtCore.Qt.TextInteractionFlag.LinksAccessibleByMouse
+        )
+        dialog.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Ok)
+        dialog.exec()
 
     def export_drawsvg_py(self) -> None:
         export_drawsvg_py(self.canvas.scene(), self)
