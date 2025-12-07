@@ -70,4 +70,11 @@ python src/main.py
 ### Import/Export
 * Load or save scenes as ready-to-run `drawsvg` Python files via the `File` menu.
 
+## License
+
+This project is licensed under the GNU General Public License v3.0 (GPLv3).
+
+You may use, modify and distribute this software under the terms of the GPL.
+Any derivative work must also be distributed under the same license.
+
 
