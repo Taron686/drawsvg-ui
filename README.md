@@ -5,6 +5,8 @@ Instead of writing raw Python code by hand, you can visually place, move, and ed
 
 The goal of this project is to help users quickly prototype and generate `drawsvg` code through an intuitive drag-and-drop UI.
 
+![DrawSVG UI screenshot](https://raw.githubusercontent.com/Taron686/drawsvg-ui/main/doc/images/screenshot.png)
+
 ## Requirements
 
 The application requires **Python 3.10**.  
