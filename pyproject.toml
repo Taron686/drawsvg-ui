@@ -11,6 +11,13 @@ requires-python = ">=3.10"
 authors = [{ name = "Taron686", email = "Taron686@users.noreply.github.com" }]
 license = { text = "GPL-3.0-or-later" }
 keywords = ["drawsvg", "pyside6", "gui", "svg", "vector-graphics", "editor"]
+dependencies = [
+  "drawsvg>=2.4,<3",
+  "PySide6>=6.9.2,<7",
+  "PySide6-Addons>=6.9.2,<7",
+  "PySide6-Essentials>=6.9.2,<7",
+  "shiboken6>=6.9.2,<7",
+]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Environment :: X11 Applications :: Qt",
@@ -31,13 +38,6 @@ Homepage = "https://github.com/Taron686/drawsvg-ui"
 Repository = "https://github.com/Taron686/drawsvg-ui"
 Documentation = "https://github.com/Taron686/drawsvg-ui#readme"
 "Issue Tracker" = "https://github.com/Taron686/drawsvg-ui/issues"
-dependencies = [
-  "drawsvg>=2.4,<3",
-  "PySide6>=6.9.2,<7",
-  "PySide6-Addons>=6.9.2,<7",
-  "PySide6-Essentials>=6.9.2,<7",
-  "shiboken6>=6.9.2,<7",
-]
 
 [project.gui-scripts]
 drawsvg-ui = "main:main"
