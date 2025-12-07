@@ -8,7 +8,9 @@ version = "0.5.0"
 description = "GUI for creating drawsvg scenes with PySide6"
 readme = "README.md"
 requires-python = ">=3.10"
-authors = [{ name = "UI_drawsvg maintainers" }]
+authors = [{ name = "Taron686", email = "Taron686@users.noreply.github.com" }]
+license = { text = "GPL-3.0-or-later" }
+keywords = ["drawsvg", "pyside6", "gui", "svg", "vector-graphics", "editor"]
 dependencies = [
   "drawsvg>=2.4,<3",
   "PySide6>=6.9.2,<7",
