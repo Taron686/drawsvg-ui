@@ -1,5 +1,9 @@
 # DrawSVG UI
 
+[![Tag](https://img.shields.io/github/v/tag/Taron686/drawsvg-ui?label=tag)](https://github.com/Taron686/drawsvg-ui/tags)
+[![Build](https://github.com/Taron686/drawsvg-ui/actions/workflows/publish.yml/badge.svg?branch=main)](https://github.com/Taron686/drawsvg-ui/actions/workflows/publish.yml)
+[![PyPI](https://img.shields.io/pypi/v/drawsvg-ui.svg?label=pypi)](https://pypi.org/project/drawsvg-ui/)
+
 This repository provides a graphical user interface designed to make it easier to create files with the [drawsvg](https://pypi.org/project/drawsvg/) library.  
 Instead of writing raw Python code by hand, you can visually place, move, and edit shapes on a canvas, then export your work as a ready-to-use `drawsvg` file. The UI runs on PySide6 and comes with a property inspector, snapping/grid helpers and a set of ready-made shapes.
 
