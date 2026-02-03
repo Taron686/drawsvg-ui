@@ -227,7 +227,18 @@ class SceneHistory(QtCore.QObject):
     def capture_now(self) -> None:
         self._capture_snapshot()
 
+    def _flush_pending_snapshot(self) -> None:
+        if self._ignore_changes or not self._timer.isActive():
+            return
+        # Only flush when we're on the latest state; otherwise we'd
+        # truncate redo history while navigating older states.
+        if self._index != len(self._states) - 1:
+            return
+        self._timer.stop()
+        self._capture_snapshot()
+
     def undo(self) -> None:
+        self._flush_pending_snapshot()
         if not self.can_undo():
             return
         self._index -= 1
@@ -2510,5 +2521,6 @@ class CanvasView(QtWidgets.QGraphicsView):
                     items.append(items.pop(idx))
                 for z, it in enumerate(items):
                     it.setZValue(z)
+                self._history.mark_dirty()
             else:
                 super().contextMenuEvent(event)
