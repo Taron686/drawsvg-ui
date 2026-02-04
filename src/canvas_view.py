@@ -734,11 +734,30 @@ class CanvasView(QtWidgets.QGraphicsView):
             return False
         return True
 
-    def _item_sort_key(self, item: QtWidgets.QGraphicsItem) -> tuple[float, str, float, float]:
+    def _stacking_indices(self) -> dict[int, int]:
+        scene = self.scene()
+        if scene is None:
+            return {}
+        try:
+            ordered = scene.items(QtCore.Qt.SortOrder.AscendingOrder)
+        except TypeError:
+            # Older bindings can miss the overload with explicit sort order.
+            ordered = list(reversed(scene.items()))
+        return {id(item): index for index, item in enumerate(ordered)}
+
+    def _item_sort_key(
+        self,
+        item: QtWidgets.QGraphicsItem,
+        stacking_indices: Mapping[int, int] | None = None,
+    ) -> tuple[float, int, str, float, float]:
         shape = str(item.data(0)) if item.data(0) else item.__class__.__name__
         pos = item.pos()
+        stack_index = -1
+        if stacking_indices is not None:
+            stack_index = int(stacking_indices.get(id(item), -1))
         return (
             round(float(item.zValue()), 6),
+            stack_index,
             shape,
             round(float(pos.x()), 6),
             round(float(pos.y()), 6),
@@ -748,18 +767,23 @@ class CanvasView(QtWidgets.QGraphicsView):
         scene = self.scene()
         if scene is None:
             return {"items": [], "grid_visible": bool(self._show_grid)}
+        stacking_indices = self._stacking_indices()
         items = [
             item
             for item in scene.items()
             if self._is_serializable_item(item) and item.parentItem() is None
         ]
-        items.sort(key=self._item_sort_key)
+        items.sort(key=lambda item: self._item_sort_key(item, stacking_indices))
         return {
-            "items": [self._serialize_item(item) for item in items],
+            "items": [self._serialize_item(item, stacking_indices) for item in items],
             "grid_visible": bool(self._show_grid),
         }
 
-    def _serialize_item(self, item: QtWidgets.QGraphicsItem) -> dict[str, Any]:
+    def _serialize_item(
+        self,
+        item: QtWidgets.QGraphicsItem,
+        stacking_indices: Mapping[int, int] | None = None,
+    ) -> dict[str, Any]:
         shape_value = item.data(0)
         shape = str(shape_value) if shape_value else item.__class__.__name__
         base: dict[str, Any] = {
@@ -861,8 +885,12 @@ class CanvasView(QtWidgets.QGraphicsView):
                 for child in item.childItems()
                 if self._is_serializable_item(child)
             ]
-            children.sort(key=self._item_sort_key)
-            base["children"] = [self._serialize_item(child) for child in children]
+            children.sort(
+                key=lambda child: self._item_sort_key(child, stacking_indices)
+            )
+            base["children"] = [
+                self._serialize_item(child, stacking_indices) for child in children
+            ]
         else:
             width, height = self._item_dimensions(item)
             base["size"] = [width, height]
