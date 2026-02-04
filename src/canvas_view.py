@@ -1570,8 +1570,12 @@ class CanvasView(QtWidgets.QGraphicsView):
         else:
             return None
 
+        scene = self.scene()
+        if scene is None:
+            return None
         item.setData(0, normalized)
-        self.scene().addItem(item)
+        scene.addItem(item)
+        scene.clearSelection()
         item.setSelected(True)
         self._ensure_page_for_item(item, drop_reference)
         self._update_scene_rect()
