@@ -1463,13 +1463,24 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 except Exception:
                     text_dir = None
 
-            text_x = x_top + doc_margin * s
+            text_left = x_top + doc_margin * s
+            text_right = x_top + br.width() * s - doc_margin * s
+            text_center = (text_left + text_right) / 2.0
+            if h_align == "right":
+                text_anchor = "end"
+                text_x = text_right
+            elif h_align == "center":
+                text_anchor = "middle"
+                text_x = text_center
+            else:
+                text_anchor = "start"
+                text_x = text_left
             text_y = y_top + doc_margin * s
 
             base_attrs = [
                 f"fill='{color.name()}'",
                 f"font_family='{font.family()}'",
-                "text_anchor='start'",
+                f"text_anchor='{text_anchor}'",
                 "dominant_baseline='text-before-edge'",
                 "alignment_baseline='text-before-edge'",
                 f"line_height={line_ratio:.6f}",

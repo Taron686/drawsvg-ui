@@ -787,7 +787,17 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                         pass
 
                 doc_margin_scene = doc_margin * scale_factor
-                x_pos = text_x - doc_margin_scene
+                box_w_scene = (
+                    float(box_w) * scale_factor
+                    if box_w is not None
+                    else item.boundingRect().width() * scale_factor
+                )
+                if data_text_h == "right":
+                    x_pos = text_x - (box_w_scene - doc_margin_scene)
+                elif data_text_h == "center":
+                    x_pos = text_x - box_w_scene / 2.0
+                else:
+                    x_pos = text_x - doc_margin_scene
                 y_pos = text_y - doc_margin_scene
                 item.setPos(x_pos, y_pos)
                 br = item.boundingRect()
