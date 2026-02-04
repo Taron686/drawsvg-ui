@@ -14,7 +14,14 @@ from typing import Any, Callable
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtGui import QTransform
 
-from constants import PALETTE_MIME, SHAPES, DEFAULTS
+from constants import (
+    DEFAULTS,
+    HOVER_PREVIEW_COLOR,
+    HOVER_PREVIEW_STRENGTH,
+    HOVER_PREVIEW_X_COUNT,
+    PALETTE_MIME,
+    SHAPES,
+)
 from items import (
     BlockArrowItem,
     CurvyBracketItem,
@@ -706,6 +713,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._prev_drag_mode = self.dragMode()
         self._right_button_pressed = False
         self._suppress_context_menu = False
+        self._hover_preview_item: QtWidgets.QGraphicsItem | None = None
 
         self._history = SceneHistory(self)
         self._history.capture_initial_state()
@@ -1018,7 +1026,42 @@ class CanvasView(QtWidgets.QGraphicsView):
         bounds = item.boundingRect()
         return float(bounds.width()), float(bounds.height())
 
+    def _hover_preview_target_at(
+        self, view_pos: QtCore.QPoint
+    ) -> QtWidgets.QGraphicsItem | None:
+        candidate = self.itemAt(view_pos)
+        selectable = QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+        while candidate is not None and not (candidate.flags() & selectable):
+            candidate = candidate.parentItem()
+        if candidate is None:
+            return None
+        if candidate.isSelected():
+            return None
+        if isinstance(candidate, LineItem):
+            return None
+        if not self._is_serializable_item(candidate):
+            return None
+        return candidate
+
+    def _set_hover_preview_item(self, item: QtWidgets.QGraphicsItem | None) -> None:
+        if item is self._hover_preview_item:
+            return
+        self._hover_preview_item = item
+        self.viewport().update()
+
+    def _clear_hover_preview(self) -> None:
+        self._set_hover_preview_item(None)
+
     def _notify_selection_snapshot(self) -> None:
+        hover_item = self._hover_preview_item
+        if hover_item is not None:
+            try:
+                if hover_item.isSelected():
+                    self._hover_preview_item = None
+                    self.viewport().update()
+            except RuntimeError:
+                self._hover_preview_item = None
+                self.viewport().update()
         payload = self._build_selection_snapshot()
         self.selectionSnapshotChanged.emit(payload)
 
@@ -1455,6 +1498,7 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     def clear_canvas(self):
         """Remove all items from the scene."""
+        self._clear_hover_preview()
         scene = self.scene()
         for item in list(scene.items()):
             if isinstance(item, A4PageItem):
@@ -1476,6 +1520,102 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     def drawBackground(self, painter: QtGui.QPainter, rect: QtCore.QRectF):
         super().drawBackground(painter, rect)
+
+    def drawForeground(self, painter: QtGui.QPainter, rect: QtCore.QRectF) -> None:
+        super().drawForeground(painter, rect)
+
+        del rect
+
+        strength = max(0.0, float(HOVER_PREVIEW_STRENGTH))
+        marker_count = max(0, int(HOVER_PREVIEW_X_COUNT))
+        if strength <= 0.0 or marker_count <= 0:
+            return
+
+        item = self._hover_preview_item
+        scene = self.scene()
+        if item is None or scene is None:
+            return
+
+        try:
+            if item.scene() is not scene:
+                self._hover_preview_item = None
+                return
+        except RuntimeError:
+            self._hover_preview_item = None
+            return
+
+        corners_poly = item.mapToScene(item.boundingRect())
+        if len(corners_poly) < 4:
+            return
+        c0 = QtCore.QPointF(corners_poly[0])
+        c1 = QtCore.QPointF(corners_poly[1])
+        c2 = QtCore.QPointF(corners_poly[2])
+        c3 = QtCore.QPointF(corners_poly[3])
+
+        def lerp(start: QtCore.QPointF, end: QtCore.QPointF, t: float) -> QtCore.QPointF:
+            return QtCore.QPointF(
+                start.x() + (end.x() - start.x()) * t,
+                start.y() + (end.y() - start.y()) * t,
+            )
+
+        transform = painter.worldTransform()
+        sx = math.hypot(transform.m11(), transform.m21())
+        sy = math.hypot(transform.m12(), transform.m22())
+        lod = max((sx + sy) * 0.5, 1e-6)
+        strength_for_size = max(0.5, strength)
+        marker_half = 3.0 * strength_for_size / lod
+
+        base_color = QtGui.QColor(HOVER_PREVIEW_COLOR)
+        if not base_color.isValid():
+            base_color = QtGui.QColor("#14b5ff")
+        outline_color = QtGui.QColor(base_color)
+        outline_color.setAlpha(max(0, min(255, int(round(125 * strength)))))
+        marker_color = QtGui.QColor(base_color)
+        marker_color.setAlpha(max(0, min(255, int(round(220 * strength)))))
+
+        painter.save()
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+
+        outline_pen = QtGui.QPen(outline_color, max(0.6, 1.0 * strength_for_size))
+        outline_pen.setCosmetic(True)
+        painter.setPen(outline_pen)
+        painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+        painter.drawPolygon(QtGui.QPolygonF([c0, c1, c2, c3]))
+
+        marker_pen = QtGui.QPen(marker_color, max(0.7, 1.3 * strength_for_size))
+        marker_pen.setCosmetic(True)
+        painter.setPen(marker_pen)
+
+        edges = ((c0, c1), (c1, c2), (c2, c3), (c3, c0))
+        edge_lengths = [QtCore.QLineF(start, end).length() for start, end in edges]
+        perimeter = sum(edge_lengths)
+        if perimeter <= 1e-6:
+            painter.restore()
+            return
+
+        points: list[QtCore.QPointF] = []
+        for idx in range(marker_count):
+            distance = perimeter * (idx / marker_count)
+            remaining = distance
+            for edge_index, edge_length in enumerate(edge_lengths):
+                if remaining <= edge_length or edge_index == len(edge_lengths) - 1:
+                    start, end = edges[edge_index]
+                    t = 0.0 if edge_length <= 1e-6 else remaining / edge_length
+                    points.append(lerp(start, end, t))
+                    break
+                remaining -= edge_length
+
+        for point in points:
+            painter.drawLine(
+                QtCore.QPointF(point.x() - marker_half, point.y() - marker_half),
+                QtCore.QPointF(point.x() + marker_half, point.y() + marker_half),
+            )
+            painter.drawLine(
+                QtCore.QPointF(point.x() - marker_half, point.y() + marker_half),
+                QtCore.QPointF(point.x() + marker_half, point.y() - marker_half),
+            )
+
+        painter.restore()
 
     def set_grid_visible(self, visible: bool):
         self._show_grid = visible
@@ -1679,7 +1819,9 @@ class CanvasView(QtWidgets.QGraphicsView):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QtGui.QMouseEvent):
-        
+        hover_target = self._hover_preview_target_at(event.position().toPoint())
+        self._set_hover_preview_item(hover_target)
+
         item = self.itemAt(event.position().toPoint())
         if item and item.flags() & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable:
             self.viewport().setCursor(QtCore.Qt.CursorShape.SizeAllCursor)
@@ -1699,6 +1841,7 @@ class CanvasView(QtWidgets.QGraphicsView):
                     QtCore.Qt.CursorShape.ClosedHandCursor
                 )
             if self._panning:
+                self._clear_hover_preview()
                 self._pan_start = event.position()
                 hbar = self.horizontalScrollBar()
                 vbar = self.verticalScrollBar()
@@ -1707,6 +1850,7 @@ class CanvasView(QtWidgets.QGraphicsView):
                 event.accept()
                 return
         if getattr(self, "_dup_source", None):
+            self._clear_hover_preview()
             pos = self.mapToScene(event.position().toPoint())
             delta = pos - self._dup_start
             if self._dup_items is None:
@@ -1730,6 +1874,10 @@ class CanvasView(QtWidgets.QGraphicsView):
             event.accept()
             return
         super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event: QtCore.QEvent) -> None:
+        self._clear_hover_preview()
+        super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event: QtGui.QMouseEvent):
         if event.button() == QtCore.Qt.MouseButton.RightButton:

@@ -49,6 +49,13 @@ DEFAULT_FILL = QtGui.QBrush(QtCore.Qt.white)
 DEFAULT_TEXT_COLOR = QtGui.QColor("#000")
 DEFAULT_FONT_FAMILY = "Arial"
 
+# Hover preview for selectable items in the canvas.
+# Increase/decrease strength for a stronger/weaker effect.
+HOVER_PREVIEW_STRENGTH = 0.8
+# Total number of X markers drawn around the hovered item's border.
+HOVER_PREVIEW_X_COUNT = 16
+HOVER_PREVIEW_COLOR = QtGui.QColor("#14b5ff")
+
 # Default dash patterns used when exporting/importing common pen styles.
 PEN_STYLE_DASH_ARRAYS = {
     QtCore.Qt.PenStyle.SolidLine: (),
