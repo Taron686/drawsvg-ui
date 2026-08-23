@@ -5,6 +5,7 @@ import math
 import json
 import re
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -149,12 +150,19 @@ def _apply_transform(item: QtWidgets.QGraphicsItem, value: str) -> None:
     item.setRotation(_parse_rotate(str(value)))
 
 
-def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget | None = None) -> None:
-    path, _ = QtWidgets.QFileDialog.getOpenFileName(
-        parent, "Load drawsvg-.py…", "", "Python (*.py)"
-    )
-    if not path:
-        return
+def import_drawsvg_py(
+    scene: QtWidgets.QGraphicsScene,
+    parent: QtWidgets.QWidget | None = None,
+    path: str | Path | None = None,
+) -> Path | None:
+    if path is None:
+        selected_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            parent, "Load drawsvg-.py…", "", "Python (*.py)"
+        )
+        if not selected_path:
+            return None
+        path = selected_path
+    path = Path(path).expanduser().resolve()
     try:
         with open(path, "r", encoding="utf-8") as f:
             lines = f.readlines()
@@ -850,5 +858,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
         if parent is not None:
             parent.statusBar().showMessage(f"Loaded: {path}", 5000)
+        return path
     except Exception as e:
         QtWidgets.QMessageBox.critical(parent, "Error loading file", str(e))
+        return None
