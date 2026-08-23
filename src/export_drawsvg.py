@@ -128,6 +128,48 @@ def _pen_dash_array_string(pen: QtGui.QPen) -> str | None:
 
     return None
 
+
+def _item_transform_suffix(item: QtWidgets.QGraphicsItem) -> str:
+
+    """Return the item's complete scene transform as a drawsvg argument."""
+
+    transform = item.sceneTransform()
+
+    matrix = (
+
+        f"matrix({transform.m11():.6f} {transform.m12():.6f} "
+
+        f"{transform.m21():.6f} {transform.m22():.6f} "
+
+        f"{transform.m31():.6f} {transform.m32():.6f})"
+
+    )
+
+    return f", transform='{matrix}'"
+
+
+def _scene_transform_components(
+
+    item: QtWidgets.QGraphicsItem,
+
+) -> tuple[QtCore.QPointF, float, float]:
+
+    """Return top-level position, rotation and uniform scale for an item."""
+
+    transform = item.sceneTransform()
+
+    scale = math.hypot(transform.m11(), transform.m12())
+
+    rotation = math.degrees(math.atan2(transform.m12(), transform.m11()))
+
+    origin = item.transformOriginPoint()
+
+    mapped_origin = transform.map(origin)
+
+    position = mapped_origin - origin
+
+    return position, rotation, scale
+
 def _escape_draw_text(value: str) -> str:
 
     return (
@@ -216,35 +258,17 @@ def _export_shape_label(
 
         pixel_size = fm.height()
 
-    scale = label_item.scale() or 1.0
+    size = pixel_size
 
-    size = pixel_size * scale
-
-    line_px = fm.lineSpacing() * scale
+    line_px = fm.lineSpacing()
 
     line_ratio = line_px / size if size > 0.0 else 1.0
 
-    bounds = item.boundingRect()
-
-    if base_pos is None:
-
-        base_pos = (item.pos().x() + bounds.x(), item.pos().y() + bounds.y())
-
-    if base_size is None:
-
-        base_size = (bounds.width(), bounds.height())
-
-    bx, by = base_pos
-
-    bw, bh = base_size
-
-    label_pos = label_item.pos()
-
     br = label_item.boundingRect()
 
-    text_left = bx + label_pos.x() + br.left()
+    text_left = br.left()
 
-    text_top = by + label_pos.y() + br.top()
+    text_top = br.top()
 
     h_align, v_align = getattr(item, "label_alignment", lambda: ("center", "middle"))()
 
@@ -327,15 +351,7 @@ def _export_shape_label(
 
     attr_str = ", ".join(attrs)
 
-    transform_suffix = ""
-
-    if abs(angle) > 1e-6:
-
-        cx = bx + bw / 2.0
-
-        cy = by + bh / 2.0
-
-        transform_suffix = f", transform='rotate({angle:.2f} {cx:.2f} {cy:.2f})'"
+    transform_suffix = _item_transform_suffix(label_item)
 
     json_lines = [line if line else "\u00A0" for line in raw_lines]
 
@@ -561,19 +577,17 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             r = it.rect()
 
-            x = it.pos().x()
+            x = r.x()
 
-            y = it.pos().y()
+            y = r.y()
 
             w = r.width()
 
             h = r.height()
 
-            cx = x + w / 2.0
+            ang = 0.0
 
-            cy = y + h / 2.0
-
-            ang = it.rotation()
+            transform_suffix = _item_transform_suffix(it)
 
             rx = getattr(it, "rx", 0)
 
@@ -603,21 +617,11 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             attr_str = _format_item_attributes(it, extra_attrs=extra_attrs)
 
-            if abs(ang) > 1e-6:
+            lines.append(
 
-                lines.append(
+                f"    _rect = draw.Rectangle({x:.2f}, {y:.2f}, {w:.2f}, {h:.2f}, {attr_str}{transform_suffix})"
 
-                    f"    _rect = draw.Rectangle({x:.2f}, {y:.2f}, {w:.2f}, {h:.2f}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
-
-                )
-
-            else:
-
-                lines.append(
-
-                    f"    _rect = draw.Rectangle({x:.2f}, {y:.2f}, {w:.2f}, {h:.2f}, {attr_str})"
-
-                )
+            )
 
             lines.append("    d.append(_rect)")
 
@@ -649,19 +653,17 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             r = it.rect()
 
-            x = it.pos().x()
+            x = r.x()
 
-            y = it.pos().y()
+            y = r.y()
 
             w = r.width()
 
             h = r.height()
 
-            cx = x + w / 2.0
+            ang = 0.0
 
-            cy = y + h / 2.0
-
-            ang = it.rotation()
+            transform_suffix = _item_transform_suffix(it)
 
             rx_raw = getattr(it, "rx", 0.0)
 
@@ -703,21 +705,11 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             )
 
-            if abs(ang) > 1e-6:
+            lines.append(
 
-                lines.append(
+                f"    _split_rect = draw.Rectangle({x:.2f}, {y:.2f}, {w:.2f}, {h:.2f}, {attr_str}{transform_suffix})"
 
-                    f"    _split_rect = draw.Rectangle({x:.2f}, {y:.2f}, {w:.2f}, {h:.2f}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
-
-                )
-
-            else:
-
-                lines.append(
-
-                    f"    _split_rect = draw.Rectangle({x:.2f}, {y:.2f}, {w:.2f}, {h:.2f}, {attr_str})"
-
-                )
+            )
 
             lines.append("    d.append(_split_rect)")
 
@@ -763,17 +755,11 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
                     attr = ", ".join(top_attrs)
 
-                    if abs(ang) > 1e-6:
+                    lines.append(
 
-                        lines.append(
+                        f"    _split_top = draw.Path('{path_cmd}', {attr}{transform_suffix})"
 
-                            f"    _split_top = draw.Path('{path_cmd}', {attr}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
-
-                        )
-
-                    else:
-
-                        lines.append(f"    _split_top = draw.Path('{path_cmd}', {attr})")
+                    )
 
                     lines.append("    d.append(_split_top)")
 
@@ -791,21 +777,11 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             x2 = x + w
 
-            if abs(ang) > 1e-6:
+            lines.append(
 
-                lines.append(
+                f"    _split_div = draw.Line({x:.2f}, {line_y:.2f}, {x2:.2f}, {line_y:.2f}, {divider_attr}{transform_suffix})"
 
-                    f"    _split_div = draw.Line({x:.2f}, {line_y:.2f}, {x2:.2f}, {line_y:.2f}, {divider_attr}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
-
-                )
-
-            else:
-
-                lines.append(
-
-                    f"    _split_div = draw.Line({x:.2f}, {line_y:.2f}, {x2:.2f}, {line_y:.2f}, {divider_attr})"
-
-                )
+            )
 
             lines.append("    d.append(_split_div)")
 
@@ -815,9 +791,9 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             r = it.rect()
 
-            x = it.pos().x()
+            x = r.x()
 
-            y = it.pos().y()
+            y = r.y()
 
             w = r.width()
 
@@ -831,7 +807,9 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             ry = h / 2.0
 
-            ang = it.rotation()
+            ang = 0.0
+
+            transform_suffix = _item_transform_suffix(it)
 
             label_id = None
 
@@ -849,21 +827,11 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             attr_str = _format_item_attributes(it, extra_attrs=extra_attrs)
 
-            if abs(ang) > 1e-6:
+            lines.append(
 
-                lines.append(
+                f"    _ell = draw.Ellipse({cx:.2f}, {cy:.2f}, {rx:.2f}, {ry:.2f}, {attr_str}{transform_suffix})"
 
-                    f"    _ell = draw.Ellipse({cx:.2f}, {cy:.2f}, {rx:.2f}, {ry:.2f}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
-
-                )
-
-            else:
-
-                lines.append(
-
-                    f"    _ell = draw.Ellipse({cx:.2f}, {cy:.2f}, {rx:.2f}, {ry:.2f}, {attr_str})"
-
-                )
+            )
 
             lines.append("    d.append(_ell)")
 
@@ -895,9 +863,9 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             r = it.rect()
 
-            x = it.pos().x()
+            x = r.x()
 
-            y = it.pos().y()
+            y = r.y()
 
             w = r.width()
 
@@ -911,7 +879,9 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             cy = y + h / 2.0
 
-            ang = it.rotation()
+            ang = 0.0
+
+            transform_suffix = _item_transform_suffix(it)
 
             label_id = None
 
@@ -929,21 +899,11 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             attr_str = _format_item_attributes(it, extra_attrs=extra_attrs)
 
-            if abs(ang) > 1e-6:
+            lines.append(
 
-                lines.append(
+                f"    _circ = draw.Circle({cx:.2f}, {cy:.2f}, {radius:.2f}, {attr_str}{transform_suffix})"
 
-                    f"    _circ = draw.Circle({cx:.2f}, {cy:.2f}, {radius:.2f}, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
-
-                )
-
-            else:
-
-                lines.append(
-
-                    f"    _circ = draw.Circle({cx:.2f}, {cy:.2f}, {radius:.2f}, {attr_str})"
-
-                )
+            )
 
             lines.append("    d.append(_circ)")
 
@@ -975,43 +935,25 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             poly = it.polygon()
 
-            x = it.pos().x()
-
-            y = it.pos().y()
-
             pts = []
 
             for p in poly:
 
-                pts.extend([x + p.x(), y + p.y()])
+                pts.extend([p.x(), p.y()])
 
             br = it.boundingRect()
 
-            cx = x + br.width() / 2.0
-
-            cy = y + br.height() / 2.0
-
-            ang = it.rotation()
+            transform_suffix = _item_transform_suffix(it)
 
             attr_str = _format_item_attributes(it)
 
             coord_str = ", ".join(f"{v:.2f}" for v in pts)
 
-            if abs(ang) > 1e-6:
+            lines.append(
 
-                lines.append(
+                f"    _tri = draw.Lines({coord_str}, close=True, {attr_str}{transform_suffix})"
 
-                    f"    _tri = draw.Lines({coord_str}, close=True, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
-
-                )
-
-            else:
-
-                lines.append(
-
-                    f"    _tri = draw.Lines({coord_str}, close=True, {attr_str})"
-
-                )
+            )
 
             lines.append("    d.append(_tri)")
 
@@ -1021,23 +963,17 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             poly = it.polygon()
 
-            x = it.pos().x()
-
-            y = it.pos().y()
-
             pts: list[float] = []
 
             for p in poly:
 
-                pts.extend([x + p.x(), y + p.y()])
+                pts.extend([p.x(), p.y()])
 
             br = it.boundingRect()
 
-            cx = x + br.x() + br.width() / 2.0
+            ang = 0.0
 
-            cy = y + br.y() + br.height() / 2.0
-
-            ang = it.rotation()
+            transform_suffix = _item_transform_suffix(it)
 
             label_id = None
 
@@ -1057,27 +993,17 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             coord_str = ", ".join(f"{v:.2f}" for v in pts)
 
-            if abs(ang) > 1e-6:
+            lines.append(
 
-                lines.append(
+                f"    _diamond = draw.Lines({coord_str}, close=True, {attr_str}{transform_suffix})"
 
-                    f"    _diamond = draw.Lines({coord_str}, close=True, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
-
-                )
-
-            else:
-
-                lines.append(
-
-                    f"    _diamond = draw.Lines({coord_str}, close=True, {attr_str})"
-
-                )
+            )
 
             lines.append("    d.append(_diamond)")
 
             if label_id:
 
-                base_pos = (x + br.x(), y + br.y())
+                base_pos = (br.x(), br.y())
 
                 base_size = (br.width(), br.height())
 
@@ -1107,23 +1033,15 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             poly = it.polygon()
 
-            x = it.pos().x()
-
-            y = it.pos().y()
-
             pts: list[float] = []
 
             for p in poly:
 
-                pts.extend([x + p.x(), y + p.y()])
+                pts.extend([p.x(), p.y()])
 
             br = it.boundingRect()
 
-            cx = x + br.width() / 2.0
-
-            cy = y + br.height() / 2.0
-
-            ang = it.rotation()
+            transform_suffix = _item_transform_suffix(it)
 
             attr_str = _format_item_attributes(it)
 
@@ -1135,21 +1053,11 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             coord_str = ", ".join(f"{v:.2f}" for v in pts)
 
-            if abs(ang) > 1e-6:
+            lines.append(
 
-                lines.append(
+                f"    _block_arrow = draw.Lines({coord_str}, close=True, {attr_str}{transform_suffix})"
 
-                    f"    _block_arrow = draw.Lines({coord_str}, close=True, {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
-
-                )
-
-            else:
-
-                lines.append(
-
-                    f"    _block_arrow = draw.Lines({coord_str}, close=True, {attr_str})"
-
-                )
+            )
 
             lines.append("    d.append(_block_arrow)")
 
@@ -1157,23 +1065,17 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
         elif shape == "Curvy Right Bracket" and isinstance(it, CurvyBracketItem):
 
-            x = it.pos().x()
+            x = 0.0
 
-            y = it.pos().y()
+            y = 0.0
 
             w = it.width()
 
             h = it.height()
 
-            cx = x + w / 2.0
-
-            cy = y + h / 2.0
-
-            ang = it.rotation()
-
             path = QtGui.QPainterPath(it.path())
 
-            path.translate(x, y)
+            transform_suffix = _item_transform_suffix(it)
 
             path_cmd = _painter_path_to_svg(path)
 
@@ -1189,17 +1091,11 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             )
 
-            if abs(ang) > 1e-6:
+            lines.append(
 
-                lines.append(
+                f"    _path = draw.Path('{path_cmd}', {attr_str}{transform_suffix})"
 
-                    f"    _path = draw.Path('{path_cmd}', {attr_str}, transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})')"
-
-                )
-
-            else:
-
-                lines.append(f"    _path = draw.Path('{path_cmd}', {attr_str})")
+            )
 
             lines.append("    d.append(_path)")
 
@@ -1209,21 +1105,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             pen = it.pen()
 
-            ang = it.rotation()
-
-            pos = it.pos()
-
-            origin = it.transformOriginPoint()
-
-            cx = pos.x() + origin.x()
-
-            cy = pos.y() + origin.y()
-
-            points = [
-
-                QtCore.QPointF(pos.x() + p.x(), pos.y() + p.y()) for p in it._points
-
-            ]
+            points = [QtCore.QPointF(p) for p in it._points]
 
             if not points:
 
@@ -1264,11 +1146,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             attr_str = ", ".join(attrs)
 
-            transform_suffix = ""
-
-            if abs(ang) > 1e-6:
-
-                transform_suffix = f", transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})'"
+            transform_suffix = _item_transform_suffix(it)
 
             lines.append(f"    _path = draw.Path('{path_cmd}', {attr_str}{transform_suffix})")
 
@@ -1333,11 +1211,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
                 for poly in local_polys:
 
-                    abs_poly = [
-
-                        QtCore.QPointF(pos.x() + p.x(), pos.y() + p.y()) for p in poly
-
-                    ]
+                    abs_poly = [QtCore.QPointF(p) for p in poly]
 
                     arrow_cmd = (
 
@@ -1369,17 +1243,9 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             br = it.boundingRect()
 
-            s = it.scale() or 1.0
+            x_top = br.left()
 
-            cx = it.pos().x() + br.width() / 2.0
-
-            cy = it.pos().y() + br.height() / 2.0
-
-            x_top = cx - (br.width() * s) / 2.0
-
-            y_top = cy - (br.height() * s) / 2.0
-
-            ang = it.rotation()
+            y_top = br.top()
 
             font = it.font()
 
@@ -1405,39 +1271,16 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
                 pixel_size = fm.height()
 
-            size = pixel_size * s
+            size = pixel_size
 
             raw_text = it.toPlainText()
-            text_lines: list[str]
-            doc = it.document()
-            layout = doc.documentLayout() if doc is not None else None
-            if doc is not None and layout is not None:
-                text_lines = []
-                block = doc.begin()
-                while block.isValid():
-                    layout.blockBoundingRect(block)
-                    block_text = block.text()
-                    block_layout = block.layout()
-                    if block_layout is not None and block_layout.lineCount() > 0:
-                        for idx in range(block_layout.lineCount()):
-                            line = block_layout.lineAt(idx)
-                            start = line.textStart()
-                            length = line.textLength()
-                            fragment = block_text[start : start + length]
-                            text_lines.append(fragment)
-                    else:
-                        text_lines.append(block_text)
-                    block = block.next()
-                if not text_lines:
-                    text_lines = [""]
-            else:
-                text_lines = raw_text.splitlines()
-                if raw_text.endswith(("\r", "\n")):
-                    text_lines.append("")
-                if not text_lines:
-                    text_lines = [raw_text]
+            text_lines = raw_text.splitlines()
+            if raw_text.endswith(("\r", "\n")):
+                text_lines.append("")
+            if not text_lines:
+                text_lines = [raw_text]
 
-            line_px = fm.lineSpacing() * s
+            line_px = fm.lineSpacing()
             line_ratio = line_px / size if size > 0.0 else 1.0
 
             color = it.defaultTextColor()
@@ -1455,8 +1298,8 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 except Exception:
                     text_dir = None
 
-            text_x = x_top + doc_margin * s
-            text_y = y_top + doc_margin * s
+            text_x = x_top + doc_margin
+            text_y = y_top + doc_margin
 
             base_attrs = [
                 f"fill='{color.name()}'",
@@ -1468,7 +1311,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 "xml__space='preserve'",
                 f"data_doc_margin={doc_margin:.4f}",
                 f"data_font_px={pixel_size:.4f}",
-                f"data_scale={s:.6f}",
+                "data_scale=1.000000",
             ]
             base_attrs.append(f"data_box_w={br.width():.4f}")
             base_attrs.append(f"data_box_h={br.height():.4f}")
@@ -1488,9 +1331,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             else:
                 text_literal = json.dumps(json_lines, ensure_ascii=False)
 
-            transform_suffix = ""
-            if abs(ang) > 1e-6:
-                transform_suffix = f", transform='rotate({ang:.2f} {cx:.2f} {cy:.2f})'"
+            transform_suffix = _item_transform_suffix(it)
 
             lines.append(
                 f"    _text = draw.Text({text_literal}, {size:.2f}, {text_x:.2f}, {text_y:.2f}, {base_attr_str}{transform_suffix})"
@@ -1502,9 +1343,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             structure_json = json.dumps(it.structure(), ensure_ascii=False)
 
-            pos = it.pos()
-
-            rotation = it.rotation()
+            pos, rotation, scale = _scene_transform_components(it)
 
             br = it.boundingRect()
 
@@ -1514,13 +1353,13 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
                 f"matrix({transform.m11():.6f} {transform.m12():.6f} {transform.m21():.6f} "
 
-                f"{transform.m22():.6f} {transform.m31():.2f} {transform.m32():.2f})"
+                f"{transform.m22():.6f} {transform.m31():.6f} {transform.m32():.6f})"
 
             )
 
             lines.append(
 
-                f"    # FolderTree pos=({pos.x():.2f}, {pos.y():.2f}) size=({br.width():.2f}, {br.height():.2f}) rotation={rotation:.2f} structure={structure_json}"
+                f"    # FolderTree pos=({pos.x():.6f}, {pos.y():.6f}) size=({br.width():.2f}, {br.height():.2f}) rotation={rotation:.6f} scale={scale:.6f} structure={structure_json}"
 
             )
 
