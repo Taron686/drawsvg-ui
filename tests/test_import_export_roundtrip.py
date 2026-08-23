@@ -141,6 +141,27 @@ def test_group_transform_is_flattened_without_moving_children(
         assert actual[shape] == pytest.approx(expected[shape], abs=1e-4)
 
 
+def test_roundtrip_preserves_nonzero_local_shape_coordinates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = CanvasView()
+    circle = source.add_shape(
+        "Circle", QtCore.QPointF(-46.850394, -261.259843), snap_to_grid=False
+    )
+    assert isinstance(circle, QtWidgets.QGraphicsEllipseItem)
+    circle.setRect(15.0, -15.0, 170.0, 170.0)
+    circle.setTransformOriginPoint(circle.rect().center())
+    expected_center = circle.mapToScene(circle.rect().center())
+
+    restored = _roundtrip(monkeypatch, tmp_path, source)
+    restored_circle = _shape_items(restored)["Circle"]
+    actual_center = restored_circle.mapToScene(restored_circle.rect().center())
+
+    assert actual_center.x() == pytest.approx(expected_center.x(), abs=1e-4)
+    assert actual_center.y() == pytest.approx(expected_center.y(), abs=1e-4)
+
+
 @pytest.mark.parametrize(
     "contents",
     [

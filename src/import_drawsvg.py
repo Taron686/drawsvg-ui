@@ -123,6 +123,7 @@ def _apply_transform(item: QtWidgets.QGraphicsItem, value: str) -> None:
             raise ValueError(f"Invalid matrix transform: {value}")
         m11, m12, m21, m22, dx, dy = map(float, parts)
         transform = QtGui.QTransform(m11, m12, m21, m22, dx, dy)
+        local_offset = item.pos()
         scale_x = math.hypot(m11, m12)
         scale_y = math.hypot(m21, m22)
         determinant = m11 * m22 - m12 * m21
@@ -132,14 +133,18 @@ def _apply_transform(item: QtWidgets.QGraphicsItem, value: str) -> None:
             and math.isclose(scale_x, scale_y, rel_tol=1e-6, abs_tol=1e-6)
         ):
             origin = item.transformOriginPoint()
-            item.setPos(transform.map(origin) - origin)
+            item.setPos(transform.map(origin + local_offset) - origin)
             item.setRotation(math.degrees(math.atan2(m12, m11)))
             item.setScale(scale_x)
         else:
+            offset_dx = dx + m11 * local_offset.x() + m21 * local_offset.y()
+            offset_dy = dy + m12 * local_offset.x() + m22 * local_offset.y()
             item.setPos(0.0, 0.0)
             item.setRotation(0.0)
             item.setScale(1.0)
-            item.setTransform(transform)
+            item.setTransform(
+                QtGui.QTransform(m11, m12, m21, m22, offset_dx, offset_dy)
+            )
         return
     item.setRotation(_parse_rotate(str(value)))
 
