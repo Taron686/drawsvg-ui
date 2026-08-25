@@ -51,3 +51,13 @@ von Code ist mindestens die GitNexus-Auswirkungsanalyse (`impact`) für die betr
 Symbole auszuführen; nach der Änderung ist der Umfang mit `detect_changes` zu prüfen.
 Ist der Index veraltet, muss er vorher mit `node .gitnexus/run.cjs analyze --pdg`
 aktualisiert werden.
+
+## Obsidian-Arbeitsweise
+
+Für dieses Projekt wird das Vault unter
+`C:\Users\Foxhound\Documents\Obsidian\UI_drawsvg` direkt über seine Markdown-Dateien
+bearbeitet. Obsidian-Notizen sind durch Lesen und Schreiben der jeweiligen `.md`-Dateien
+zu verwalten; dabei ist gültiges Obsidian Flavored Markdown zu verwenden.
+
+Die Obsidian-CLI darf für dieses Projekt nicht zum Lesen, Erstellen, Bearbeiten, Suchen
+oder Verwalten von Notizen verwendet werden.
