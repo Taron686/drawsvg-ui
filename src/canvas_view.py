@@ -1,7 +1,9 @@
 import json
 import math
-from collections.abc import Mapping
-from typing import Any, Callable
+from collections.abc import Callable, Mapping
+from contextlib import contextmanager
+from functools import wraps
+from typing import Any
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtGui import QTransform
@@ -188,6 +190,43 @@ def _apply_shape_label(item: ShapeLabelMixin, data: Mapping[str, Any] | None) ->
             item.reset_label_color(update=True, base_color=color)
 
 
+class UndoTransactionManager:
+    """Run one callback when the outermost undo transaction completes."""
+
+    def __init__(
+        self,
+        on_outer_begin: Callable[[], None],
+        on_outer_end: Callable[[], None],
+    ) -> None:
+        self._depth = 0
+        self._on_outer_begin = on_outer_begin
+        self._on_outer_end = on_outer_end
+
+    def begin(self) -> None:
+        if self._depth == 0:
+            self._on_outer_begin()
+        self._depth += 1
+
+    def end(self) -> None:
+        if self._depth == 0:
+            raise RuntimeError("Undo transaction ended without a matching begin")
+        self._depth -= 1
+        if self._depth == 0:
+            self._on_outer_end()
+
+    @property
+    def active(self) -> bool:
+        return self._depth > 0
+
+    @contextmanager
+    def transaction(self):
+        self.begin()
+        try:
+            yield
+        finally:
+            self.end()
+
+
 class SceneHistory(QtCore.QObject):
     historyChanged = QtCore.Signal(bool, bool)
 
@@ -202,6 +241,10 @@ class SceneHistory(QtCore.QObject):
         self._timer.setSingleShot(True)
         self._timer.setInterval(250)
         self._timer.timeout.connect(self._capture_snapshot)
+        self._transactions = UndoTransactionManager(
+            self._begin_transaction,
+            self._end_transaction,
+        )
         scene = view.scene()
         if scene is not None:
             scene.changed.connect(self._on_scene_changed)
@@ -215,10 +258,27 @@ class SceneHistory(QtCore.QObject):
     def mark_dirty(self) -> None:
         if self._ignore_changes:
             return
+        if self.transaction_active:
+            return
         self._timer.start()
 
     def capture_now(self) -> None:
         self._capture_snapshot()
+
+    def begin_transaction(self) -> None:
+        self._transactions.begin()
+
+    def end_transaction(self) -> None:
+        self._transactions.end()
+
+    @property
+    def transaction_active(self) -> bool:
+        return self._transactions.active
+
+    @contextmanager
+    def transaction(self):
+        with self._transactions.transaction():
+            yield
 
     def undo(self) -> None:
         if not self.can_undo():
@@ -246,7 +306,22 @@ class SceneHistory(QtCore.QObject):
     def _on_scene_changed(self, _region: list[QtCore.QRectF]) -> None:  # type: ignore[override]
         if self._ignore_changes:
             return
+        if self.transaction_active:
+            return
         self._timer.start()
+
+    def _begin_transaction(self) -> None:
+        if self._ignore_changes:
+            return
+        if self._timer.isActive():
+            self._timer.stop()
+            self._capture_snapshot()
+
+    def _end_transaction(self) -> None:
+        if self._ignore_changes:
+            return
+        self._timer.stop()
+        self._capture_snapshot()
 
     def _serialize_state(self) -> str:
         state = self._view._serialize_scene_state()
@@ -635,6 +710,15 @@ class A4PageItem(QtWidgets.QGraphicsRectItem):
         _draw_lines(self._grid_px, "horizontal", False)
 
         painter.restore()
+
+
+def _undo_transaction(method: Callable[..., Any]) -> Callable[..., Any]:
+    @wraps(method)
+    def wrapped(view: "CanvasView", *args: Any, **kwargs: Any) -> Any:
+        with view.history().transaction():
+            return method(view, *args, **kwargs)
+
+    return wrapped
 
 
 class CanvasView(QtWidgets.QGraphicsView):
@@ -1415,6 +1499,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             self.fitInView(padded, QtCore.Qt.AspectRatioMode.KeepAspectRatio)
         self.centerOn(self._page_item)
 
+    @_undo_transaction
     def clear_canvas(self):
         """Remove all items from the scene."""
         scene = self.scene()
@@ -1476,6 +1561,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         super().resizeEvent(event)
         self._update_scene_rect()
 
+    @_undo_transaction
     def add_shape(
         self,
         shape: str,
@@ -1591,6 +1677,8 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     # --- Duplicate selected items with Ctrl+drag ---
     def mousePressEvent(self, event: QtGui.QMouseEvent):
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            self._history.begin_transaction()
         if event.button() == QtCore.Qt.MouseButton.MiddleButton:
             self._panning = True
             self._pan_start = event.position()
@@ -1720,15 +1808,21 @@ class CanvasView(QtWidgets.QGraphicsView):
                 self._dup_source = []
                 self._ensure_pages_for_items(self.scene().selectedItems())
                 event.accept()
+                if self._history.transaction_active:
+                    self._history.end_transaction()
                 return
             if getattr(self, "_dup_source", None):
                 # Ctrl+click without enough movement -> no duplication
                 self._dup_source = []
                 event.accept()
+                if self._history.transaction_active:
+                    self._history.end_transaction()
                 return
         super().mouseReleaseEvent(event)
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
             self._ensure_pages_for_items(self.scene().selectedItems())
+            if self._history.transaction_active:
+                self._history.end_transaction()
 
     def _clone_item(self, item: QtWidgets.QGraphicsItem):
         if isinstance(item, RectItem):
@@ -1824,6 +1918,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             return
         super().wheelEvent(event)
 
+    @_undo_transaction
     def _group_selected_items(self):
         selected = self.scene().selectedItems()
         if len(selected) < 2:
@@ -1854,6 +1949,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         group.update_handles()
         self._update_scene_rect()
 
+    @_undo_transaction
     def _ungroup_selected_items(self):
         selected = self.scene().selectedItems()
         changed = False
@@ -1884,6 +1980,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             self._update_scene_rect()
 
     # --- Keyboard shortcut to delete selected items ---
+    @_undo_transaction
     def keyPressEvent(self, event: QtGui.QKeyEvent):
         if event.key() == QtCore.Qt.Key.Key_Delete:
             selected = self.scene().selectedItems()
@@ -1928,6 +2025,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         super().keyPressEvent(event)
 
     # --- Alignment helpers ---
+    @_undo_transaction
     def _align_items(self, items, mode: str):
         brs = [it.sceneBoundingRect() for it in items]
         if mode == "grid":
@@ -2421,6 +2519,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         return actions
 
     # --- Context menu for adjusting colors and line width ---
+    @_undo_transaction
     def contextMenuEvent(self, event: QtGui.QContextMenuEvent):
         if self._suppress_context_menu:
             self._suppress_context_menu = False
