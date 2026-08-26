@@ -6,7 +6,7 @@ from typing import Any, Callable
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtGui import QTransform
 
-from constants import PALETTE_MIME, SHAPES, DEFAULTS
+from constants import DEFAULTS, PALETTE_MIME, SHAPES
 from items import (
     BlockArrowItem,
     CurvyBracketItem,
@@ -24,6 +24,7 @@ from items import (
     TextItem,
     TriangleItem,
 )
+from scene_codec import SceneCodec
 
 A4_WIDTH_MM = 210
 A4_HEIGHT_MM = 297
@@ -728,17 +729,21 @@ class CanvasView(QtWidgets.QGraphicsView):
     def _serialize_scene_state(self) -> dict[str, Any]:
         scene = self.scene()
         if scene is None:
-            return {"items": [], "grid_visible": bool(self._show_grid)}
+            return SceneCodec.serialize_state(
+                [], self._serialize_item, grid_visible=bool(self._show_grid)
+            )
         items = [
             item
-            for item in scene.items()
-            if self._is_serializable_item(item) and item.parentItem() is None
+            for item in scene.items(QtCore.Qt.SortOrder.AscendingOrder)
+            if (
+                self._is_serializable_item(item)
+                and not SceneCodec.is_transient(item)
+                and item.parentItem() is None
+            )
         ]
-        items.sort(key=self._item_sort_key)
-        return {
-            "items": [self._serialize_item(item) for item in items],
-            "grid_visible": bool(self._show_grid),
-        }
+        return SceneCodec.serialize_state(
+            items, self._serialize_item, grid_visible=bool(self._show_grid)
+        )
 
     def _serialize_item(self, item: QtWidgets.QGraphicsItem) -> dict[str, Any]:
         shape_value = item.data(0)
@@ -842,8 +847,9 @@ class CanvasView(QtWidgets.QGraphicsView):
                 for child in item.childItems()
                 if self._is_serializable_item(child)
             ]
-            children.sort(key=self._item_sort_key)
-            base["children"] = [self._serialize_item(child) for child in children]
+            base["children"] = SceneCodec.serialize_items(
+                children, self._serialize_item
+            )
         else:
             width, height = self._item_dimensions(item)
             base["size"] = [width, height]
@@ -1156,6 +1162,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             scene.addItem(child)
             group.addToGroup(child)
             self._apply_item_transform(child, child_data)
+            SceneCodec.restore_item_metadata(child, child_data)
             child.setSelected(False)
             child.setFlag(
                 QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
@@ -1176,6 +1183,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         scene = self.scene()
         if scene is None:
             return
+        state = SceneCodec.normalize_state(state)
         self.clear_canvas()
         restored: list[QtWidgets.QGraphicsItem] = []
         items_data = state.get("items") if isinstance(state, Mapping) else None
@@ -1187,6 +1195,7 @@ class CanvasView(QtWidgets.QGraphicsView):
                 if item is None:
                     continue
                 scene.addItem(item)
+                SceneCodec.restore_item_metadata(item, data)
                 if isinstance(item, GroupItem):
                     children = data.get("children")
                     if isinstance(children, list):

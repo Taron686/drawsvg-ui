@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from typing import Any
+from uuid import UUID
 
 import pytest
 from PySide6 import QtCore, QtGui, QtWidgets
 
-import canvas_view as canvas_view_module
 from canvas_view import CanvasView, GroupItem
 from constants import SHAPES
 from items import (
@@ -19,6 +19,7 @@ from items import (
     SplitRoundedRectItem,
     TextItem,
 )
+from scene_codec import KEY_ITEM_ID, KEY_TRANSIENT
 
 POLYGON_GEOMETRY_XFAIL = pytest.mark.xfail(
     strict=True,
@@ -246,25 +247,15 @@ def test_legacy_handle_objects_are_transient(canvas_view: CanvasView) -> None:
     assert all(not entry["class"].endswith("Handle") for entry in state["items"])
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="KEY_TRANSIENT is introduced with SceneCodec; legacy code filters class names.",
-)
 def test_explicit_transient_marker_excludes_item(canvas_view: CanvasView) -> None:
-    transient_key = getattr(canvas_view_module, "KEY_TRANSIENT", None)
-    assert isinstance(transient_key, int)
     preview = QtWidgets.QGraphicsRectItem(0.0, 0.0, 10.0, 10.0)
     preview.setData(0, "Preview")
-    preview.setData(transient_key, True)
+    preview.setData(KEY_TRANSIENT, True)
     canvas_view.scene().addItem(preview)
 
     assert canvas_view._serialize_scene_state()["items"] == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Legacy snapshots have no geometry-independent stack_order field.",
-)
 def test_roundtrip_payload_has_explicit_stack_order(canvas_view: CanvasView) -> None:
     for shape in ("Rectangle", "Ellipse"):
         item = canvas_view.add_shape(shape, QtCore.QPointF(), snap_to_grid=False)
@@ -276,10 +267,6 @@ def test_roundtrip_payload_has_explicit_stack_order(canvas_view: CanvasView) -> 
     assert [entry["stack_order"] for entry in state["items"]] == [0, 1]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Equal-z insertion order is sorted by shape today and is not persisted.",
-)
 def test_equal_z_values_preserve_insertion_order(canvas_view: CanvasView) -> None:
     insertion_order = ("Rectangle", "Ellipse", "Text")
     for shape in insertion_order:
@@ -294,3 +281,23 @@ def test_equal_z_values_preserve_insertion_order(canvas_view: CanvasView) -> Non
     )
 
     assert [entry["shape"] for entry in actual["items"]] == list(insertion_order)
+
+
+def test_scene_codec_payload_has_stable_metadata(canvas_view: CanvasView) -> None:
+    item = canvas_view.add_shape("Rectangle", QtCore.QPointF(), snap_to_grid=False)
+    assert item is not None
+
+    state = canvas_view._serialize_scene_state()
+    entry = state["items"][0]
+
+    assert state["schema_version"] == 1
+    assert entry["type_id"] == "Rectangle"
+    assert entry["layer_id"] == "layer-1"
+    assert isinstance(entry["id"], str)
+    assert str(UUID(entry["id"])) == entry["id"]
+    assert item.data(KEY_ITEM_ID) == entry["id"]
+
+    canvas_view._restore_scene_state(state)
+
+    restored = canvas_view._serialize_scene_state()["items"][0]
+    assert restored["id"] == entry["id"]

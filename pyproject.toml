@@ -39,6 +39,7 @@ py-modules = [
   "main_window",
   "palette",
   "properties_panel",
+  "scene_codec",
 ]
 
 [tool.setuptools.packages.find]
