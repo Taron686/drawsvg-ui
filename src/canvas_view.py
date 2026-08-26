@@ -25,6 +25,7 @@ from items import (
     TriangleItem,
 )
 from scene_codec import SceneCodec
+from shape_registry import SHAPE_REGISTRY
 
 A4_WIDTH_MM = 210
 A4_HEIGHT_MM = 297
@@ -746,8 +747,12 @@ class CanvasView(QtWidgets.QGraphicsView):
         )
 
     def _serialize_item(self, item: QtWidgets.QGraphicsItem) -> dict[str, Any]:
-        shape_value = item.data(0)
-        shape = str(shape_value) if shape_value else item.__class__.__name__
+        registry_data = SHAPE_REGISTRY.serialize(item)
+        shape = (
+            str(registry_data["shape"])
+            if registry_data is not None
+            else str(item.data(0) or item.__class__.__name__)
+        )
         base: dict[str, Any] = {
             "shape": shape,
             "class": item.__class__.__name__,
@@ -757,7 +762,9 @@ class CanvasView(QtWidgets.QGraphicsView):
             "z": float(item.zValue()),
         }
 
-        if isinstance(item, RectItem):
+        if registry_data is not None:
+            base.update(registry_data)
+        elif isinstance(item, RectItem):
             rect = item.rect()
             base["size"] = [float(rect.width()), float(rect.height())]
             base["rx"] = float(getattr(item, "rx", 0.0))
@@ -1003,6 +1010,10 @@ class CanvasView(QtWidgets.QGraphicsView):
             item.setZValue(float(z_val))
 
     def _instantiate_item(self, data: Mapping[str, Any]) -> QtWidgets.QGraphicsItem | None:
+        registered_item = SHAPE_REGISTRY.restore(data)
+        if registered_item is not None:
+            return registered_item
+
         shape = str(data.get("shape", ""))
         size = data.get("size")
         width = height = None
@@ -1483,12 +1494,13 @@ class CanvasView(QtWidgets.QGraphicsView):
         snap_to_grid: bool = True,
     ) -> QtWidgets.QGraphicsItem | None:
         normalized = shape.strip()
-        if normalized not in SHAPES:
+        definition = SHAPE_REGISTRY.get(normalized)
+        if definition is None:
             return None
 
         x = scene_pos.x()
         y = scene_pos.y()
-        w, h = DEFAULTS[normalized]
+        w, h = definition.default_size
 
         if snap_to_grid:
             size = self._grid_size
@@ -1505,34 +1517,10 @@ class CanvasView(QtWidgets.QGraphicsView):
 
         drop_reference = QtCore.QPointF(x + w / 2.0, y + h / 2.0)
 
-        if normalized == "Rectangle":
-            item = RectItem(x, y, w, h)
-        elif normalized == "Rounded Rectangle":
-            item = RectItem(x, y, w, h, 15.0, 15.0)
-        elif normalized == "Split Rounded Rectangle":
-            item = SplitRoundedRectItem(x, y, w, h, 15.0, 15.0)
-        elif normalized in ("Circle", "Ellipse"):
-            item = EllipseItem(x, y, w, h)
-        elif normalized == "Triangle":
-            item = TriangleItem(x, y, w, h)
-        elif normalized == "Diamond":
-            item = DiamondItem(x, y, w, h)
-        elif normalized == "Line":
-            item = LineItem(x, y, w)
-        elif normalized == "Arrow":
-            item = LineItem(x, y, w, arrow_end=True)
-        elif normalized == "Block Arrow":
-            item = BlockArrowItem(x, y, w, h)
-        elif normalized == "Curvy Right Bracket":
-            item = CurvyBracketItem(x, y, w, h)
-        elif normalized == "Text":
-            item = TextItem(x, y, w, h)
-        elif normalized == "Folder Tree":
-            item = FolderTreeItem(x, y, w, h)
-        else:
+        item = SHAPE_REGISTRY.create(normalized, x, y, w, h)
+        if item is None:
             return None
 
-        item.setData(0, normalized)
         self.scene().addItem(item)
         item.setSelected(True)
         self._ensure_page_for_item(item, drop_reference)
@@ -1541,11 +1529,12 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     def add_shape_at_view_center(self, shape: str) -> QtWidgets.QGraphicsItem | None:
         normalized = shape.strip()
-        if normalized not in SHAPES:
+        definition = SHAPE_REGISTRY.get(normalized)
+        if definition is None:
             return None
 
         center = self.mapToScene(self.viewport().rect().center())
-        w, h = DEFAULTS[normalized]
+        w, h = definition.default_size
         if normalized in ("Line", "Arrow"):
             pos = QtCore.QPointF(center.x() - w / 2.0, center.y())
         else:
@@ -1575,7 +1564,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             text = md.text()
 
         shape = text.strip()
-        if shape not in SHAPES:
+        if SHAPE_REGISTRY.get(shape) is None:
             super().dropEvent(event)
             return
 

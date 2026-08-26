@@ -1,0 +1,102 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from PySide6 import QtCore, QtWidgets
+
+from constants import SHAPES
+from export_drawsvg import export_drawsvg_py
+from palette import PaletteList
+from shape_registry import SHAPE_REGISTRY
+
+
+def test_registry_has_one_stable_definition_for_each_existing_shape() -> None:
+    definitions = SHAPE_REGISTRY.definitions()
+
+    assert SHAPE_REGISTRY.type_ids() == SHAPES
+    assert len(definitions) == 13
+    assert len({definition.type_id for definition in definitions}) == 13
+    assert all(definition.python_export_adapter for definition in definitions)
+
+
+def test_registry_creates_and_serializes_each_existing_shape(
+    application: QtWidgets.QApplication,
+) -> None:
+    for definition in SHAPE_REGISTRY.definitions():
+        item = SHAPE_REGISTRY.create(definition.type_id, 10.0, 20.0)
+
+        assert item is not None
+        assert item.data(0) == definition.type_id
+        data = SHAPE_REGISTRY.serialize(item)
+        assert data is not None
+        assert data["type_id"] == definition.type_id
+        assert data["shape"] == definition.palette_label
+
+
+def test_registry_restores_by_type_id_with_legacy_shape_fallback(
+    application: QtWidgets.QApplication,
+) -> None:
+    current = SHAPE_REGISTRY.restore(
+        {"type_id": "Rectangle", "shape": "Unknown", "size": [40.0, 30.0]}
+    )
+    legacy = SHAPE_REGISTRY.restore({"shape": "Circle", "size": [25.0, 25.0]})
+
+    assert current is not None
+    assert current.data(0) == "Rectangle"
+    assert legacy is not None
+    assert legacy.data(0) == "Circle"
+
+
+def test_registry_rejects_unknown_type_id() -> None:
+    assert SHAPE_REGISTRY.create("Unknown", 0.0, 0.0) is None
+    assert SHAPE_REGISTRY.restore({"type_id": "Unknown", "shape": "Rectangle"}) is None
+
+
+def test_registry_factory_preserves_default_line_geometry(
+    application: QtWidgets.QApplication,
+) -> None:
+    line = SHAPE_REGISTRY.create("Line", 5.0, 7.0)
+    arrow = SHAPE_REGISTRY.create("Arrow", 5.0, 7.0)
+
+    assert line is not None
+    assert arrow is not None
+    assert line.pos() == QtCore.QPointF(5.0, 7.0)
+    assert arrow.pos() == QtCore.QPointF(5.0, 7.0)
+    assert not line.arrow_end  # type: ignore[attr-defined]
+    assert arrow.arrow_end  # type: ignore[attr-defined]
+
+
+def test_palette_uses_registry_order(application: QtWidgets.QApplication) -> None:
+    palette = PaletteList()
+    try:
+        assert [
+            palette.item(index).data(QtCore.Qt.ItemDataRole.UserRole)
+            for index in range(palette.count())
+        ] == list(SHAPE_REGISTRY.type_ids())
+    finally:
+        palette.close()
+
+
+def test_python_export_dispatches_all_registered_adapters(
+    application: QtWidgets.QApplication,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    scene = QtWidgets.QGraphicsScene()
+    for index, definition in enumerate(SHAPE_REGISTRY.definitions()):
+        item = SHAPE_REGISTRY.create(definition.type_id, index * 250.0, index * 100.0)
+        assert item is not None
+        scene.addItem(item)
+
+    output = tmp_path / "all_shapes.py"
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
+        lambda *args, **kwargs: (str(output), "Python (*.py)"),
+    )
+
+    export_drawsvg_py(scene)
+
+    code = output.read_text(encoding="utf-8")
+    compile(code, str(output), "exec")
+    assert "def build_drawing():" in code
