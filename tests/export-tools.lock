@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "reference_environment": {
+    "platform": "windows-x86_64",
+    "operating_system": "Windows 10 Pro 19045",
+    "dpi": 144,
+    "color_space": "sRGB",
+    "pixel_format": "RGBA8888",
+    "different_pixel_channel_threshold": 12,
+    "max_mean_channel_difference": 1.5,
+    "max_different_pixel_ratio": 0.001,
+    "max_largest_component_ratio": 0.0002,
+    "component_connectivity": 8,
+    "antialiasing_band_pixels": 1
+  },
+  "resvg": {
+    "version": "0.47.0",
+    "platform_strategy": "Reference comparisons run only on windows-x86_64. Other platforms skip reference comparisons. CI and local reference runs must provision this exact release asset and verify both the archive and extracted executable before use.",
+    "platforms": {
+      "windows-x86_64": {
+        "asset": "resvg-win64.zip",
+        "url": "https://github.com/linebender/resvg/releases/download/v0.47.0/resvg-win64.zip",
+        "archive_sha256": "5684e59ceaa53ce720b49efb441b0918ae99d04e8ce3f6f753664524592d67f1",
+        "binary": "resvg.exe",
+        "binary_sha256": "433a7c744cff561ed64fcf73c7c04e239d7a07ae5f0aadbf1ba8471d63707402"
+      }
+    }
+  },
+  "pypdfium2": {
+    "version": "5.13.0",
+    "platform_strategy": "Install the exact locked PyPI wheel in an isolated test environment. Reference comparisons run only on windows-x86_64; other platforms skip until their wheel filename and SHA-256 are added here.",
+    "platforms": {
+      "windows-x86_64": {
+        "wheel": "pypdfium2-5.13.0-py3-none-win_amd64.whl",
+        "url": "https://files.pythonhosted.org/packages/5d/99/a37b6b902457569468ed5908c94e56cb6c4032541f02cf89f723d42a9148/pypdfium2-5.13.0-py3-none-win_amd64.whl",
+        "sha256": "47dcca2a8d507b5fd24f94c3c9d48fb379430f097bc20f01beff6c963ffbcedb"
+      }
+    }
+  }
+}
