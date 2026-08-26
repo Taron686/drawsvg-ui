@@ -17,6 +17,12 @@ dependencies = [
   "shiboken6>=6.9.2,<7",
 ]
 
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<9",
+  "ruff>=0.12,<1",
+]
+
 [project.gui-scripts]
 drawsvg-ui = "main:main"
 
