@@ -1,8 +1,9 @@
 from PySide6 import QtCore, QtGui, QtWidgets
 import math
 
-from constants import DEFAULTS, DEFAULT_FILL, PALETTE_MIME, PEN_NORMAL, SHAPES
+from constants import DEFAULTS, DEFAULT_FILL, PALETTE_MIME, PEN_NORMAL
 from items import CurvyBracketItem, build_curvy_bracket_path
+from shape_registry import SHAPE_REGISTRY
 
 def _fit_rect_to_ratio(rect: QtCore.QRectF, aspect_ratio: float) -> QtCore.QRectF:
     """Return a copy of *rect* scaled to match the requested aspect ratio."""
@@ -331,10 +332,10 @@ class PaletteList(QtWidgets.QListWidget):
         self._hovered_item: QtWidgets.QListWidgetItem | None = None
         self._hover_brush = QtGui.QBrush(QtGui.QColor("#d2e7ff"))
 
-        for name in SHAPES:
+        for definition in SHAPE_REGISTRY.definitions():
             item = QtWidgets.QListWidgetItem("")
-            item.setData(QtCore.Qt.ItemDataRole.UserRole, name)
-            item.setToolTip(name)
+            item.setData(QtCore.Qt.ItemDataRole.UserRole, definition.type_id)
+            item.setToolTip(definition.palette_label)
             self.addItem(item)
 
         self._refresh_icons(force=True)
@@ -553,4 +554,3 @@ class PaletteList(QtWidgets.QListWidget):
             self._hovered_item.setData(
                 QtCore.Qt.ItemDataRole.BackgroundRole, self._hover_brush
             )
-

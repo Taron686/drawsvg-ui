@@ -6,7 +6,7 @@ from collections.abc import Iterable
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from constants import SHAPES, PEN_STYLE_DASH_ARRAYS, DEFAULT_FONT_FAMILY
+from constants import PEN_STYLE_DASH_ARRAYS, DEFAULT_FONT_FAMILY
 
 from items import (
 
@@ -27,6 +27,7 @@ from items import (
     SplitRoundedRectItem,
 
 )
+from shape_registry import SHAPE_REGISTRY
 
 def _format_item_attributes(
 
@@ -491,7 +492,11 @@ def _arrowhead_polygon(
 
 def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget | None = None):
 
-    shape_items = [it for it in scene.items() if it.data(0) in SHAPES]
+    shape_items = [
+        item
+        for item in scene.items()
+        if SHAPE_REGISTRY.definition_for_item(item) is not None
+    ]
 
     if shape_items:
 
@@ -551,9 +556,12 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
     for it in items:
 
-        shape = it.data(0)
+        definition = SHAPE_REGISTRY.definition_for_item(it)
+        if definition is None:
+            continue
+        adapter = definition.python_export_adapter
 
-        if shape in ("Rectangle", "Rounded Rectangle") and isinstance(
+        if adapter == "rectangle" and isinstance(
 
             it, QtWidgets.QGraphicsRectItem
 
@@ -645,7 +653,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             lines.append("")
 
-        elif shape == "Split Rounded Rectangle" and isinstance(it, SplitRoundedRectItem):
+        elif adapter == "split_rounded_rectangle" and isinstance(it, SplitRoundedRectItem):
 
             r = it.rect()
 
@@ -811,7 +819,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             lines.append("")
 
-        elif shape == "Ellipse" and isinstance(it, QtWidgets.QGraphicsEllipseItem):
+        elif adapter == "ellipse" and isinstance(it, QtWidgets.QGraphicsEllipseItem):
 
             r = it.rect()
 
@@ -891,7 +899,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             lines.append("")
 
-        elif shape == "Circle" and isinstance(it, QtWidgets.QGraphicsEllipseItem):
+        elif adapter == "circle" and isinstance(it, QtWidgets.QGraphicsEllipseItem):
 
             r = it.rect()
 
@@ -971,7 +979,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             lines.append("")
 
-        elif shape == "Triangle" and isinstance(it, QtWidgets.QGraphicsPolygonItem):
+        elif adapter == "triangle" and isinstance(it, QtWidgets.QGraphicsPolygonItem):
 
             poly = it.polygon()
 
@@ -1017,7 +1025,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             lines.append("")
 
-        elif shape == "Diamond" and isinstance(it, DiamondItem):
+        elif adapter == "diamond" and isinstance(it, DiamondItem):
 
             poly = it.polygon()
 
@@ -1103,7 +1111,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             lines.append("")
 
-        elif shape == "Block Arrow" and isinstance(it, BlockArrowItem):
+        elif adapter == "block_arrow" and isinstance(it, BlockArrowItem):
 
             poly = it.polygon()
 
@@ -1155,7 +1163,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             lines.append("")
 
-        elif shape == "Curvy Right Bracket" and isinstance(it, CurvyBracketItem):
+        elif adapter == "curvy_right_bracket" and isinstance(it, CurvyBracketItem):
 
             x = it.pos().x()
 
@@ -1205,7 +1213,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             lines.append("")
 
-        elif shape in ("Line", "Arrow") and isinstance(it, LineItem):
+        elif adapter == "line" and isinstance(it, LineItem):
 
             pen = it.pen()
 
@@ -1365,7 +1373,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             lines.append("")
 
-        elif shape == "Text" and isinstance(it, QtWidgets.QGraphicsTextItem):
+        elif adapter == "text" and isinstance(it, QtWidgets.QGraphicsTextItem):
 
             br = it.boundingRect()
 
@@ -1498,7 +1506,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             lines.append("    d.append(_text)")
             lines.append("")
 
-        elif shape == "Folder Tree" and isinstance(it, FolderTreeItem):
+        elif adapter == "folder_tree" and isinstance(it, FolderTreeItem):
 
             structure_json = json.dumps(it.structure(), ensure_ascii=False)
 
@@ -1697,4 +1705,3 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
         except Exception as e:
 
             QtWidgets.QMessageBox.critical(parent, "Error saving file", str(e))
-
