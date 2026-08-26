@@ -12,7 +12,7 @@ SRC_ROOT = PROJECT_ROOT / "src"
 sys.path.insert(0, str(SRC_ROOT))
 
 import pytest
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 import export_drawsvg
 import import_drawsvg
@@ -104,6 +104,80 @@ def test_text_roundtrip_preserves_explicit_content_only(
 
     assert isinstance(restored_text, QtWidgets.QGraphicsTextItem)
     assert restored_text.toPlainText() == "Text\nwith an explicit break"
+
+
+def test_text_export_uses_visual_lines_but_reimports_original_content(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = CanvasView()
+    text_item = source.add_shape(
+        "Text", QtCore.QPointF(100.0, 120.0), snap_to_grid=False
+    )
+    assert isinstance(text_item, QtWidgets.QGraphicsTextItem)
+    raw_text = "A long paragraph that wraps visually inside its narrow text box."
+    text_item.set_size(120.0, 200.0)
+    text_item.setPlainText(raw_text)
+    visual_lines = export_drawsvg._visual_text_lines(text_item)
+    assert len(visual_lines) > 1
+
+    export_path = tmp_path / "wrapped_text.py"
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
+        lambda *args, **kwargs: (str(export_path), "Python (*.py)"),
+    )
+    export_drawsvg.export_drawsvg_py(source.scene())
+
+    text_call = next(
+        line.strip()
+        for line in export_path.read_text(encoding="utf-8").splitlines()
+        if line.strip().startswith("_text = draw.Text(")
+    )
+    args, kwargs = import_drawsvg._parse_call(text_call)
+    assert args[0] == visual_lines
+    assert kwargs["data_raw_text"] == raw_text
+
+    restored = CanvasView()
+    loaded_path = import_drawsvg.import_drawsvg_py(
+        restored.scene(),
+        path=export_path,
+    )
+    restored_text = _shape_items(restored)["Text"]
+
+    assert loaded_path == export_path.resolve()
+    assert isinstance(restored_text, QtWidgets.QGraphicsTextItem)
+    assert restored_text.toPlainText() == raw_text
+
+
+def test_affine_transform_survives_clone_and_undo(tmp_path: Path) -> None:
+    import_path = tmp_path / "affine.py"
+    import_path.write_text(
+        "import drawsvg as draw\n"
+        "d = draw.Drawing(320, 240, origin=(0, 0))\n"
+        "_rect = draw.Rectangle(0, 0, 80, 40, "
+        "transform='matrix(-1 0 0.5 2 100 50)')\n"
+        "d.append(_rect)\n",
+        encoding="utf-8",
+    )
+    view = CanvasView()
+
+    loaded_path = import_drawsvg.import_drawsvg_py(view.scene(), path=import_path)
+
+    assert loaded_path == import_path.resolve()
+    item = _shape_items(view)["Rectangle"]
+    expected_transform = QtGui.QTransform(item.transform())
+    clone = view._clone_item(item)
+    assert clone is not None
+    assert clone.transform() == expected_transform
+
+    view.history().capture_now()
+    item.setPos(item.pos() + QtCore.QPointF(25.0, 10.0))
+    view.history().capture_now()
+    view.undo()
+    restored_item = _shape_items(view)["Rectangle"]
+
+    assert restored_item.transform() == expected_transform
 
 
 def test_group_transform_is_flattened_without_moving_children(

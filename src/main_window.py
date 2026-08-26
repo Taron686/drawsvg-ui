@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets, QtGui
@@ -270,11 +271,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.properties_panel.update_snapshot(payload)
 
     def _load_recent_files(self) -> list[str]:
-        self._recent_files_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             data = json.loads(self._recent_files_path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeError):
-            data = []
+        except FileNotFoundError:
+            return []
+        except (json.JSONDecodeError, OSError, UnicodeError):
+            return []
 
         recent_files: list[str] = []
         seen: set[str] = set()
@@ -291,14 +293,33 @@ class MainWindow(QtWidgets.QMainWindow):
                 if len(recent_files) == _RECENT_FILES_LIMIT:
                     break
 
-        self._write_recent_files(recent_files)
+        if data != recent_files:
+            self._write_recent_files(recent_files)
         return recent_files
 
     def _write_recent_files(self, recent_files: list[str]) -> None:
-        self._recent_files_path.write_text(
-            json.dumps(recent_files, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        temporary_path: Path | None = None
+        try:
+            self._recent_files_path.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                dir=self._recent_files_path.parent,
+                prefix=f".{self._recent_files_path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temporary_file:
+                temporary_file.write(
+                    json.dumps(recent_files, ensure_ascii=False, indent=2) + "\n"
+                )
+                temporary_path = Path(temporary_file.name)
+            temporary_path.replace(self._recent_files_path)
+        except OSError:
+            if temporary_path is not None:
+                try:
+                    temporary_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     def _install_recent_files_menu(self) -> None:
         file_menu = self.menuBar().findChild(QtWidgets.QMenu, "menuFile")
@@ -339,3 +360,12 @@ class MainWindow(QtWidgets.QMainWindow):
         loaded_path = import_drawsvg_py(self.canvas.scene(), self, path)
         if loaded_path is not None:
             self._remember_recent_file(loaded_path)
+            return
+        failed_key = os.path.normcase(str(Path(path).expanduser().resolve()))
+        self._recent_files = [
+            existing
+            for existing in self._recent_files
+            if os.path.normcase(existing) != failed_key
+        ]
+        self._write_recent_files(self._recent_files)
+        self._refresh_recent_files_menu()

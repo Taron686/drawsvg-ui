@@ -169,7 +169,7 @@ def import_drawsvg_py(
 
         target_scene = scene
         view = target_scene.parent()
-        scene = QtWidgets.QGraphicsScene()
+        parsed_scene = QtWidgets.QGraphicsScene()
         recognized_drawing = False
 
         pending_split: dict[str, Any] | None = None
@@ -300,7 +300,7 @@ def import_drawsvg_py(
                         item.setRotation(rotation)
                     item.setScale(float(info.get("scale", 1.0)))
                     item.setData(0, "Folder Tree")
-                    scene.addItem(item)
+                    parsed_scene.addItem(item)
                 elif line.startswith("# Arrowheads:") and pending_line is not None:
                     comment = line.split(":", 1)[1]
                     start_flag = False
@@ -353,7 +353,7 @@ def import_drawsvg_py(
                     ox = oy = 0.0
                     if "origin" in kwargs and isinstance(kwargs["origin"], (tuple, list)):
                         ox, oy = map(float, kwargs["origin"][:2])
-                    scene.setSceneRect(float(ox), float(oy), float(args[0]), float(args[1]))
+                    parsed_scene.setSceneRect(float(ox), float(oy), float(args[0]), float(args[1]))
 
             elif line.startswith("_folder_tree"):
                 continue
@@ -391,7 +391,7 @@ def import_drawsvg_py(
                 if "transform" in kwargs:
                     _apply_transform(item, kwargs["transform"])
                 item.setData(0, "Split Rounded Rectangle")
-                scene.addItem(item)
+                parsed_scene.addItem(item)
                 pending_split = None
 
             elif line.startswith("_rect = draw.Rectangle("):
@@ -416,7 +416,7 @@ def import_drawsvg_py(
                     pending = shape_label_pending.pop(key, None)
                     if pending:
                         _apply_shape_label(item, pending)
-                scene.addItem(item)
+                parsed_scene.addItem(item)
 
             elif line.startswith("_ell = draw.Ellipse("):
                 args, kwargs = _parse_call(line)
@@ -437,7 +437,7 @@ def import_drawsvg_py(
                     pending = shape_label_pending.pop(key, None)
                     if pending:
                         _apply_shape_label(item, pending)
-                scene.addItem(item)
+                parsed_scene.addItem(item)
 
             elif line.startswith("_circ = draw.Circle("):
                 args, kwargs = _parse_call(line)
@@ -457,7 +457,7 @@ def import_drawsvg_py(
                     pending = shape_label_pending.pop(key, None)
                     if pending:
                         _apply_shape_label(item, pending)
-                scene.addItem(item)
+                parsed_scene.addItem(item)
 
             elif line.startswith("_tri = draw.Lines("):
                 args, kwargs = _parse_call(line)
@@ -473,7 +473,7 @@ def import_drawsvg_py(
                 if "transform" in kwargs:
                     _apply_transform(item, kwargs["transform"])
                 item.setData(0, "Triangle")
-                scene.addItem(item)
+                parsed_scene.addItem(item)
 
             elif line.startswith("_diamond = draw.Lines("):
                 args, kwargs = _parse_call(line)
@@ -496,7 +496,7 @@ def import_drawsvg_py(
                     pending = shape_label_pending.pop(key, None)
                     if pending:
                         _apply_shape_label(item, pending)
-                scene.addItem(item)
+                parsed_scene.addItem(item)
 
             elif line.startswith("_block_arrow = draw.Lines("):
                 args, kwargs = _parse_call(line)
@@ -527,7 +527,7 @@ def import_drawsvg_py(
                 if "transform" in kwargs:
                     _apply_transform(item, kwargs["transform"])
                 item.setData(0, "Block Arrow")
-                scene.addItem(item)
+                parsed_scene.addItem(item)
                 pending_block = None
 
             elif line.startswith("_path = draw.Path("):
@@ -549,7 +549,7 @@ def import_drawsvg_py(
                     if "transform" in kwargs:
                         _apply_transform(item, kwargs["transform"])
                     item.setData(0, "Curvy Right Bracket")
-                    scene.addItem(item)
+                    parsed_scene.addItem(item)
                     pending_bracket = None
                     continue
                 if args:
@@ -620,7 +620,7 @@ def import_drawsvg_py(
                             if "transform" in kwargs:
                                 _apply_transform(item, kwargs["transform"])
                             item.setData(0, "Arrow" if arrow_start or arrow_end else "Line")
-                            scene.addItem(item)
+                            parsed_scene.addItem(item)
                             pending_line = item
                         else:
                             pending_line = None
@@ -637,7 +637,7 @@ def import_drawsvg_py(
                 if "transform" in kwargs:
                     _apply_transform(item, kwargs["transform"])
                 item.setData(0, "Line")
-                scene.addItem(item)
+                parsed_scene.addItem(item)
                 pending_line = item
 
             elif line.startswith("_line = draw.Line("):
@@ -652,7 +652,7 @@ def import_drawsvg_py(
                 if "transform" in kwargs:
                     _apply_transform(item, kwargs["transform"])
                 item.setData(0, "Line")
-                scene.addItem(item)
+                parsed_scene.addItem(item)
                 pending_line = item
 
             # --- NEU: _label = draw.Text(...) mehrzeilig zusammenführen ---
@@ -725,6 +725,8 @@ def import_drawsvg_py(
                     text = "\n".join(parts)
                 else:
                     text = str(raw_text_arg)
+                if "data_raw_text" in kwargs:
+                    text = str(kwargs["data_raw_text"])
                 size = float(args[1])
                 text_x = float(args[2])
                 text_y = float(args[3])
@@ -825,7 +827,7 @@ def import_drawsvg_py(
                 if "transform" in kwargs:
                     _apply_transform(item, kwargs["transform"])
                 item.setData(0, "Text")
-                scene.addItem(item)
+                parsed_scene.addItem(item)
 
         # --- NEU: am Ende verbleibende pending Labels anwenden ---
         for key, data in list(shape_label_pending.items()):
@@ -837,9 +839,9 @@ def import_drawsvg_py(
         if not recognized_drawing:
             raise ValueError("The selected file does not contain a drawsvg drawing.")
 
-        parsed_scene_rect = scene.sceneRect()
+        parsed_scene_rect = parsed_scene.sceneRect()
         parsed_items = [
-            item for item in reversed(scene.items()) if item.parentItem() is None
+            item for item in reversed(parsed_scene.items()) if item.parentItem() is None
         ]
         clear_method = getattr(view, "clear_canvas", None) if view is not None else None
         if callable(clear_method):
@@ -848,7 +850,7 @@ def import_drawsvg_py(
             target_scene.clear()
         target_scene.setSceneRect(parsed_scene_rect)
         for item in parsed_items:
-            scene.removeItem(item)
+            parsed_scene.removeItem(item)
             target_scene.addItem(item)
 
         if view is not None:

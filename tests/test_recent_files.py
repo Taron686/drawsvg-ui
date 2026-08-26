@@ -31,7 +31,7 @@ def test_history_file_is_created_and_limited_to_ten(
     history_path = tmp_path / "recent_files.json"
     window = MainWindow(recent_files_path=history_path)
 
-    assert json.loads(history_path.read_text(encoding="utf-8")) == []
+    assert not history_path.exists()
 
     files = [tmp_path / f"drawing_{index}.py" for index in range(11)]
     for path in files:
@@ -44,6 +44,59 @@ def test_history_file_is_created_and_limited_to_ten(
     stored = json.loads(history_path.read_text(encoding="utf-8"))
     assert stored[0] == str(files[5].resolve())
     assert len(stored) == 10
+
+
+def test_corrupt_history_is_not_overwritten(tmp_path: Path) -> None:
+    history_path = tmp_path / "recent_files.json"
+    corrupt_contents = "{not valid json"
+    history_path.write_text(corrupt_contents, encoding="utf-8")
+
+    window = MainWindow(recent_files_path=history_path)
+
+    assert window._recent_files == []
+    assert history_path.read_text(encoding="utf-8") == corrupt_contents
+
+
+def test_unwritable_history_does_not_prevent_startup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    history_path = tmp_path / "recent_files.json"
+    drawing_path = tmp_path / "drawing.py"
+    history_path.write_text(
+        json.dumps([str(drawing_path), str(drawing_path)]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        main_window.tempfile,
+        "NamedTemporaryFile",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("read-only")),
+    )
+
+    window = MainWindow(recent_files_path=history_path)
+    window._remember_recent_file(tmp_path / "another.py")
+
+    assert window._recent_files[0] == str((tmp_path / "another.py").resolve())
+
+
+def test_failed_recent_file_is_removed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    history_path = tmp_path / "recent_files.json"
+    missing_path = tmp_path / "missing.py"
+    history_path.write_text(
+        json.dumps([str(missing_path.resolve())]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(main_window, "import_drawsvg_py", lambda *_args: None)
+    window = MainWindow(recent_files_path=history_path)
+
+    window._open_recent_file(str(missing_path))
+
+    assert window._recent_files == []
+    assert json.loads(history_path.read_text(encoding="utf-8")) == []
+    assert not window.recent_files_menu.isEnabled()
 
 
 def test_successful_load_updates_recently_opened_menu(

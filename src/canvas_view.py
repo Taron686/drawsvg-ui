@@ -749,6 +749,17 @@ class CanvasView(QtWidgets.QGraphicsView):
             "pos": [float(item.pos().x()), float(item.pos().y())],
             "rotation": float(item.rotation()),
             "scale": float(item.scale()),
+            "transform": [
+                float(item.transform().m11()),
+                float(item.transform().m12()),
+                float(item.transform().m13()),
+                float(item.transform().m21()),
+                float(item.transform().m22()),
+                float(item.transform().m23()),
+                float(item.transform().m31()),
+                float(item.transform().m32()),
+                float(item.transform().m33()),
+            ],
             "z": float(item.zValue()),
         }
 
@@ -983,6 +994,9 @@ class CanvasView(QtWidgets.QGraphicsView):
             self._notify_selection_snapshot()
 
     def _apply_item_transform(self, item: QtWidgets.QGraphicsItem, data: Mapping[str, Any]) -> None:
+        transform = data.get("transform")
+        if isinstance(transform, (list, tuple)) and len(transform) == 9:
+            item.setTransform(QtGui.QTransform(*(float(value) for value in transform)))
         pos = data.get("pos", [0.0, 0.0])
         if isinstance(pos, (list, tuple)) and len(pos) == 2:
             item.setPos(float(pos[0]), float(pos[1]))
@@ -1789,6 +1803,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             return None
         if isinstance(item, ShapeLabelMixin) and isinstance(clone, ShapeLabelMixin):
             clone.copy_label_from(item)
+        clone.setTransform(item.transform())
         clone.setRotation(item.rotation())
         clone.setData(0, item.data(0))
         return clone

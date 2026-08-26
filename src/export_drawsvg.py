@@ -184,6 +184,46 @@ def _escape_draw_text(value: str) -> str:
 
     )
 
+def _visual_text_lines(item: QtWidgets.QGraphicsTextItem) -> list[str]:
+
+    """Return the lines produced by Qt's text layout, including soft wraps."""
+
+    document = item.document()
+
+    if document is None:
+
+        return item.toPlainText().splitlines() or [""]
+
+    document.documentLayout()
+
+    visual_lines: list[str] = []
+
+    block = document.begin()
+
+    while block.isValid():
+
+        block_text = block.text()
+
+        layout = block.layout()
+
+        if layout is None or layout.lineCount() == 0:
+
+            visual_lines.append(block_text)
+
+        else:
+
+            for index in range(layout.lineCount()):
+
+                line = layout.lineAt(index)
+
+                start = line.textStart()
+
+                visual_lines.append(block_text[start : start + line.textLength()])
+
+        block = block.next()
+
+    return visual_lines or [""]
+
 def _export_shape_label(
 
     item: ShapeLabelMixin,
@@ -193,12 +233,6 @@ def _export_shape_label(
     *,
 
     shape_id: str | None,
-
-    angle: float,
-
-    base_pos: tuple[float, float] | None = None,
-
-    base_size: tuple[float, float] | None = None,
 
     var_name: str = "shape_label",
 
@@ -585,8 +619,6 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             h = r.height()
 
-            ang = 0.0
-
             transform_suffix = _item_transform_suffix(it)
 
             rx = getattr(it, "rx", 0)
@@ -635,12 +667,6 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
                     shape_id=label_id,
 
-                    angle=ang,
-
-                    base_pos=(x, y),
-
-                    base_size=(w, h),
-
                     var_name="rect_label",
 
                     label_kind="rect",
@@ -660,8 +686,6 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             w = r.width()
 
             h = r.height()
-
-            ang = 0.0
 
             transform_suffix = _item_transform_suffix(it)
 
@@ -807,8 +831,6 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             ry = h / 2.0
 
-            ang = 0.0
-
             transform_suffix = _item_transform_suffix(it)
 
             label_id = None
@@ -845,12 +867,6 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
                     shape_id=label_id,
 
-                    angle=ang,
-
-                    base_pos=(x, y),
-
-                    base_size=(w, h),
-
                     var_name="ellipse_label",
 
                     label_kind="ellipse",
@@ -878,8 +894,6 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             cx = x + w / 2.0
 
             cy = y + h / 2.0
-
-            ang = 0.0
 
             transform_suffix = _item_transform_suffix(it)
 
@@ -916,12 +930,6 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     lines,
 
                     shape_id=label_id,
-
-                    angle=ang,
-
-                    base_pos=(x, y),
-
-                    base_size=(w, h),
 
                     var_name="circle_label",
 
@@ -971,8 +979,6 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             br = it.boundingRect()
 
-            ang = 0.0
-
             transform_suffix = _item_transform_suffix(it)
 
             label_id = None
@@ -1002,11 +1008,6 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             lines.append("    d.append(_diamond)")
 
             if label_id:
-
-                base_pos = (br.x(), br.y())
-
-                base_size = (br.width(), br.height())
-
                 _export_shape_label(
 
                     it,
@@ -1014,12 +1015,6 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     lines,
 
                     shape_id=label_id,
-
-                    angle=ang,
-
-                    base_pos=base_pos,
-
-                    base_size=base_size,
 
                     var_name="diamond_label",
 
@@ -1274,11 +1269,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             size = pixel_size
 
             raw_text = it.toPlainText()
-            text_lines = raw_text.splitlines()
-            if raw_text.endswith(("\r", "\n")):
-                text_lines.append("")
-            if not text_lines:
-                text_lines = [raw_text]
+            text_lines = _visual_text_lines(it)
 
             line_px = fm.lineSpacing()
             line_ratio = line_px / size if size > 0.0 else 1.0
@@ -1312,6 +1303,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 f"data_doc_margin={doc_margin:.4f}",
                 f"data_font_px={pixel_size:.4f}",
                 "data_scale=1.000000",
+                f"data_raw_text={json.dumps(raw_text, ensure_ascii=False)}",
             ]
             base_attrs.append(f"data_box_w={br.width():.4f}")
             base_attrs.append(f"data_box_h={br.height():.4f}")
