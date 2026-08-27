@@ -1595,6 +1595,9 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     def drawBackground(self, painter: QtGui.QPainter, rect: QtCore.QRectF):
         super().drawBackground(painter, rect)
+
+    def drawForeground(self, painter: QtGui.QPainter, rect: QtCore.QRectF):
+        super().drawForeground(painter, rect)
         if not self._guides_visible or (
             not self._guides and not self._active_snap_guides
         ):

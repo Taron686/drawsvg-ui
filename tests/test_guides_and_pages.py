@@ -196,3 +196,33 @@ def test_view_action_toggles_visible_rulers_and_guides(application) -> None:
     assert window.horizontal_ruler.isHidden()
     assert window.vertical_ruler.isHidden()
     window.close()
+
+
+def test_guide_inside_an_a4_page_is_painted_in_the_foreground(
+    canvas_view, application
+) -> None:
+    canvas_view.resize(600, 500)
+    canvas_view.show()
+    application.processEvents()
+    page = canvas_view._page_item
+    assert page is not None
+    guide_position = 0.0
+    page_rect = page.mapRectToScene(page.rect())
+    assert page_rect.contains(QtCore.QPointF(guide_position, 0.0))
+    canvas_view.add_guide("vertical", guide_position)
+    application.processEvents()
+
+    image = canvas_view.viewport().grab().toImage()
+    guide_x = canvas_view.mapFromScene(QtCore.QPointF(guide_position, 0.0)).x()
+    top = canvas_view.mapFromScene(
+        QtCore.QPointF(guide_position, page_rect.top() + 8.0)
+    ).y()
+    bottom = canvas_view.mapFromScene(
+        QtCore.QPointF(guide_position, page_rect.bottom() - 8.0)
+    ).y()
+
+    assert any(
+        (color := image.pixelColor(guide_x, y)).green() - color.red() > 40
+        and color.blue() - color.red() > 40
+        for y in range(max(0, top), min(image.height(), bottom + 1))
+    )
