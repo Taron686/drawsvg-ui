@@ -5,7 +5,6 @@ import sys
 import zipfile
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -22,7 +21,6 @@ def test_wheel_contains_runtime_logging_module(tmp_path: Path) -> None:
             "wheel",
             str(PROJECT_ROOT),
             "--no-deps",
-            "--no-build-isolation",
             "--wheel-dir",
             str(wheel_dir),
         ],
