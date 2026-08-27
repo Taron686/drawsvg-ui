@@ -727,6 +727,8 @@ def _undo_transaction(method: Callable[..., Any]) -> Callable[..., Any]:
 
 class CanvasView(QtWidgets.QGraphicsView):
     gridVisibilityChanged = QtCore.Signal(bool)
+    guidesVisibilityChanged = QtCore.Signal(bool)
+    viewChanged = QtCore.Signal()
     selectionSnapshotChanged = QtCore.Signal(dict)
 
     def __init__(self, parent=None):
@@ -764,6 +766,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._master_index: tuple[int, int] = (0, 0)
         self._pages: dict[tuple[int, int], A4PageItem] = {}
         self._guides: list[tuple[str, float]] = []
+        self._guides_visible = True
         self._active_snap_guides: dict[str, float] = {}
         self._master_origin = self._page_top_left_for_index(self._master_index)
         self._page_item = self._create_page_item(self._master_index)
@@ -785,6 +788,8 @@ class CanvasView(QtWidgets.QGraphicsView):
 
         scene.selectionChanged.connect(self._notify_selection_snapshot)
         scene.changed.connect(self._on_scene_contents_changed)
+        self.horizontalScrollBar().valueChanged.connect(self.viewChanged)
+        self.verticalScrollBar().valueChanged.connect(self.viewChanged)
         self._notify_selection_snapshot()
 
     def history(self) -> SceneHistory:
@@ -1590,7 +1595,9 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     def drawBackground(self, painter: QtGui.QPainter, rect: QtCore.QRectF):
         super().drawBackground(painter, rect)
-        if not self._guides and not self._active_snap_guides:
+        if not self._guides_visible or (
+            not self._guides and not self._active_snap_guides
+        ):
             return
         painter.save()
         guide_pen = QtGui.QPen(QtGui.QColor("#28c7d9"))
@@ -1653,6 +1660,31 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     def guides(self) -> tuple[tuple[str, float], ...]:
         return tuple(self._guides)
+
+    def guides_visible(self) -> bool:
+        return self._guides_visible
+
+    def set_guides_visible(self, visible: bool) -> None:
+        visible = bool(visible)
+        if visible == self._guides_visible:
+            return
+        self._guides_visible = visible
+        self.viewport().update()
+        self.guidesVisibilityChanged.emit(visible)
+
+    def guide_near(
+        self, orientation: str, position: float
+    ) -> tuple[str, float] | None:
+        if orientation not in ("vertical", "horizontal"):
+            return None
+        threshold_x, threshold_y = self._snap_threshold_scene_units()
+        threshold = threshold_x if orientation == "vertical" else threshold_y
+        candidates = [
+            guide
+            for guide in self._guides
+            if guide[0] == orientation and abs(guide[1] - position) <= threshold
+        ]
+        return min(candidates, key=lambda guide: abs(guide[1] - position), default=None)
 
     def ruler_ticks(
         self, scene_start: float, scene_end: float, *, major_mm: float = 10.0
@@ -1804,6 +1836,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         """Ensure scene rect grows with the view."""
         super().resizeEvent(event)
         self._update_scene_rect()
+        self.viewChanged.emit()
 
     @_undo_transaction
     def add_shape(
@@ -2179,6 +2212,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             self.scale(factor, factor)
             self.setTransformationAnchor(anchor)
             self._update_scene_rect()
+            self.viewChanged.emit()
             event.accept()
             return
         super().wheelEvent(event)

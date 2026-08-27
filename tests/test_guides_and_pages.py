@@ -4,6 +4,8 @@ import pytest
 from PySide6 import QtCore, QtGui
 
 from items import RectItem
+from main_window import MainWindow
+from ruler_widget import RulerWidget
 
 
 @pytest.mark.parametrize("zoom", (0.25, 1.0, 4.0))
@@ -112,3 +114,85 @@ def test_ruler_ticks_are_expressed_in_millimetres(canvas_view) -> None:
 
     assert ticks[0] == pytest.approx((0.0, 0.0))
     assert ticks[1][1] == pytest.approx(10.0)
+
+
+def _mouse_event(
+    event_type: QtCore.QEvent.Type,
+    point: QtCore.QPoint,
+    button: QtCore.Qt.MouseButton,
+    buttons: QtCore.Qt.MouseButton,
+) -> QtGui.QMouseEvent:
+    return QtGui.QMouseEvent(
+        event_type,
+        QtCore.QPointF(point),
+        QtCore.QPointF(point),
+        button,
+        buttons,
+        QtCore.Qt.KeyboardModifier.NoModifier,
+    )
+
+
+def test_horizontal_ruler_creates_moves_and_deletes_a_vertical_guide(
+    canvas_view, application
+) -> None:
+    canvas_view.resize(400, 300)
+    canvas_view.show()
+    ruler = RulerWidget(QtCore.Qt.Orientation.Horizontal, canvas_view)
+    ruler.resize(400, 22)
+    ruler.show()
+    application.processEvents()
+    start = QtCore.QPoint(80, 11)
+    end = QtCore.QPoint(120, 11)
+
+    ruler.mousePressEvent(
+        _mouse_event(
+            QtCore.QEvent.Type.MouseButtonPress,
+            start,
+            QtCore.Qt.MouseButton.LeftButton,
+            QtCore.Qt.MouseButton.LeftButton,
+        )
+    )
+    ruler.mouseMoveEvent(
+        _mouse_event(
+            QtCore.QEvent.Type.MouseMove,
+            end,
+            QtCore.Qt.MouseButton.NoButton,
+            QtCore.Qt.MouseButton.LeftButton,
+        )
+    )
+    ruler.mouseReleaseEvent(
+        _mouse_event(
+            QtCore.QEvent.Type.MouseButtonRelease,
+            end,
+            QtCore.Qt.MouseButton.LeftButton,
+            QtCore.Qt.MouseButton.NoButton,
+        )
+    )
+
+    expected = ruler._scene_position(QtCore.QPointF(end))
+    assert canvas_view.guides() == (("vertical", expected),)
+    ruler.mousePressEvent(
+        _mouse_event(
+            QtCore.QEvent.Type.MouseButtonPress,
+            end,
+            QtCore.Qt.MouseButton.RightButton,
+            QtCore.Qt.MouseButton.RightButton,
+        )
+    )
+    assert canvas_view.guides() == ()
+    ruler.close()
+
+
+def test_view_action_toggles_visible_rulers_and_guides(application) -> None:
+    window = MainWindow()
+    window.show()
+    application.processEvents()
+
+    assert window.horizontal_ruler.isVisible()
+    assert window.vertical_ruler.isVisible()
+    window.actionShow_guides.setChecked(False)
+
+    assert not window.canvas.guides_visible()
+    assert window.horizontal_ruler.isHidden()
+    assert window.vertical_ruler.isHidden()
+    window.close()
