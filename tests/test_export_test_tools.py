@@ -5,6 +5,7 @@ import shutil
 from importlib import metadata
 from pathlib import Path
 
+import export_test_tools
 import pytest
 from export_test_tools import (
     ToolVerificationError,
@@ -16,6 +17,7 @@ from export_test_tools import (
     pdfium_scale,
     sha256_file,
     verify_pypdfium2_version,
+    verify_pypdfium2_wheel,
     verify_resvg_archive,
     verify_resvg_executable,
     verify_resvg_identity,
@@ -43,12 +45,7 @@ def test_lock_defines_reference_environment_and_exact_tool_pins() -> None:
     assert len(resvg_platform["archive_sha256"]) == 64
     assert len(resvg_platform["binary_sha256"]) == 64
     assert tool_lock["pypdfium2"]["version"] == "5.13.0"
-    assert (
-        len(
-            tool_lock["pypdfium2"]["platforms"]["windows-x86_64"]["sha256"]
-        )
-        == 64
-    )
+    assert len(tool_lock["pypdfium2"]["platforms"]["windows-x86_64"]["sha256"]) == 64
     assert pdfium_scale(tool_lock) == 2.0
 
 
@@ -89,11 +86,53 @@ def test_resvg_archive_accepts_the_locked_digest(tmp_path: Path) -> None:
     archive = tmp_path / "resvg-win64.zip"
     archive.write_bytes(b"locked archive contents")
     tool_lock = load_tool_lock()
-    tool_lock["resvg"]["platforms"]["windows-x86_64"]["archive_sha256"] = (
-        sha256_file(archive)
+    tool_lock["resvg"]["platforms"]["windows-x86_64"]["archive_sha256"] = sha256_file(
+        archive
     )
 
     verify_resvg_archive(archive, tool_lock, platform_key="windows-x86_64")
+
+
+def test_resvg_executable_hashes_before_launching(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    executable = tmp_path / "resvg.exe"
+    executable.write_bytes(b"untrusted executable")
+    monkeypatch.setattr(export_test_tools, "sha256_file", lambda _: "0" * 64)
+
+    def must_not_execute(*args, **kwargs) -> None:
+        pytest.fail("an executable with a mismatched hash must not be launched")
+
+    monkeypatch.setattr(export_test_tools.subprocess, "run", must_not_execute)
+
+    with pytest.raises(ToolVerificationError, match="binary SHA-256 mismatch"):
+        verify_resvg_executable(
+            executable,
+            load_tool_lock(),
+            platform_key="windows-x86_64",
+        )
+
+
+def test_pypdfium2_wheel_rejects_hash_mismatch(tmp_path: Path) -> None:
+    wheel = tmp_path / "pypdfium2.whl"
+    wheel.write_bytes(b"unexpected wheel contents")
+
+    with pytest.raises(ToolVerificationError, match="wheel SHA-256 mismatch"):
+        verify_pypdfium2_wheel(
+            wheel,
+            load_tool_lock(),
+            platform_key="windows-x86_64",
+        )
+
+
+def test_pypdfium2_wheel_accepts_the_locked_digest(tmp_path: Path) -> None:
+    wheel = tmp_path / "pypdfium2.whl"
+    wheel.write_bytes(b"locked wheel contents")
+    tool_lock = load_tool_lock()
+    tool_lock["pypdfium2"]["platforms"]["windows-x86_64"]["sha256"] = sha256_file(wheel)
+
+    verify_pypdfium2_wheel(wheel, tool_lock, platform_key="windows-x86_64")
 
 
 def test_pypdfium2_identity_rejects_version_mismatch() -> None:

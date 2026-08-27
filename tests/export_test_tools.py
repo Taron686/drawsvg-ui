@@ -121,8 +121,7 @@ def verify_resvg_identity(
 ) -> None:
     if actual_version != expected_version:
         raise ToolVerificationError(
-            f"resvg version mismatch: expected {expected_version}, "
-            f"got {actual_version}"
+            f"resvg version mismatch: expected {expected_version}, got {actual_version}"
         )
     if actual_binary_sha256.lower() != expected_binary_sha256.lower():
         raise ToolVerificationError(
@@ -146,6 +145,14 @@ def verify_resvg_executable(
     if not executable.is_file():
         raise ToolVerificationError(f"resvg executable not found: {executable}")
 
+    binary_digest = sha256_file(executable)
+    expected_binary_digest = platform_lock["binary_sha256"]
+    if binary_digest.lower() != expected_binary_digest.lower():
+        raise ToolVerificationError(
+            "resvg binary SHA-256 mismatch: "
+            f"expected {expected_binary_digest}, got {binary_digest}"
+        )
+
     result = subprocess.run(
         [str(executable), "--version"],
         check=True,
@@ -157,9 +164,9 @@ def verify_resvg_executable(
         version = version.removeprefix("resvg ")
     verify_resvg_identity(
         actual_version=version,
-        actual_binary_sha256=sha256_file(executable),
+        actual_binary_sha256=binary_digest,
         expected_version=tool_lock["resvg"]["version"],
-        expected_binary_sha256=platform_lock["binary_sha256"],
+        expected_binary_sha256=expected_binary_digest,
     )
 
 
@@ -172,6 +179,32 @@ def verify_pypdfium2_version(
         raise ToolVerificationError(
             f"pypdfium2 version mismatch: expected {expected_version}, "
             f"got {actual_version}"
+        )
+
+
+def verify_pypdfium2_wheel(
+    wheel: Path,
+    tool_lock: dict[str, Any],
+    *,
+    platform_key: str | None = None,
+) -> None:
+    """Verify the locked pypdfium2 wheel before installing it."""
+
+    selected_platform = platform_key or current_platform_key()
+    platform_lock = tool_lock["pypdfium2"]["platforms"].get(selected_platform)
+    if platform_lock is None:
+        raise UnsupportedReferencePlatform(
+            f"no pypdfium2 wheel is locked for {selected_platform}"
+        )
+    if not wheel.is_file():
+        raise ToolVerificationError(f"pypdfium2 wheel not found: {wheel}")
+
+    actual_digest = sha256_file(wheel)
+    expected_digest = platform_lock["sha256"]
+    if actual_digest.lower() != expected_digest.lower():
+        raise ToolVerificationError(
+            "pypdfium2 wheel SHA-256 mismatch: "
+            f"expected {expected_digest}, got {actual_digest}"
         )
 
 
@@ -293,10 +326,7 @@ def assert_within_locked_tolerance(
             f"different pixel ratio {comparison.different_pixel_ratio:.6%} > "
             f"{reference['max_different_pixel_ratio']:.6%}"
         )
-    if (
-        comparison.largest_component_ratio
-        > reference["max_largest_component_ratio"]
-    ):
+    if comparison.largest_component_ratio > reference["max_largest_component_ratio"]:
         failures.append(
             "largest component ratio "
             f"{comparison.largest_component_ratio:.6%} > "
