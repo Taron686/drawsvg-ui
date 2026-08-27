@@ -26,6 +26,7 @@ from items import (
     TextItem,
     TriangleItem,
 )
+from layer_manager import LayerManager
 from scene_codec import SceneCodec
 from shape_registry import SHAPE_REGISTRY
 
@@ -774,6 +775,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._right_button_pressed = False
         self._suppress_context_menu = False
 
+        self._layer_manager = LayerManager(self)
         self._history = SceneHistory(self)
         self._history.capture_initial_state()
 
@@ -783,6 +785,9 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     def history(self) -> SceneHistory:
         return self._history
+
+    def layer_manager(self) -> LayerManager:
+        return self._layer_manager
 
     def undo(self) -> None:
         self._history.undo()
@@ -814,9 +819,11 @@ class CanvasView(QtWidgets.QGraphicsView):
     def _serialize_scene_state(self) -> dict[str, Any]:
         scene = self.scene()
         if scene is None:
-            return SceneCodec.serialize_state(
+            state = SceneCodec.serialize_state(
                 [], self._serialize_item, grid_visible=bool(self._show_grid)
             )
+            state["layers"] = self._layer_manager.serialize_state()
+            return state
         items = [
             item
             for item in scene.items(QtCore.Qt.SortOrder.AscendingOrder)
@@ -826,9 +833,11 @@ class CanvasView(QtWidgets.QGraphicsView):
                 and item.parentItem() is None
             )
         ]
-        return SceneCodec.serialize_state(
+        state = SceneCodec.serialize_state(
             items, self._serialize_item, grid_visible=bool(self._show_grid)
         )
+        state["layers"] = self._layer_manager.serialize_state()
+        return state
 
     def _serialize_item(self, item: QtWidgets.QGraphicsItem) -> dict[str, Any]:
         registry_data = SHAPE_REGISTRY.serialize(item)
@@ -944,6 +953,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         else:
             width, height = self._item_dimensions(item)
             base["size"] = [width, height]
+        base.update(self._layer_manager.item_metadata(item))
         return base
 
     def _format_property_name(self, key: str) -> str:
@@ -1258,6 +1268,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             group.addToGroup(child)
             self._apply_item_transform(child, child_data)
             SceneCodec.restore_item_metadata(child, child_data)
+            self._layer_manager.restore_item_state(child, child_data)
             child.setSelected(False)
             child.setFlag(
                 QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
@@ -1280,6 +1291,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             return
         state = SceneCodec.normalize_state(state)
         self.clear_canvas()
+        self._layer_manager.restore_state(state.get("layers"))
         restored: list[QtWidgets.QGraphicsItem] = []
         items_data = state.get("items") if isinstance(state, Mapping) else None
         if isinstance(items_data, list):
@@ -1291,6 +1303,7 @@ class CanvasView(QtWidgets.QGraphicsView):
                     continue
                 scene.addItem(item)
                 SceneCodec.restore_item_metadata(item, data)
+                self._layer_manager.restore_item_state(item, data)
                 if isinstance(item, GroupItem):
                     children = data.get("children")
                     if isinstance(children, list):
@@ -1298,6 +1311,7 @@ class CanvasView(QtWidgets.QGraphicsView):
                 self._apply_item_transform(item, data)
                 restored.append(item)
         self._ensure_pages_for_items(restored)
+        self._layer_manager.sync_items()
         scene.clearSelection()
         grid_visible = bool(state.get("grid_visible", self._show_grid))
         self._show_grid = grid_visible
@@ -1608,6 +1622,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             return None
 
         self.scene().addItem(item)
+        self._layer_manager.register_item(item)
         item.setSelected(True)
         self._ensure_page_for_item(item, drop_reference)
         self._update_scene_rect()

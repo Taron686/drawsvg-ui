@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6 import QtCore, QtWidgets, QtGui
+from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtUiTools import QUiLoader
 
 from app_info import GITHUB_URL, get_version
 from canvas_view import CanvasView
 from export_drawsvg import export_drawsvg_py
 from import_drawsvg import import_drawsvg_py
+from layers_panel import LayersPanel
 from palette import PaletteList
 from properties_panel import PropertiesPanel
 
@@ -137,17 +138,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.canvas = CanvasView(canvas_container)
 
         self.properties_panel = PropertiesPanel(self.canvas)
+        self.layers_panel = LayersPanel(self.canvas)
+        self.right_panel_tabs = QtWidgets.QTabWidget(properties_container)
+        self.right_panel_tabs.addTab(self.properties_panel, "Properties")
+        self.right_panel_tabs.addTab(self.layers_panel, "Layers")
         properties_min_width = max(
             260,
             self.properties_panel.minimumWidth(),
             self.properties_panel.minimumSizeHint().width(),
+            self.layers_panel.minimumSizeHint().width(),
         )
         properties_container.setMinimumWidth(properties_min_width)
 
         self._replace_placeholder(palette_container, self.palettePlaceholder, self.palette)
         self._replace_placeholder(canvas_container, self.canvasPlaceholder, self.canvas)
         self._replace_placeholder(
-            properties_container, self.propertiesPlaceholder, self.properties_panel
+            properties_container, self.propertiesPlaceholder, self.right_panel_tabs
         )
 
         self.splitter.setStretchFactor(0, 0)
