@@ -171,10 +171,6 @@ def test_all_existing_shape_types_survive_one_roundtrip(
 
 
 @pytest.mark.parametrize("shape", ["Ellipse", "Circle"])
-@pytest.mark.xfail(
-    strict=True,
-    reason="Legacy restore does not apply serialized labels to ellipse-based items.",
-)
 def test_ellipse_labels_roundtrip(
     canvas_view: CanvasView,
     shape: str,

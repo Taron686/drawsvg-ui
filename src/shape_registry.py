@@ -251,6 +251,8 @@ def _restore_ellipse(type_id: str, data: Mapping[str, Any]) -> EllipseItem:
             data.get("brush") if isinstance(data.get("brush"), Mapping) else None
         )
     )
+    label = data.get("label")
+    _apply_label(item, label if isinstance(label, Mapping) else None)
     return item
 
 

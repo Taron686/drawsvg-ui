@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from PySide6 import QtCore, QtWidgets
 
 from constants import SHAPES
@@ -45,6 +46,21 @@ def test_registry_restores_by_type_id_with_legacy_shape_fallback(
     assert current.data(0) == "Rectangle"
     assert legacy is not None
     assert legacy.data(0) == "Circle"
+
+
+@pytest.mark.parametrize("type_id", ["Ellipse", "Circle"])
+def test_registry_roundtrip_preserves_ellipse_labels(
+    application: QtWidgets.QApplication,
+    type_id: str,
+) -> None:
+    item = SHAPE_REGISTRY.create(type_id, 0.0, 0.0)
+
+    assert item is not None
+    item.set_label_text(f"{type_id} label")  # type: ignore[attr-defined]
+    restored = SHAPE_REGISTRY.restore(SHAPE_REGISTRY.serialize(item) or {})
+
+    assert restored is not None
+    assert restored.label_item().toPlainText() == f"{type_id} label"  # type: ignore[attr-defined]
 
 
 def test_registry_rejects_unknown_type_id() -> None:
