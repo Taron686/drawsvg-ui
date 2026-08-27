@@ -476,6 +476,7 @@ def _rewrite_embedded_references(
     id_map: Mapping[str, str],
     asset_map: Mapping[str, str],
 ) -> None:
+    folded_asset_map = {name.casefold(): target for name, target in asset_map.items()}
     pending = [value]
     while pending:
         current = pending.pop()
@@ -498,7 +499,7 @@ def _rewrite_embedded_references(
                         for role, reference in child.items()
                     }
                 elif key == "asset_name":
-                    current[key] = asset_map[child]
+                    current[key] = folded_asset_map[child.casefold()]
                 else:
                     pending.append(child)
         elif isinstance(current, list):

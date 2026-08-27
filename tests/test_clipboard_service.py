@@ -156,6 +156,18 @@ def test_assets_are_deduplicated_and_name_conflicts_are_remapped() -> None:
     assert paste.assets_to_add == (ProjectAsset(expected_name, new_data),)
 
 
+def test_asset_references_are_rewritten_case_insensitively() -> None:
+    encoded = ClipboardService.encode(
+        [{"id": GROUP_ID, "type_id": "Bitmap", "asset_name": "foo.png"}],
+        assets=(ProjectAsset("Foo.PNG", b"image-data", "image/png"),),
+    )
+
+    paste = ClipboardService.prepare_paste(encoded, id_factory=_ids(NEW_GROUP_ID))
+
+    assert paste.items[0]["asset_name"] == "Foo.PNG"
+    assert paste.asset_name_map == {"Foo.PNG": "Foo.PNG"}
+
+
 def test_duplicate_asset_content_inside_payload_is_added_once() -> None:
     data = b"one-copy"
     encoded = ClipboardService.encode(
