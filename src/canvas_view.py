@@ -6,7 +6,6 @@ from functools import wraps
 from typing import Any
 
 from PySide6 import QtCore, QtGui, QtWidgets
-from PySide6.QtGui import QTransform
 
 from constants import DEFAULTS, PALETTE_MIME, SHAPES
 from items import (

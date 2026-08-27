@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-
 _MODULE_PATH = Path(__file__).parents[1] / "benchmarks" / "benchmark_simple_objects.py"
 _SPEC = importlib.util.spec_from_file_location("benchmark_simple_objects", _MODULE_PATH)
 assert _SPEC and _SPEC.loader
