@@ -14,7 +14,9 @@ from export_test_tools import (
     installed_pypdfium2_version,
     load_tool_lock,
     pdfium_scale,
+    sha256_file,
     verify_pypdfium2_version,
+    verify_resvg_archive,
     verify_resvg_executable,
     verify_resvg_identity,
 )
@@ -68,6 +70,30 @@ def test_resvg_identity_rejects_version_or_hash_mismatch(
             expected_version="0.47.0",
             expected_binary_sha256="a" * 64,
         )
+
+
+def test_resvg_archive_rejects_hash_mismatch(tmp_path: Path) -> None:
+    archive = tmp_path / "resvg-win64.zip"
+    archive.write_bytes(b"unexpected archive contents")
+    tool_lock = load_tool_lock()
+
+    with pytest.raises(ToolVerificationError, match="archive SHA-256 mismatch"):
+        verify_resvg_archive(
+            archive,
+            tool_lock,
+            platform_key="windows-x86_64",
+        )
+
+
+def test_resvg_archive_accepts_the_locked_digest(tmp_path: Path) -> None:
+    archive = tmp_path / "resvg-win64.zip"
+    archive.write_bytes(b"locked archive contents")
+    tool_lock = load_tool_lock()
+    tool_lock["resvg"]["platforms"]["windows-x86_64"]["archive_sha256"] = (
+        sha256_file(archive)
+    )
+
+    verify_resvg_archive(archive, tool_lock, platform_key="windows-x86_64")
 
 
 def test_pypdfium2_identity_rejects_version_mismatch() -> None:

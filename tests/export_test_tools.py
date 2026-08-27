@@ -16,9 +16,10 @@ from dataclasses import dataclass
 from hashlib import sha256
 from importlib import metadata
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from PySide6 import QtGui
+if TYPE_CHECKING:
+    from PySide6 import QtGui
 
 LOCK_PATH = Path(__file__).with_name("export-tools.lock")
 
@@ -83,6 +84,32 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: file_handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def verify_resvg_archive(
+    archive: Path,
+    tool_lock: dict[str, Any],
+    *,
+    platform_key: str | None = None,
+) -> None:
+    """Verify the downloaded release archive before extracting it."""
+
+    selected_platform = platform_key or current_platform_key()
+    platform_lock = tool_lock["resvg"]["platforms"].get(selected_platform)
+    if platform_lock is None:
+        raise UnsupportedReferencePlatform(
+            f"no resvg reference archive is locked for {selected_platform}"
+        )
+    if not archive.is_file():
+        raise ToolVerificationError(f"resvg archive not found: {archive}")
+
+    actual_digest = sha256_file(archive)
+    expected_digest = platform_lock["archive_sha256"]
+    if actual_digest.lower() != expected_digest.lower():
+        raise ToolVerificationError(
+            "resvg archive SHA-256 mismatch: "
+            f"expected {expected_digest}, got {actual_digest}"
+        )
 
 
 def verify_resvg_identity(
@@ -153,6 +180,8 @@ def installed_pypdfium2_version() -> str:
 
 
 def load_rgba_image(path: Path) -> QtGui.QImage:
+    from PySide6 import QtGui
+
     image = QtGui.QImage(str(path))
     if image.isNull():
         raise ValueError(f"could not load image: {path}")
@@ -165,6 +194,8 @@ def compare_rgba_images(
     *,
     channel_threshold: int = 12,
 ) -> ImageComparison:
+    from PySide6 import QtGui
+
     if not 0 <= channel_threshold <= 255:
         raise ValueError("channel_threshold must be between 0 and 255")
     if reference.size() != actual.size():
