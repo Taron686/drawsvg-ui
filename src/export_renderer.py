@@ -73,6 +73,15 @@ class ExportRenderer:
         self._report_font_fallbacks(request)
         with self._temporary_export_state(request.hidden_items):
             for output_path, source_rect in zip(output_paths, source_rects, strict=True):
+                if request.text_strategy is TextStrategy.CONVERT_TO_PATHS:
+                    output_path.write_bytes(
+                        self._svg_with_background(
+                            self._scene_svg_with_text_paths(source_rect, request.scale),
+                            source_rect,
+                            request.background,
+                        )
+                    )
+                    continue
                 generator = QtSvg.QSvgGenerator()
                 generator.setFileName(str(output_path))
                 generator.setSize(self._pixel_size(source_rect, request.scale))
@@ -236,7 +245,9 @@ class ExportRenderer:
         finally:
             painter.restore()
 
-    def _scene_svg_with_text_paths(self, source_rect: QtCore.QRectF) -> QtCore.QByteArray:
+    def _scene_svg_with_text_paths(
+        self, source_rect: QtCore.QRectF, scale: float = 1.0
+    ) -> QtCore.QByteArray:
         data = QtCore.QByteArray()
         buffer = QtCore.QBuffer(data)
         if not buffer.open(QtCore.QIODevice.OpenModeFlag.WriteOnly):
@@ -244,7 +255,7 @@ class ExportRenderer:
 
         generator = QtSvg.QSvgGenerator()
         generator.setOutputDevice(buffer)
-        generator.setSize(self._pixel_size(source_rect, 1.0))
+        generator.setSize(self._pixel_size(source_rect, scale))
         generator.setViewBox(
             QtCore.QRectF(0.0, 0.0, source_rect.width(), source_rect.height())
         )
@@ -263,6 +274,30 @@ class ExportRenderer:
             painter.end()
             buffer.close()
         return QtCore.QByteArray(self._svg_text_to_paths(bytes(data)))
+
+    @staticmethod
+    def _svg_with_background(
+        svg: QtCore.QByteArray,
+        source_rect: QtCore.QRectF,
+        background: QtGui.QColor | None,
+    ) -> bytes:
+        if background is None:
+            return bytes(svg)
+
+        root = ElementTree.fromstring(bytes(svg))
+        namespace = root.tag.partition("}")[0].removeprefix("{")
+        rect_tag = f"{{{namespace}}}rect" if namespace else "rect"
+        attributes = {
+            "x": "0",
+            "y": "0",
+            "width": f"{source_rect.width():.6g}",
+            "height": f"{source_rect.height():.6g}",
+            "fill": background.name(QtGui.QColor.NameFormat.HexRgb),
+        }
+        if background.alpha() != 255:
+            attributes["fill-opacity"] = f"{background.alphaF():.6g}"
+        root.insert(0, ElementTree.Element(rect_tag, attributes))
+        return ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
 
     @classmethod
     def _svg_text_to_paths(cls, svg: bytes) -> bytes:
