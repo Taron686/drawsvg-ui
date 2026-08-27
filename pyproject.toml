@@ -31,6 +31,7 @@ package-dir = { "" = "src" }
 include-package-data = true
 py-modules = [
   "app_info",
+  "app_logging",
   "canvas_view",
   "constants",
   "document_format",
