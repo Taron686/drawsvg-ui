@@ -6,7 +6,6 @@ from functools import wraps
 from typing import Any
 
 from PySide6 import QtCore, QtGui, QtWidgets
-from PySide6.QtGui import QTransform
 
 from constants import DEFAULTS, PALETTE_MIME, SHAPES
 from items import (
@@ -232,11 +231,19 @@ class UndoTransactionManager:
 class SceneHistory(QtCore.QObject):
     historyChanged = QtCore.Signal(bool, bool)
 
-    def __init__(self, view: "CanvasView", *, max_states: int = 50) -> None:
+    def __init__(
+        self,
+        view: "CanvasView",
+        *,
+        max_states: int = 50,
+        max_bytes: int = 64 * 1024 * 1024,
+    ) -> None:
         super().__init__(view)
         self._view = view
         self._max_states = max(1, int(max_states))
+        self._max_bytes = max(1, int(max_bytes))
         self._states: list[str] = []
+        self._history_bytes = 0
         self._index = -1
         self._ignore_changes = False
         self._timer = QtCore.QTimer(self)
@@ -253,9 +260,15 @@ class SceneHistory(QtCore.QObject):
 
     def capture_initial_state(self) -> None:
         self._states.clear()
+        self._history_bytes = 0
         self._index = -1
         self._capture_snapshot(force=True)
         self._notify()
+
+    @property
+    def history_bytes(self) -> int:
+        """Current UTF-8 size of retained serialized history snapshots."""
+        return self._history_bytes
 
     def mark_dirty(self) -> None:
         if self._ignore_changes:
@@ -335,15 +348,27 @@ class SceneHistory(QtCore.QObject):
         state_str = self._serialize_state()
         if not force and self._index >= 0 and self._states[self._index] == state_str:
             return
+        state_bytes = len(state_str.encode("utf-8"))
+        if state_bytes > self._max_bytes:
+            return
         if self._index < len(self._states) - 1:
+            self._history_bytes -= sum(
+                len(snapshot.encode("utf-8")) for snapshot in self._states[self._index + 1 :]
+            )
             self._states = self._states[: self._index + 1]
         self._states.append(state_str)
+        self._history_bytes += state_bytes
         if len(self._states) > self._max_states:
             overflow = len(self._states) - self._max_states
+            self._history_bytes -= sum(
+                len(snapshot.encode("utf-8")) for snapshot in self._states[:overflow]
+            )
             self._states = self._states[overflow:]
             self._index = len(self._states) - 1
-        else:
-            self._index = len(self._states) - 1
+        while self._history_bytes > self._max_bytes and len(self._states) > 1:
+            self._history_bytes -= len(self._states[0].encode("utf-8"))
+            self._states.pop(0)
+        self._index = len(self._states) - 1
         self._notify()
 
     def _apply_current_state(self) -> None:

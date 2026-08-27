@@ -30,6 +30,8 @@ from PySide6 import QtCore, QtGui, QtWidgets
 DEFAULT_COUNTS = (100, 1000, 2000)
 DEFAULT_REPETITIONS = 20
 DEFAULT_WARMUPS = 3
+DEFAULT_HISTORY_STATES = 50
+DEFAULT_HISTORY_BYTES = 64 * 1024 * 1024
 
 
 def _simple_object_payload(index: int) -> dict[str, int | str]:
@@ -113,11 +115,81 @@ def _run_case(object_count: int, repetitions: int) -> dict[str, Any]:
     }
 
 
+def _bounded_history_append(
+    history: list[bytes],
+    payload: bytes,
+    *,
+    max_states: int = DEFAULT_HISTORY_STATES,
+    max_bytes: int = DEFAULT_HISTORY_BYTES,
+) -> bool:
+    """Append one snapshot while enforcing both history limits."""
+    if max_states < 1 or max_bytes < 1:
+        raise ValueError("history limits must be positive")
+    if len(payload) > max_bytes:
+        return False
+    history.append(payload)
+    while len(history) > max_states or sum(map(len, history)) > max_bytes:
+        history.pop(0)
+    return True
+
+
+def _history_snapshot(state_index: int, object_count: int) -> bytes:
+    """Create a deterministic serialized snapshot for history measurements."""
+    payload = {
+        "state_index": state_index,
+        "items": [_simple_object_payload(index) for index in range(object_count)],
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _run_history_case(
+    *,
+    object_count: int,
+    repetitions: int,
+    max_states: int = DEFAULT_HISTORY_STATES,
+    max_bytes: int = DEFAULT_HISTORY_BYTES,
+) -> dict[str, Any]:
+    """Measure bounded history growth and report both contract limits."""
+    timings_ms: list[float] = []
+    final_history: list[bytes] = []
+    for _ in range(repetitions):
+        history: list[bytes] = []
+        start_ns = time.perf_counter_ns()
+        for state_index in range(max_states + 1):
+            _bounded_history_append(
+                history,
+                _history_snapshot(state_index, object_count),
+                max_states=max_states,
+                max_bytes=max_bytes,
+            )
+        timings_ms.append((time.perf_counter_ns() - start_ns) / 1_000_000)
+        final_history = history
+
+    total_bytes = sum(map(len, final_history))
+    assert len(final_history) <= max_states
+    assert total_bytes <= max_bytes
+    timings_ms.sort()
+    return {
+        "object_count": object_count,
+        "requested_states": max_states + 1,
+        "retained_states": len(final_history),
+        "history_bytes": total_bytes,
+        "history_state_limit": max_states,
+        "history_byte_limit": max_bytes,
+        "samples_ms": timings_ms,
+        "median_ms": statistics.median(timings_ms),
+        "p95_ms": _percentile(timings_ms, 95),
+        "max_ms": max(timings_ms),
+    }
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--counts", type=int, nargs="+", default=DEFAULT_COUNTS)
     parser.add_argument("--repetitions", type=int, default=DEFAULT_REPETITIONS)
     parser.add_argument("--warmups", type=int, default=DEFAULT_WARMUPS)
+    parser.add_argument("--history-states", type=int, default=DEFAULT_HISTORY_STATES)
+    parser.add_argument("--history-bytes", type=int, default=DEFAULT_HISTORY_BYTES)
     parser.add_argument("--output", type=Path, help="Write the JSON report to this path.")
     args = parser.parse_args()
     if any(count <= 0 for count in args.counts):
@@ -126,6 +198,10 @@ def _parse_args() -> argparse.Namespace:
         parser.error("--repetitions must be at least 2")
     if args.warmups < 0:
         parser.error("--warmups must be zero or greater")
+    if args.history_states < 1:
+        parser.error("--history-states must be positive")
+    if args.history_bytes < 1:
+        parser.error("--history-bytes must be positive")
     return args
 
 
@@ -140,6 +216,13 @@ def main() -> int:
         for count in args.counts:
             for _ in range(args.warmups):
                 _build_and_serialize(count)
+        for _ in range(args.warmups):
+            _run_history_case(
+                object_count=max(args.counts),
+                repetitions=args.repetitions,
+                max_states=args.history_states,
+                max_bytes=args.history_bytes,
+            )
         report = {
             "schema_version": 1,
             "kind": "baseline-only",
@@ -159,6 +242,18 @@ def main() -> int:
                 "reason": "M0 establishes the baseline; this benchmark never fails on these limits.",
             },
             "results": [_run_case(count, args.repetitions) for count in args.counts],
+            "history_contract": {
+                "operation": "serialize and retain one snapshot per history state",
+                "state_limit": args.history_states,
+                "byte_limit": args.history_bytes,
+                "gates": "active",
+                "result": _run_history_case(
+                    object_count=max(args.counts),
+                    repetitions=args.repetitions,
+                    max_states=args.history_states,
+                    max_bytes=args.history_bytes,
+                ),
+            },
         }
     finally:
         if gc_enabled:
