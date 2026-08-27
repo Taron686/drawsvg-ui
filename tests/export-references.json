@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "scene_id": "builtins-grid-v1",
+  "shape_type_ids": [
+    "Rectangle",
+    "Rounded Rectangle",
+    "Split Rounded Rectangle",
+    "Ellipse",
+    "Circle",
+    "Triangle",
+    "Diamond",
+    "Line",
+    "Arrow",
+    "Block Arrow",
+    "Curvy Right Bracket",
+    "Text",
+    "Folder Tree"
+  ],
+  "page": [0, 0, 720, 560],
+  "background": "#ffffff",
+  "scale": 2.0,
+  "text_strategy": "convert_to_paths",
+  "formats": ["svg", "png", "pdf", "drawsvg_python"],
+  "tolerance_contract": "export-tools.lock"
+}
