@@ -7,12 +7,14 @@ while the scene is painted.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+import warnings
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from math import ceil
 from pathlib import Path
+from xml.etree import ElementTree
 
 from PySide6 import QtCore, QtGui, QtSvg, QtWidgets
 
@@ -24,6 +26,17 @@ class ExportArea(str, Enum):
     CURRENT_PAGE = "current_page"
     CANVAS = "canvas"
     ALL_PAGES = "all_pages"
+
+
+class TextStrategy(str, Enum):
+    """How text is represented in portable vector exports."""
+
+    KEEP_TEXT = "keep_text"
+    CONVERT_TO_PATHS = "convert_to_paths"
+
+
+class FontFallbackWarning(UserWarning):
+    """Warn that an export uses a substitute font family."""
 
 
 @dataclass(frozen=True)
@@ -42,6 +55,8 @@ class ExportRequest:
         default_factory=lambda: QtGui.QColor(QtCore.Qt.GlobalColor.white)
     )
     scale: float = 1.0
+    text_strategy: TextStrategy = TextStrategy.KEEP_TEXT
+    font_fallback_reporter: Callable[[str, str], None] | None = None
 
 
 class ExportRenderer:
@@ -55,8 +70,18 @@ class ExportRenderer:
 
         source_rects = self._source_rects(request)
         output_paths = self._output_paths(path, len(source_rects), request.area)
+        self._report_font_fallbacks(request)
         with self._temporary_export_state(request.hidden_items):
             for output_path, source_rect in zip(output_paths, source_rects, strict=True):
+                if request.text_strategy is TextStrategy.CONVERT_TO_PATHS:
+                    output_path.write_bytes(
+                        self._svg_with_background(
+                            self._scene_svg_with_text_paths(source_rect, request.scale),
+                            source_rect,
+                            request.background,
+                        )
+                    )
+                    continue
                 generator = QtSvg.QSvgGenerator()
                 generator.setFileName(str(output_path))
                 generator.setSize(self._pixel_size(source_rect, request.scale))
@@ -65,7 +90,12 @@ class ExportRenderer:
                 if not painter.isActive():
                     raise RuntimeError(f"Could not open SVG output: {output_path}")
                 try:
-                    self._paint(painter, source_rect, request.background)
+                    self._paint(
+                        painter,
+                        source_rect,
+                        request.background,
+                        request.text_strategy,
+                    )
                 finally:
                     painter.end()
         return output_paths
@@ -75,6 +105,7 @@ class ExportRenderer:
 
         source_rects = self._source_rects(request)
         output_paths = self._output_paths(path, len(source_rects), request.area)
+        self._report_font_fallbacks(request)
         with self._temporary_export_state(request.hidden_items):
             for output_path, source_rect in zip(output_paths, source_rects, strict=True):
                 image = QtGui.QImage(
@@ -84,7 +115,13 @@ class ExportRenderer:
                 image.fill(QtCore.Qt.GlobalColor.transparent)
                 painter = QtGui.QPainter(image)
                 try:
-                    self._paint(painter, source_rect, request.background)
+                    self._paint(
+                        painter,
+                        source_rect,
+                        request.background,
+                        request.text_strategy,
+                        QtCore.QRectF(image.rect()),
+                    )
                 finally:
                     painter.end()
                 if not image.save(str(output_path), "PNG"):
@@ -99,6 +136,7 @@ class ExportRenderer:
         writer = QtGui.QPdfWriter(str(output_path))
         writer.setResolution(72)
         writer.setPageSize(self._pdf_page_size(source_rects[0]))
+        self._report_font_fallbacks(request)
         with self._temporary_export_state(request.hidden_items):
             painter = QtGui.QPainter(writer)
             if not painter.isActive():
@@ -108,7 +146,12 @@ class ExportRenderer:
                     if index:
                         writer.setPageSize(self._pdf_page_size(source_rect))
                         writer.newPage()
-                    self._paint(painter, source_rect, request.background)
+                    self._paint(
+                        painter,
+                        source_rect,
+                        request.background,
+                        request.text_strategy,
+                    )
             finally:
                 painter.end()
         return output_path
@@ -175,20 +218,184 @@ class ExportRenderer:
         painter: QtGui.QPainter,
         source_rect: QtCore.QRectF,
         background: QtGui.QColor | None,
+        text_strategy: TextStrategy,
+        target_rect: QtCore.QRectF | None = None,
     ) -> None:
-        target_rect = QtCore.QRectF(0.0, 0.0, source_rect.width(), source_rect.height())
+        if target_rect is None:
+            target_rect = QtCore.QRectF(
+                0.0, 0.0, source_rect.width(), source_rect.height()
+            )
         painter.save()
         try:
             if background is not None:
                 painter.fillRect(target_rect, background)
+            if text_strategy is TextStrategy.CONVERT_TO_PATHS:
+                svg = self._scene_svg_with_text_paths(source_rect)
+                renderer = QtSvg.QSvgRenderer(svg)
+                if not renderer.isValid():
+                    raise RuntimeError("Could not render text-path export")
+                renderer.render(painter, target_rect)
+            else:
+                self._scene.render(
+                    painter,
+                    target_rect,
+                    source_rect,
+                    QtCore.Qt.AspectRatioMode.IgnoreAspectRatio,
+                )
+        finally:
+            painter.restore()
+
+    def _scene_svg_with_text_paths(
+        self, source_rect: QtCore.QRectF, scale: float = 1.0
+    ) -> QtCore.QByteArray:
+        data = QtCore.QByteArray()
+        buffer = QtCore.QBuffer(data)
+        if not buffer.open(QtCore.QIODevice.OpenModeFlag.WriteOnly):
+            raise RuntimeError("Could not create text-path export buffer")
+
+        generator = QtSvg.QSvgGenerator()
+        generator.setOutputDevice(buffer)
+        generator.setSize(self._pixel_size(source_rect, scale))
+        generator.setViewBox(
+            QtCore.QRectF(0.0, 0.0, source_rect.width(), source_rect.height())
+        )
+        painter = QtGui.QPainter(generator)
+        if not painter.isActive():
+            buffer.close()
+            raise RuntimeError("Could not create text-path export")
+        try:
             self._scene.render(
                 painter,
-                target_rect,
+                QtCore.QRectF(0.0, 0.0, source_rect.width(), source_rect.height()),
                 source_rect,
                 QtCore.Qt.AspectRatioMode.IgnoreAspectRatio,
             )
         finally:
-            painter.restore()
+            painter.end()
+            buffer.close()
+        return QtCore.QByteArray(self._svg_text_to_paths(bytes(data)))
+
+    @staticmethod
+    def _svg_with_background(
+        svg: QtCore.QByteArray,
+        source_rect: QtCore.QRectF,
+        background: QtGui.QColor | None,
+    ) -> bytes:
+        if background is None:
+            return bytes(svg)
+
+        root = ElementTree.fromstring(bytes(svg))
+        namespace = root.tag.partition("}")[0].removeprefix("{")
+        rect_tag = f"{{{namespace}}}rect" if namespace else "rect"
+        attributes = {
+            "x": "0",
+            "y": "0",
+            "width": f"{source_rect.width():.6g}",
+            "height": f"{source_rect.height():.6g}",
+            "fill": background.name(QtGui.QColor.NameFormat.HexRgb),
+        }
+        if background.alpha() != 255:
+            attributes["fill-opacity"] = f"{background.alphaF():.6g}"
+        root.insert(0, ElementTree.Element(rect_tag, attributes))
+        return ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    @classmethod
+    def _svg_text_to_paths(cls, svg: bytes) -> bytes:
+        root = ElementTree.fromstring(svg)
+        namespace = root.tag.partition("}")[0].removeprefix("{")
+        if namespace:
+            ElementTree.register_namespace("", namespace)
+        text_tag = f"{{{namespace}}}text" if namespace else "text"
+        path_tag = f"{{{namespace}}}path" if namespace else "path"
+
+        for parent in root.iter():
+            for index, element in list(enumerate(parent)):
+                if element.tag != text_tag:
+                    continue
+                value = "".join(element.itertext())
+                path = QtGui.QPainterPath()
+                font = cls._font_from_svg(element)
+                x = float(element.attrib.get("x", "0"))
+                y = float(element.attrib.get("y", "0"))
+                path.addText(QtCore.QPointF(x, y), font, value)
+                attributes = {
+                    key: attr_value
+                    for key, attr_value in element.attrib.items()
+                    if key
+                    not in {
+                        "x",
+                        "y",
+                        "font-family",
+                        "font-size",
+                        "font-weight",
+                        "font-style",
+                        "xml:space",
+                    }
+                }
+                attributes["d"] = cls._painter_path_data(path)
+                replacement = ElementTree.Element(path_tag, attributes)
+                replacement.tail = element.tail
+                parent.remove(element)
+                parent.insert(index, replacement)
+        return ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    @staticmethod
+    def _font_from_svg(element: ElementTree.Element) -> QtGui.QFont:
+        family = element.attrib.get("font-family", QtGui.QFont().family())
+        font = QtGui.QFont(family)
+        font.setPixelSize(max(1, round(float(element.attrib.get("font-size", "9")))))
+        weight = int(float(element.attrib.get("font-weight", "400")))
+        font.setWeight(QtGui.QFont.Weight(max(100, min(900, weight))))
+        font.setItalic(element.attrib.get("font-style") == "italic")
+        return font
+
+    @staticmethod
+    def _painter_path_data(path: QtGui.QPainterPath) -> str:
+        commands: list[str] = []
+        index = 0
+        while index < path.elementCount():
+            element = path.elementAt(index)
+            if element.isMoveTo():
+                commands.append(f"M{element.x:.6g},{element.y:.6g}")
+            elif element.isLineTo():
+                commands.append(f"L{element.x:.6g},{element.y:.6g}")
+            elif element.isCurveTo() and index + 2 < path.elementCount():
+                control = path.elementAt(index + 1)
+                end = path.elementAt(index + 2)
+                commands.append(
+                    f"C{element.x:.6g},{element.y:.6g} "
+                    f"{control.x:.6g},{control.y:.6g} "
+                    f"{end.x:.6g},{end.y:.6g}"
+                )
+                index += 2
+            index += 1
+        return " ".join(commands)
+
+    def _report_font_fallbacks(self, request: ExportRequest) -> None:
+        substitutions: set[tuple[str, str]] = set()
+        for item in self._scene.items():
+            font_getter = getattr(item, "font", None)
+            font = font_getter() if callable(font_getter) else getattr(item, "_font", None)
+            if not isinstance(font, QtGui.QFont):
+                continue
+            requested = font.family()
+            resolved = self._resolved_font_family(font)
+            if requested and resolved and requested.casefold() != resolved.casefold():
+                substitutions.add((requested, resolved))
+
+        for requested, resolved in sorted(substitutions):
+            if request.font_fallback_reporter is not None:
+                request.font_fallback_reporter(requested, resolved)
+            else:
+                warnings.warn(
+                    f"Font '{requested}' is unavailable; export uses '{resolved}'.",
+                    FontFallbackWarning,
+                    stacklevel=3,
+                )
+
+    @staticmethod
+    def _resolved_font_family(font: QtGui.QFont) -> str:
+        return QtGui.QFontInfo(font).family()
 
     @contextmanager
     def _temporary_export_state(
