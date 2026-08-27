@@ -32,6 +32,8 @@ from shape_registry import SHAPE_REGISTRY
 A4_WIDTH_MM = 210
 A4_HEIGHT_MM = 297
 SCREEN_DPI = 96  # Typical desktop DPI
+KEY_OWNER_PAGE = 1006
+SNAP_THRESHOLD_PIXELS = 6.0
 
 
 def _enum_to_int(value: Any) -> int:
@@ -750,6 +752,8 @@ def _undo_transaction(method: Callable[..., Any]) -> Callable[..., Any]:
 
 class CanvasView(QtWidgets.QGraphicsView):
     gridVisibilityChanged = QtCore.Signal(bool)
+    guidesVisibilityChanged = QtCore.Signal(bool)
+    viewChanged = QtCore.Signal()
     selectionSnapshotChanged = QtCore.Signal(dict)
 
     def __init__(self, parent=None):
@@ -786,6 +790,9 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._page_height = mm_to_px(A4_HEIGHT_MM, SCREEN_DPI)
         self._master_index: tuple[int, int] = (0, 0)
         self._pages: dict[tuple[int, int], A4PageItem] = {}
+        self._guides: list[tuple[str, float]] = []
+        self._guides_visible = True
+        self._active_snap_guides: dict[str, float] = {}
         self._master_origin = self._page_top_left_for_index(self._master_index)
         self._page_item = self._create_page_item(self._master_index)
         self._pages[self._master_index] = self._page_item
@@ -806,6 +813,8 @@ class CanvasView(QtWidgets.QGraphicsView):
 
         scene.selectionChanged.connect(self._notify_selection_snapshot)
         scene.changed.connect(self._on_scene_contents_changed)
+        self.horizontalScrollBar().valueChanged.connect(self.viewChanged)
+        self.verticalScrollBar().valueChanged.connect(self.viewChanged)
         self._notify_selection_snapshot()
 
     def history(self) -> SceneHistory:
@@ -848,6 +857,7 @@ class CanvasView(QtWidgets.QGraphicsView):
                 [], self._serialize_item, grid_visible=bool(self._show_grid)
             )
             state["layers"] = self._layer_manager.serialize_state()
+            state["guides"] = self._serialize_guides()
             return state
         items = [
             item
@@ -862,6 +872,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             items, self._serialize_item, grid_visible=bool(self._show_grid)
         )
         state["layers"] = self._layer_manager.serialize_state()
+        state["guides"] = self._serialize_guides()
         return state
 
     def _serialize_item(self, item: QtWidgets.QGraphicsItem) -> dict[str, Any]:
@@ -879,6 +890,9 @@ class CanvasView(QtWidgets.QGraphicsView):
             "scale": float(item.scale()),
             "z": float(item.zValue()),
         }
+        owner_page = self._owner_page_index(item)
+        if owner_page is not None:
+            base["owner_page"] = [owner_page[0], owner_page[1]]
 
         if registry_data is not None:
             base.update(registry_data)
@@ -1316,6 +1330,8 @@ class CanvasView(QtWidgets.QGraphicsView):
             return
         state = SceneCodec.normalize_state(state)
         self.clear_canvas()
+        self._guides = self._guides_from_state(state.get("guides"))
+        self._active_snap_guides.clear()
         self._layer_manager.restore_state(state.get("layers"))
         restored: list[QtWidgets.QGraphicsItem] = []
         items_data = state.get("items") if isinstance(state, Mapping) else None
@@ -1328,6 +1344,7 @@ class CanvasView(QtWidgets.QGraphicsView):
                     continue
                 scene.addItem(item)
                 SceneCodec.restore_item_metadata(item, data)
+                self._restore_owner_page(item, data.get("owner_page"))
                 self._layer_manager.restore_item_state(item, data)
                 if isinstance(item, GroupItem):
                     children = data.get("children")
@@ -1335,7 +1352,8 @@ class CanvasView(QtWidgets.QGraphicsView):
                         self._restore_group_children(item, children)
                 self._apply_item_transform(item, data)
                 restored.append(item)
-        self._ensure_pages_for_items(restored)
+        for item in restored:
+            self._ensure_page_for_item(item, None)
         self._layer_manager.sync_items()
         scene.clearSelection()
         grid_visible = bool(state.get("grid_visible", self._show_grid))
@@ -1354,6 +1372,29 @@ class CanvasView(QtWidgets.QGraphicsView):
             base_x + col * self._page_width,
             base_y + row * self._page_height,
         )
+
+    @staticmethod
+    def _normalized_page_index(value: Any) -> tuple[int, int] | None:
+        if not isinstance(value, (list, tuple)) or len(value) != 2:
+            return None
+        row, col = value
+        if isinstance(row, bool) or isinstance(col, bool):
+            return None
+        if not isinstance(row, int) or not isinstance(col, int):
+            return None
+        return row, col
+
+    def _owner_page_index(self, item: QtWidgets.QGraphicsItem) -> tuple[int, int] | None:
+        return self._normalized_page_index(item.data(KEY_OWNER_PAGE))
+
+    @staticmethod
+    def _set_owner_page(item: QtWidgets.QGraphicsItem, index: tuple[int, int]) -> None:
+        item.setData(KEY_OWNER_PAGE, [index[0], index[1]])
+
+    def _restore_owner_page(self, item: QtWidgets.QGraphicsItem, value: Any) -> None:
+        index = self._normalized_page_index(value)
+        if index is not None:
+            self._set_owner_page(item, index)
 
     def _page_index_for_point(self, point: QtCore.QPointF) -> tuple[int, int]:
         base_x = -self._page_width / 2.0
@@ -1447,34 +1488,40 @@ class CanvasView(QtWidgets.QGraphicsView):
         self, item: QtWidgets.QGraphicsItem, drop_reference: QtCore.QPointF | None
     ) -> A4PageItem:
         rect = item.sceneBoundingRect()
-        page: A4PageItem | None = None
-        for existing in self._pages.values():
-            page_rect = existing.mapRectToScene(existing.rect())
-            if page_rect.contains(rect):
-                page = existing
-                break
-
-        indices_to_connect: set[tuple[int, int]] = set()
-
-        if page is None:
+        owner_index = self._owner_page_index(item)
+        if drop_reference is not None or owner_index is None:
             reference = drop_reference if drop_reference is not None else rect.center()
-            index = self._page_index_for_point(reference)
-            page = self._add_page(index)
-            indices_to_connect.add(index)
-            if not page.mapRectToScene(page.rect()).contains(rect):
-                center_index = self._page_index_for_point(rect.center())
-                page = self._add_page(center_index)
-                indices_to_connect.add(center_index)
-        if page is not None:
-            indices_to_connect.add(page.index)
+            owner_index = self._page_index_for_point(reference)
+            self._set_owner_page(item, owner_index)
 
-        for index in indices_to_connect:
-            self._ensure_pages_between_master(index)
-
+        assert owner_index is not None
+        page = self._add_page(owner_index, update_edges=False)
+        for index in self._page_indices_for_rect(rect):
+            self._add_page(index, update_edges=False)
+        self._ensure_pages_between_master(owner_index)
+        self._update_transition_edges()
         self._prune_empty_pages()
+        if owner_index not in self._pages:
+            page = self._add_page(owner_index, update_edges=False)
+            self._ensure_pages_between_master(owner_index)
+            self._update_transition_edges()
         self._update_scene_rect()
-        assert page is not None
         return page
+
+    def _page_indices_for_rect(self, rect: QtCore.QRectF) -> set[tuple[int, int]]:
+        """Return every page touched by ``rect``, including oversized items."""
+
+        if rect.isNull() or not rect.isValid():
+            return {self._page_index_for_point(rect.center())}
+        right = math.nextafter(rect.right(), -math.inf)
+        bottom = math.nextafter(rect.bottom(), -math.inf)
+        first = self._page_index_for_point(rect.topLeft())
+        last = self._page_index_for_point(QtCore.QPointF(right, bottom))
+        return {
+            (row, col)
+            for row in range(first[0], last[0] + 1)
+            for col in range(first[1], last[1] + 1)
+        }
 
     def _collect_canvas_content_items(self) -> list[QtWidgets.QGraphicsItem]:
         scene = self.scene()
@@ -1574,6 +1621,213 @@ class CanvasView(QtWidgets.QGraphicsView):
     def drawBackground(self, painter: QtGui.QPainter, rect: QtCore.QRectF):
         super().drawBackground(painter, rect)
 
+    def drawForeground(self, painter: QtGui.QPainter, rect: QtCore.QRectF):
+        super().drawForeground(painter, rect)
+        if not self._guides_visible or (
+            not self._guides and not self._active_snap_guides
+        ):
+            return
+        painter.save()
+        guide_pen = QtGui.QPen(QtGui.QColor("#28c7d9"))
+        guide_pen.setStyle(QtCore.Qt.PenStyle.DashLine)
+        guide_pen.setCosmetic(True)
+        painter.setPen(guide_pen)
+        for orientation, position in self._guides:
+            self._draw_guide_line(painter, rect, orientation, position)
+        active_pen = QtGui.QPen(QtGui.QColor("#00cfe8"))
+        active_pen.setCosmetic(True)
+        active_pen.setWidth(2)
+        painter.setPen(active_pen)
+        for orientation, position in self._active_snap_guides.items():
+            self._draw_guide_line(painter, rect, orientation, position)
+        painter.restore()
+
+    @staticmethod
+    def _draw_guide_line(
+        painter: QtGui.QPainter,
+        rect: QtCore.QRectF,
+        orientation: str,
+        position: float,
+    ) -> None:
+        if orientation == "vertical":
+            painter.drawLine(position, rect.top(), position, rect.bottom())
+        elif orientation == "horizontal":
+            painter.drawLine(rect.left(), position, rect.right(), position)
+
+    def add_guide(self, orientation: str, position: float) -> None:
+        if orientation not in ("vertical", "horizontal"):
+            raise ValueError("Guide orientation must be 'vertical' or 'horizontal'")
+        guide = (orientation, float(position))
+        if guide not in self._guides:
+            self._guides.append(guide)
+            self._guides.sort(key=lambda entry: (entry[0], entry[1]))
+            self.viewport().update()
+            self._history.mark_dirty()
+
+    def move_guide(self, orientation: str, old_position: float, new_position: float) -> bool:
+        old_guide = (orientation, float(old_position))
+        try:
+            index = self._guides.index(old_guide)
+        except ValueError:
+            return False
+        self._guides[index] = (orientation, float(new_position))
+        self._guides.sort(key=lambda entry: (entry[0], entry[1]))
+        self.viewport().update()
+        self._history.mark_dirty()
+        return True
+
+    def remove_guide(self, orientation: str, position: float) -> bool:
+        guide = (orientation, float(position))
+        try:
+            self._guides.remove(guide)
+        except ValueError:
+            return False
+        self.viewport().update()
+        self._history.mark_dirty()
+        return True
+
+    def guides(self) -> tuple[tuple[str, float], ...]:
+        return tuple(self._guides)
+
+    def guides_visible(self) -> bool:
+        return self._guides_visible
+
+    def set_guides_visible(self, visible: bool) -> None:
+        visible = bool(visible)
+        if visible == self._guides_visible:
+            return
+        self._guides_visible = visible
+        self.viewport().update()
+        self.guidesVisibilityChanged.emit(visible)
+
+    def guide_near(
+        self, orientation: str, position: float
+    ) -> tuple[str, float] | None:
+        if orientation not in ("vertical", "horizontal"):
+            return None
+        threshold_x, threshold_y = self._snap_threshold_scene_units()
+        threshold = threshold_x if orientation == "vertical" else threshold_y
+        candidates = [
+            guide
+            for guide in self._guides
+            if guide[0] == orientation and abs(guide[1] - position) <= threshold
+        ]
+        return min(candidates, key=lambda guide: abs(guide[1] - position), default=None)
+
+    def ruler_ticks(
+        self, scene_start: float, scene_end: float, *, major_mm: float = 10.0
+    ) -> tuple[tuple[float, float], ...]:
+        """Return scene positions and millimetre labels for a ruler axis."""
+
+        if major_mm <= 0.0:
+            raise ValueError("major_mm must be greater than zero")
+        spacing = mm_to_px(major_mm)
+        first = math.ceil(scene_start / spacing)
+        last = math.floor(scene_end / spacing)
+        return tuple((step * spacing, step * major_mm) for step in range(first, last + 1))
+
+    def _serialize_guides(self) -> list[dict[str, float | str]]:
+        return [
+            {"orientation": orientation, "position": position}
+            for orientation, position in self._guides
+        ]
+
+    @staticmethod
+    def _guides_from_state(value: Any) -> list[tuple[str, float]]:
+        if not isinstance(value, list):
+            return []
+        guides: list[tuple[str, float]] = []
+        for entry in value:
+            if not isinstance(entry, Mapping):
+                continue
+            orientation = entry.get("orientation")
+            position = entry.get("position")
+            if orientation not in ("vertical", "horizontal"):
+                continue
+            if isinstance(position, bool) or not isinstance(position, (int, float)):
+                continue
+            guides.append((orientation, float(position)))
+        return sorted(set(guides), key=lambda entry: (entry[0], entry[1]))
+
+    def _snap_threshold_scene_units(self) -> tuple[float, float]:
+        transform = self.transform()
+        scale_x = abs(transform.m11())
+        scale_y = abs(transform.m22())
+        return (
+            SNAP_THRESHOLD_PIXELS / scale_x if scale_x > 0.0 else SNAP_THRESHOLD_PIXELS,
+            SNAP_THRESHOLD_PIXELS / scale_y if scale_y > 0.0 else SNAP_THRESHOLD_PIXELS,
+        )
+
+    @staticmethod
+    def _nearest_snap(
+        values: tuple[float, ...], candidates: tuple[float, ...], threshold: float
+    ) -> tuple[float, float] | None:
+        choices = (
+            (abs(candidate - value), candidate - value, candidate)
+            for value in values
+            for candidate in candidates
+            if abs(candidate - value) <= threshold
+        )
+        try:
+            _distance, offset, guide = min(choices, key=lambda choice: choice[0])
+        except ValueError:
+            return None
+        return offset, guide
+
+    def snap_scene_position(
+        self,
+        position: QtCore.QPointF,
+        size: QtCore.QSizeF | None = None,
+        *,
+        exclude: tuple[QtWidgets.QGraphicsItem, ...] = (),
+        grid_spacing: float | None = None,
+    ) -> tuple[QtCore.QPointF, dict[str, float]]:
+        """Snap a top-left scene position using guide, object, then grid priority."""
+
+        width = max(0.0, float(size.width())) if size is not None else 0.0
+        height = max(0.0, float(size.height())) if size is not None else 0.0
+        x_values = (position.x(), position.x() + width / 2.0, position.x() + width)
+        y_values = (position.y(), position.y() + height / 2.0, position.y() + height)
+        threshold_x, threshold_y = self._snap_threshold_scene_units()
+        guide_x = tuple(value for axis, value in self._guides if axis == "vertical")
+        guide_y = tuple(value for axis, value in self._guides if axis == "horizontal")
+        snapped_x = self._nearest_snap(x_values, guide_x, threshold_x)
+        snapped_y = self._nearest_snap(y_values, guide_y, threshold_y)
+        scene = self.scene()
+        if scene is not None:
+            excluded = set(exclude)
+            smart_x: list[float] = []
+            smart_y: list[float] = []
+            for item in scene.items():
+                if item in excluded or isinstance(item, A4PageItem):
+                    continue
+                if item.__class__.__name__.endswith("Handle"):
+                    continue
+                if item.parentItem() is not None:
+                    continue
+                bounds = item.sceneBoundingRect()
+                smart_x.extend((bounds.left(), bounds.center().x(), bounds.right()))
+                smart_y.extend((bounds.top(), bounds.center().y(), bounds.bottom()))
+            if snapped_x is None:
+                snapped_x = self._nearest_snap(x_values, tuple(smart_x), threshold_x)
+            if snapped_y is None:
+                snapped_y = self._nearest_snap(y_values, tuple(smart_y), threshold_y)
+
+        spacing = float(grid_spacing if grid_spacing is not None else self._grid_size_min)
+        origin_x, origin_y = self._master_origin.x(), self._master_origin.y()
+        active: dict[str, float] = {}
+        if snapped_x is None:
+            x = _snap_coordinate(position.x(), spacing, origin_x)
+        else:
+            x = position.x() + snapped_x[0]
+            active["vertical"] = snapped_x[1]
+        if snapped_y is None:
+            y = _snap_coordinate(position.y(), spacing, origin_y)
+        else:
+            y = position.y() + snapped_y[0]
+            active["horizontal"] = snapped_y[1]
+        return QtCore.QPointF(x, y), active
+
     def set_grid_visible(self, visible: bool):
         self._show_grid = visible
         for page in self._pages.values():
@@ -1610,6 +1864,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         """Ensure scene rect grows with the view."""
         super().resizeEvent(event)
         self._update_scene_rect()
+        self.viewChanged.emit()
 
     @_undo_transaction
     def add_shape(
@@ -1629,16 +1884,15 @@ class CanvasView(QtWidgets.QGraphicsView):
 
         if snap_to_grid:
             size = self._grid_size
-            origin = self._master_origin
-            if isinstance(origin, QtCore.QPointF):
-                origin_x, origin_y = origin.x(), origin.y()
-            else:
-                origin_x = float(getattr(origin, "x", 0.0))
-                origin_y = float(getattr(origin, "y", 0.0))
-            x = _snap_coordinate(x, size, origin_x)
-            y = _snap_coordinate(y, size, origin_y)
             if normalized in ("Line", "Arrow"):
                 w = round(w / size) * size
+            snapped, active_guides = self.snap_scene_position(
+                QtCore.QPointF(x, y),
+                QtCore.QSizeF(w, h),
+                grid_spacing=size,
+            )
+            x, y = snapped.x(), snapped.y()
+            self._active_snap_guides = active_guides
 
         drop_reference = QtCore.QPointF(x + w / 2.0, y + h / 2.0)
 
@@ -1805,8 +2059,17 @@ class CanvasView(QtWidgets.QGraphicsView):
             event.accept()
             return
         super().mouseMoveEvent(event)
+        if event.modifiers() & QtCore.Qt.KeyboardModifier.AltModifier:
+            self._active_snap_guides.clear()
+            self.viewport().update()
+            return
+        if event.buttons() & QtCore.Qt.MouseButton.LeftButton:
+            self._snap_selected_items()
 
     def mouseReleaseEvent(self, event: QtGui.QMouseEvent):
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            self._active_snap_guides.clear()
+            self.viewport().update()
         if event.button() == QtCore.Qt.MouseButton.RightButton:
             if self._panning:
                 self._panning = False
@@ -1852,6 +2115,40 @@ class CanvasView(QtWidgets.QGraphicsView):
             self._ensure_pages_for_items(self.scene().selectedItems())
             if self._history.transaction_active:
                 self._history.end_transaction()
+
+    def _snap_selected_items(self) -> None:
+        selected = [
+            item
+            for item in self.scene().selectedItems()
+            if not isinstance(item, A4PageItem)
+            and not item.__class__.__name__.endswith("Handle")
+            and item.parentItem() is None
+        ]
+        if not selected:
+            if self._active_snap_guides:
+                self._active_snap_guides.clear()
+                self.viewport().update()
+            return
+        primary = selected[0]
+        bounds = primary.sceneBoundingRect()
+        snapped, active_guides = self.snap_scene_position(
+            bounds.topLeft(),
+            bounds.size(),
+            exclude=tuple(selected),
+        )
+        delta = snapped - bounds.topLeft()
+        self._active_snap_guides = active_guides
+        if delta.isNull():
+            self.viewport().update()
+            return
+        original_spacing = self._grid_size_min
+        self._grid_size_min = 0
+        try:
+            for item in selected:
+                item.moveBy(delta.x(), delta.y())
+        finally:
+            self._grid_size_min = original_spacing
+        self.viewport().update()
 
     def _clone_item(self, item: QtWidgets.QGraphicsItem):
         if isinstance(item, RectItem):
@@ -1943,6 +2240,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             self.scale(factor, factor)
             self.setTransformationAnchor(anchor)
             self._update_scene_rect()
+            self.viewChanged.emit()
             event.accept()
             return
         super().wheelEvent(event)

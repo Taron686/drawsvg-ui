@@ -12,6 +12,7 @@ from import_drawsvg import import_drawsvg_py
 from layers_panel import LayersPanel
 from palette import PaletteList
 from properties_panel import PropertiesPanel
+from ruler_widget import RulerWidget
 
 _UI_PATH = Path(__file__).resolve().parent / "ui" / "main_window.ui"
 
@@ -135,7 +136,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self.palette.setMinimumWidth(220)
         self.palette.shapeClicked.connect(self._add_shape_at_center)
 
-        self.canvas = CanvasView(canvas_container)
+        self.canvas_frame = QtWidgets.QWidget(canvas_container)
+        canvas_layout = QtWidgets.QGridLayout(self.canvas_frame)
+        canvas_layout.setContentsMargins(0, 0, 0, 0)
+        canvas_layout.setSpacing(0)
+        self.canvas = CanvasView(self.canvas_frame)
+        self.horizontal_ruler = RulerWidget(
+            QtCore.Qt.Orientation.Horizontal, self.canvas, self.canvas_frame
+        )
+        self.vertical_ruler = RulerWidget(
+            QtCore.Qt.Orientation.Vertical, self.canvas, self.canvas_frame
+        )
+        ruler_corner = QtWidgets.QWidget(self.canvas_frame)
+        ruler_corner.setFixedSize(22, 22)
+        canvas_layout.addWidget(ruler_corner, 0, 0)
+        canvas_layout.addWidget(self.horizontal_ruler, 0, 1)
+        canvas_layout.addWidget(self.vertical_ruler, 1, 0)
+        canvas_layout.addWidget(self.canvas, 1, 1)
 
         self.properties_panel = PropertiesPanel(self.canvas)
         self.layers_panel = LayersPanel(self.canvas)
@@ -151,7 +168,7 @@ class MainWindow(QtWidgets.QMainWindow):
         properties_container.setMinimumWidth(properties_min_width)
 
         self._replace_placeholder(palette_container, self.palettePlaceholder, self.palette)
-        self._replace_placeholder(canvas_container, self.canvasPlaceholder, self.canvas)
+        self._replace_placeholder(canvas_container, self.canvasPlaceholder, self.canvas_frame)
         self._replace_placeholder(
             properties_container, self.propertiesPlaceholder, self.right_panel_tabs
         )
@@ -208,6 +225,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.actionShow_grid.setChecked(True)
         self.actionShow_grid.toggled.connect(self._handle_toggle_grid)
         self.canvas.gridVisibilityChanged.connect(self.actionShow_grid.setChecked)
+
+        self.menuView = self.menuBar().addMenu("&View")
+        self.actionShow_guides = QtGui.QAction("Show guides", self, checkable=True)
+        self.actionShow_guides.setChecked(True)
+        self.menuView.addAction(self.actionShow_guides)
+        self.actionShow_guides.toggled.connect(self.canvas.set_guides_visible)
+        self.canvas.guidesVisibilityChanged.connect(self.actionShow_guides.setChecked)
 
         self.actionInfo.triggered.connect(self._show_about_dialog)
 
