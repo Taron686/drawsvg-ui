@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from PySide6 import QtCore, QtWidgets
 
+from items import GroupItem
 from layer_manager import DEFAULT_LAYER_ID
 from scene_codec import KEY_ITEM_ID, KEY_LAYER_ID
 
@@ -12,6 +13,15 @@ def _add(canvas_view, shape: str, x: float):
     )
     assert item is not None
     return item
+
+
+def _group(canvas_view, *items):
+    for item in items:
+        item.setSelected(True)
+    canvas_view._group_selected_items()
+    return next(
+        item for item in canvas_view.scene().items() if isinstance(item, GroupItem)
+    )
 
 
 def test_legacy_snapshot_restores_a_visible_unlocked_default_layer(canvas_view) -> None:
@@ -110,3 +120,56 @@ def test_layer_lock_disables_direct_item_interaction(canvas_view) -> None:
     assert item.locked
     assert not item.flags() & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
     assert not item.flags() & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+
+
+def test_layer_state_reaches_group_children(canvas_view) -> None:
+    first = _add(canvas_view, "Rectangle", 10.0)
+    second = _add(canvas_view, "Ellipse", 180.0)
+    group = _group(canvas_view, first, second)
+    manager = canvas_view.layer_manager()
+    manager.sync_items()
+
+    assert manager.set_layer_visible(DEFAULT_LAYER_ID, False)
+    assert not group.isVisible()
+    assert not first.isVisible()
+    assert not second.isVisible()
+
+    assert manager.set_layer_visible(DEFAULT_LAYER_ID, True)
+    assert manager.set_layer_locked(DEFAULT_LAYER_ID, True)
+    for item in (group, first, second):
+        assert item.locked
+        assert not item.flags() & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+        assert not item.flags() & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+
+
+def test_ungroup_keeps_locked_children_non_interactive(canvas_view) -> None:
+    first = _add(canvas_view, "Rectangle", 10.0)
+    second = _add(canvas_view, "Ellipse", 180.0)
+    group = _group(canvas_view, first, second)
+    manager = canvas_view.layer_manager()
+
+    assert manager.set_item_locked(first, True)
+    group.setSelected(True)
+    canvas_view._ungroup_selected_items()
+
+    assert first.parentItem() is None
+    assert first.locked
+    assert not first.flags() & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+    assert not first.flags() & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+    assert second.flags() & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+    assert second.flags() & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+
+
+def test_layers_can_be_renamed_and_reordered(canvas_view) -> None:
+    manager = canvas_view.layer_manager()
+    annotations = manager.add_layer("Annotations")
+    notes = manager.add_layer("Notes")
+
+    assert manager.rename_layer(annotations.id, "Review notes")
+    assert manager.move_layer(notes.id, -1)
+
+    assert [layer.name for layer in manager.layers()] == [
+        "Layer 1",
+        "Notes",
+        "Review notes",
+    ]

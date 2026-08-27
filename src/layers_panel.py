@@ -31,11 +31,13 @@ class LayersPanel(QtWidgets.QWidget):
 
         self._add = QtWidgets.QPushButton("+ Layer", self)
         self._remove = QtWidgets.QPushButton("- Layer", self)
+        self._rename = QtWidgets.QPushButton("Rename", self)
         self._assign = QtWidgets.QPushButton("Assign selected", self)
         self._up = QtWidgets.QPushButton("Move up", self)
         self._down = QtWidgets.QPushButton("Move down", self)
         self._add.clicked.connect(self._add_layer)
         self._remove.clicked.connect(self._remove_layer)
+        self._rename.clicked.connect(self._rename_layer)
         self._assign.clicked.connect(self._assign_selected)
         self._up.clicked.connect(lambda: self._move_selected(-1))
         self._down.clicked.connect(lambda: self._move_selected(1))
@@ -43,6 +45,7 @@ class LayersPanel(QtWidgets.QWidget):
         controls = QtWidgets.QHBoxLayout()
         controls.addWidget(self._add)
         controls.addWidget(self._remove)
+        controls.addWidget(self._rename)
         controls.addWidget(self._assign)
         controls.addStretch(1)
         controls.addWidget(self._up)
@@ -174,16 +177,42 @@ class LayersPanel(QtWidgets.QWidget):
             if self._manager.remove_layer(row.data(0, QtCore.Qt.ItemDataRole.UserRole)):
                 self._canvas.history().mark_dirty()
 
+    def _rename_layer(self) -> None:
+        selected = self._tree.selectedItems()
+        if not selected:
+            return
+        row = selected[0]
+        if row.data(0, QtCore.Qt.ItemDataRole.UserRole.value + 1) != "layer":
+            row = row.parent()
+        if row is None:
+            return
+        name, accepted = QtWidgets.QInputDialog.getText(
+            self, "Rename layer", "Name:", text=row.text(0)
+        )
+        if not accepted:
+            return
+        with self._canvas.history().transaction():
+            if self._manager.rename_layer(
+                row.data(0, QtCore.Qt.ItemDataRole.UserRole), name
+            ):
+                self._canvas.history().mark_dirty()
+
     def _move_selected(self, offset: int) -> None:
         selected = self._tree.selectedItems()
         if not selected:
             return
         row = selected[0]
-        if row.data(0, QtCore.Qt.ItemDataRole.UserRole.value + 1) != "item":
-            return
-        item = row.data(0, QtCore.Qt.ItemDataRole.UserRole)
         with self._canvas.history().transaction():
-            if self._manager.move_item(item, offset):
+            kind = row.data(0, QtCore.Qt.ItemDataRole.UserRole.value + 1)
+            target = row.data(0, QtCore.Qt.ItemDataRole.UserRole)
+            changed = (
+                self._manager.move_layer(target, offset)
+                if kind == "layer"
+                else self._manager.move_item(target, offset)
+                if kind == "item"
+                else False
+            )
+            if changed:
                 self._canvas.history().mark_dirty()
 
     def _assign_selected(self) -> None:

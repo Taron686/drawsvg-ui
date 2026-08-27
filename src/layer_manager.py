@@ -193,6 +193,27 @@ class LayerManager(QtCore.QObject):
         self.changed.emit()
         return layer
 
+    def rename_layer(self, layer_id: str, name: str) -> bool:
+        layer = self._find_layer(layer_id)
+        name = name.strip()
+        if layer is None or not name or layer.name == name:
+            return False
+        layer.name = name
+        self.changed.emit()
+        return True
+
+    def move_layer(self, layer_id: str, offset: int) -> bool:
+        layer = self._find_layer(layer_id)
+        if layer is None:
+            return False
+        index = self._layers.index(layer)
+        target = max(0, min(len(self._layers) - 1, index + offset))
+        if target == index:
+            return False
+        self._layers[index], self._layers[target] = self._layers[target], self._layers[index]
+        self.changed.emit()
+        return True
+
     def remove_layer(self, layer_id: str) -> bool:
         layer = self._find_layer(layer_id)
         if layer is None or len(self._layers) == 1:
@@ -240,24 +261,39 @@ class LayerManager(QtCore.QObject):
 
     def _apply_layer(self, layer: Layer) -> None:
         for item in self.items_for_layer(layer.id):
-            self._apply_item_state(item)
+            self._apply_item_state(item, layer)
 
-    def _apply_item_state(self, item: QtWidgets.QGraphicsItem) -> None:
-        layer = self.layer_for_item(item)
+    def _apply_item_state(
+        self, item: QtWidgets.QGraphicsItem, layer: Layer | None = None
+    ) -> None:
+        layer = layer or self._layer_for_item_state(item)
         item.setVisible(layer.visible and self.item_visible(item))
         locked = layer.locked or self.item_locked(item)
         item.locked = locked
-        if item.parentItem() is None:
-            item.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, not locked)
-            item.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, not locked)
+        item.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, not locked)
+        item.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, not locked)
         if locked:
             item.setSelected(False)
+        for child in item.childItems():
+            if self._is_managed_item(child):
+                self._apply_item_state(child, layer)
+
+    def _layer_for_item_state(self, item: QtWidgets.QGraphicsItem) -> Layer:
+        top_level = item
+        while top_level.parentItem() is not None:
+            top_level = top_level.parentItem()
+        return self.layer_for_item(top_level)
+
+    def _is_managed_item(self, item: QtWidgets.QGraphicsItem) -> bool:
+        return bool(
+            self._canvas._is_serializable_item(item)
+            and not SceneCodec.is_transient(item)
+        )
 
     def _is_top_level_item(self, item: QtWidgets.QGraphicsItem) -> bool:
         return bool(
             item.parentItem() is None
-            and self._canvas._is_serializable_item(item)
-            and not SceneCodec.is_transient(item)
+            and self._is_managed_item(item)
         )
 
     def _find_layer(self, layer_id: str) -> Layer | None:

@@ -1967,13 +1967,14 @@ class CanvasView(QtWidgets.QGraphicsView):
                 ]
                 for child in children:
                     it.removeFromGroup(child)
+                    locked = bool(getattr(child, "locked", False))
                     child.setFlag(
                         QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
-                        True,
+                        not locked,
                     )
                     child.setFlag(
                         QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
-                        True,
+                        not locked,
                     )
                     child.setSelected(False)
                 self.scene().removeItem(it)
