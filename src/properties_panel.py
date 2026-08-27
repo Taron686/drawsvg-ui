@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import math
 import weakref
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtUiTools import QUiLoader
@@ -22,6 +23,7 @@ from items import (
     TextItem,
     TriangleItem,
 )
+from property_command_service import PropertyCommandService
 
 if TYPE_CHECKING:  # pragma: no cover - only for typing
     from canvas_view import CanvasView
@@ -438,6 +440,44 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._reset_text_sections()
         self._set_tab_widget_active(False)
         self._set_empty_spacer_visible(True)
+
+    def show_selected_item_properties(
+        self,
+        items: list[QtWidgets.QGraphicsItem],
+        command_service: PropertyCommandService,
+    ) -> None:
+        """Display common transform controls for an explicitly supplied selection.
+
+        This is the T-023 integration point.  Existing snapshot-driven single-item
+        bindings remain unchanged; a later canvas-owner ticket may call this method
+        once it supplies the selected items.
+        """
+
+        if len(items) < 2:
+            self.clear()
+            return
+        self.clear()
+        self._title_label.setText("Properties")
+        self._info_label.setText(f"{len(items)} objects selected.")
+        self._info_label.show()
+        self._group_transform.show()
+        controls = (
+            (self._spin_pos_x, "position_x"),
+            (self._spin_pos_y, "position_y"),
+            (self._spin_rotation, "rotation"),
+            (self._spin_scale, "scale"),
+            (self._spin_z_value, "z_value"),
+        )
+        writable = command_service.can_write(items)
+        for spin, key in controls:
+            spin.setEnabled(writable)
+            self._bind_double_spin(
+                spin,
+                lambda key=key: command_service.common_value(items, key),
+                lambda value, key=key: command_service.apply(items, key, value),
+            )
+        self._set_tab_widget_active(True)
+        self._set_empty_spacer_visible(False)
 
     def show_multi_selection(self, count: int) -> None:
         self._title_label.setText("Properties")
