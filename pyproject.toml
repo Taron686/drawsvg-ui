@@ -32,6 +32,8 @@ include-package-data = true
 py-modules = [
   "app_info",
   "app_logging",
+  "asset_service",
+  "bitmap_item",
   "canvas_view",
   "clipboard_service",
   "constants",
