@@ -149,3 +149,45 @@ def test_tampered_reference_or_unsafe_size_is_rejected(
     record["size"] = [20_000, 8]
     with pytest.raises(BitmapAssetError, match="dimensions"):
         restore_bitmap_item(record, (imported.asset,))
+
+
+def test_canvas_persists_bitmap_items_through_undo_redo_and_restore(
+    canvas_view,
+) -> None:
+    service = BitmapAssetService()
+    imported = service.import_bytes(_image_bytes("PNG"))
+    canvas_view.set_bitmap_assets(service.assets())
+    item = canvas_view.add_bitmap_item(imported.asset, QtCore.QPointF(10, 20), 36, 24)
+    item.setRotation(17)
+    item.setScale(1.25)
+    canvas_view.history().capture_now()
+
+    state = canvas_view._serialize_scene_state()
+    record = state["items"][0]
+    assert record["type_id"] == "Bitmap"
+    assert record["asset_sha256"] == item.asset_sha256
+
+    clone = canvas_view._clone_item(item)
+    assert isinstance(clone, BitmapItem)
+    assert clone.item_size() == item.item_size()
+    assert clone.asset_sha256 == item.asset_sha256
+
+    canvas_view.undo()
+    unrotated = next(
+        scene_item
+        for scene_item in canvas_view.scene().items()
+        if isinstance(scene_item, BitmapItem)
+    )
+    assert unrotated.asset_sha256 == item.asset_sha256
+    assert unrotated.rotation() == pytest.approx(0)
+    assert unrotated.scale() == pytest.approx(1)
+
+    canvas_view.redo()
+    restored = next(
+        scene_item
+        for scene_item in canvas_view.scene().items()
+        if isinstance(scene_item, BitmapItem)
+    )
+    assert restored.asset_sha256 == item.asset_sha256
+    assert restored.rotation() == pytest.approx(17)
+    assert restored.scale() == pytest.approx(1.25)

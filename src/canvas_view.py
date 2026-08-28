@@ -1,13 +1,16 @@
 import json
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import contextmanager
 from functools import wraps
 from typing import Any
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from asset_service import BitmapAssetService
+from bitmap_item import BitmapItem, restore_bitmap_item, serialize_bitmap_item
 from constants import DEFAULTS, PALETTE_MIME, SHAPES
+from document_format import ProjectAsset
 from items import (
     BlockArrowItem,
     CurvyBracketItem,
@@ -808,6 +811,9 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._suppress_context_menu = False
 
         self._layer_manager = LayerManager(self)
+        # Project archives own the binary data. History snapshots retain only
+        # item-to-asset references and resolve them through this service.
+        self._bitmap_assets = BitmapAssetService()
         self._history = SceneHistory(self)
         self._history.capture_initial_state()
 
@@ -822,6 +828,16 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     def layer_manager(self) -> LayerManager:
         return self._layer_manager
+
+    def bitmap_assets(self) -> tuple[ProjectAsset, ...]:
+        """Return the project asset source used by bitmap scene items."""
+
+        return self._bitmap_assets.assets()
+
+    def set_bitmap_assets(self, assets: Iterable[ProjectAsset]) -> None:
+        """Install validated project assets before restoring bitmap scene items."""
+
+        self._bitmap_assets = BitmapAssetService(assets)
 
     def undo(self) -> None:
         self._history.undo()
@@ -907,6 +923,8 @@ class CanvasView(QtWidgets.QGraphicsView):
 
         if registry_data is not None:
             base.update(registry_data)
+        elif isinstance(item, BitmapItem):
+            base.update(serialize_bitmap_item(item))
         elif isinstance(item, RectItem):
             rect = item.rect()
             base["size"] = [float(rect.width()), float(rect.height())]
@@ -1162,6 +1180,8 @@ class CanvasView(QtWidgets.QGraphicsView):
             return registered_item
 
         shape = str(data.get("shape", ""))
+        if data.get("type_id") == "Bitmap" or shape == "Bitmap":
+            return restore_bitmap_item(data, self._bitmap_assets.assets())
         size = data.get("size")
         width = height = None
         if isinstance(size, (list, tuple)) and len(size) == 2:
@@ -1921,6 +1941,31 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._update_scene_rect()
         return item
 
+    @_undo_transaction
+    def add_bitmap_item(
+        self,
+        asset: ProjectAsset,
+        scene_pos: QtCore.QPointF,
+        width: float | None = None,
+        height: float | None = None,
+    ) -> BitmapItem:
+        """Add a bitmap whose bytes were already validated into this project."""
+
+        stored = self._bitmap_assets.resolve(asset.name)
+        item = BitmapItem(
+            stored,
+            scene_pos.x(),
+            scene_pos.y(),
+            width=width,
+            height=height,
+        )
+        self.scene().addItem(item)
+        self._layer_manager.register_item(item)
+        item.setSelected(True)
+        self._ensure_page_for_item(item, scene_pos)
+        self._update_scene_rect()
+        return item
+
     def add_shape_at_view_center(self, shape: str) -> QtWidgets.QGraphicsItem | None:
         normalized = shape.strip()
         definition = SHAPE_REGISTRY.get(normalized)
@@ -2165,7 +2210,16 @@ class CanvasView(QtWidgets.QGraphicsView):
         self.viewport().update()
 
     def _clone_item(self, item: QtWidgets.QGraphicsItem):
-        if isinstance(item, RectItem):
+        if isinstance(item, BitmapItem):
+            size = item.item_size()
+            clone = BitmapItem(
+                self._bitmap_assets.resolve(item.asset_name),
+                item.x(),
+                item.y(),
+                size.width(),
+                size.height(),
+            )
+        elif isinstance(item, RectItem):
             r = item.rect()
             clone = RectItem(item.x(), item.y(), r.width(), r.height(), getattr(item, "rx", 0.0), getattr(item, "ry", 0.0))
             clone.setBrush(item.brush())
