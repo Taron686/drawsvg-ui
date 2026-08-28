@@ -1208,7 +1208,12 @@ class CanvasView(QtWidgets.QGraphicsView):
             item.setTransform(QtGui.QTransform(*(float(value) for value in transform)))
         pos = data.get("pos", [0.0, 0.0])
         if isinstance(pos, (list, tuple)) and len(pos) == 2:
-            item.setPos(float(pos[0]), float(pos[1]))
+            original_spacing = self._grid_size_min
+            self._grid_size_min = 0
+            try:
+                item.setPos(float(pos[0]), float(pos[1]))
+            finally:
+                self._grid_size_min = original_spacing
         rotation = data.get("rotation")
         if rotation is not None:
             item.setRotation(float(rotation))

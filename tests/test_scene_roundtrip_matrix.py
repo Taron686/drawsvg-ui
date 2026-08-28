@@ -21,20 +21,7 @@ from items import (
 )
 from scene_codec import KEY_ITEM_ID, KEY_TRANSIENT
 
-POLYGON_GEOMETRY_XFAIL = pytest.mark.xfail(
-    strict=True,
-    reason="Legacy snapshots serialize the pen-inflated polygon boundingRect as size.",
-)
-ROUNDTRIP_SHAPES = tuple(
-    pytest.param(
-        shape,
-        marks=POLYGON_GEOMETRY_XFAIL
-        if shape in {"Triangle", "Diamond", "Block Arrow"}
-        else (),
-        id=shape,
-    )
-    for shape in SHAPES
-)
+ROUNDTRIP_SHAPES = tuple(pytest.param(shape, id=shape) for shape in SHAPES)
 
 
 def _styled_pen() -> QtGui.QPen:

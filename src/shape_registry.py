@@ -258,9 +258,13 @@ def _restore_ellipse(type_id: str, data: Mapping[str, Any]) -> EllipseItem:
 
 def _serialize_polygon(item: QtWidgets.QGraphicsItem) -> dict[str, Any]:
     assert isinstance(item, QtWidgets.QGraphicsPolygonItem)
-    rect = item.boundingRect()
+    width = getattr(item, "_w", None)
+    height = getattr(item, "_h", None)
+    if not isinstance(width, (int, float)) or not isinstance(height, (int, float)):
+        rect = item.boundingRect()
+        width, height = rect.width(), rect.height()
     data = {
-        "size": [float(rect.width()), float(rect.height())],
+        "size": [float(width), float(height)],
         "pen": _pen_to_data(item.pen()),
         "brush": _brush_to_data(item.brush()),
     }

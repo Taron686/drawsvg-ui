@@ -46,3 +46,25 @@ def test_timer_remains_a_fallback_without_transaction(canvas_view) -> None:
     QTest.qWait(300)
 
     assert _state_count(canvas_view) == before + 1
+
+
+def test_undo_keeps_redo_branch_after_deferred_scene_change(canvas_view) -> None:
+    history = canvas_view.history()
+    canvas_view.add_shape(
+        "Rectangle", QtCore.QPointF(10.0, 10.0), snap_to_grid=False
+    )
+    canvas_view.add_shape(
+        "Ellipse", QtCore.QPointF(200.0, 10.0), snap_to_grid=False
+    )
+
+    history.undo()
+    QTest.qWait(history._timer.interval() + 50)
+
+    assert history.can_undo()
+    assert history.can_redo()
+    history.undo()
+    assert not canvas_view._serialize_scene_state()["items"]
+    history.redo()
+    assert [
+        entry["shape"] for entry in canvas_view._serialize_scene_state()["items"]
+    ] == ["Rectangle"]
