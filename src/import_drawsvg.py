@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from contextlib import nullcontext
 import math
 import json
 import re
@@ -176,6 +177,7 @@ def import_drawsvg_py(
         pending_block: dict[str, Any] | None = None
         pending_bracket: dict[str, Any] | None = None
         pending_line: LineItem | None = None
+        pending_folder_tree: FolderTreeItem | None = None
 
         # Neu: Mapping von Label-ID -> Ziel-Shape sowie Sammelcontainer für mehrzeilige Label
         shape_label_targets: dict[str, ShapeLabelMixin] = {}
@@ -228,6 +230,7 @@ def import_drawsvg_py(
                 pending_block = None
                 pending_bracket = None
                 pending_line = None
+                pending_folder_tree = None
                 continue
 
             if line.startswith("#"):
@@ -301,6 +304,7 @@ def import_drawsvg_py(
                     item.setScale(float(info.get("scale", 1.0)))
                     item.setData(0, "Folder Tree")
                     parsed_scene.addItem(item)
+                    pending_folder_tree = item
                 elif line.startswith("# Arrowheads:") and pending_line is not None:
                     comment = line.split(":", 1)[1]
                     start_flag = False
@@ -354,6 +358,16 @@ def import_drawsvg_py(
                     if "origin" in kwargs and isinstance(kwargs["origin"], (tuple, list)):
                         ox, oy = map(float, kwargs["origin"][:2])
                     parsed_scene.setSceneRect(float(ox), float(oy), float(args[0]), float(args[1]))
+
+            elif line.startswith("_folder_tree = draw.Group("):
+                _args, kwargs = _parse_call(line)
+                if pending_folder_tree is not None and "transform" in kwargs:
+                    pending_folder_tree.setPos(0.0, 0.0)
+                    pending_folder_tree.setRotation(0.0)
+                    pending_folder_tree.setScale(1.0)
+                    _apply_transform(pending_folder_tree, kwargs["transform"])
+                pending_folder_tree = None
+                continue
 
             elif line.startswith("_folder_tree"):
                 continue
@@ -844,19 +858,31 @@ def import_drawsvg_py(
             item for item in reversed(parsed_scene.items()) if item.parentItem() is None
         ]
         clear_method = getattr(view, "clear_canvas", None) if view is not None else None
-        if callable(clear_method):
-            clear_method()
-        else:
-            target_scene.clear()
-        target_scene.setSceneRect(parsed_scene_rect)
-        for item in parsed_items:
-            parsed_scene.removeItem(item)
-            target_scene.addItem(item)
+        transaction_context = nullcontext()
+        history_getter = getattr(view, "history", None) if view is not None else None
+        if callable(history_getter):
+            transaction = getattr(history_getter(), "transaction", None)
+            if callable(transaction):
+                transaction_context = transaction()
+        with transaction_context:
+            if callable(clear_method):
+                clear_method()
+            else:
+                target_scene.clear()
+            target_scene.setSceneRect(parsed_scene_rect)
+            for item in parsed_items:
+                parsed_scene.removeItem(item)
+                target_scene.addItem(item)
 
-        if view is not None:
-            ensure_pages = getattr(view, "ensure_pages_for_scene_items", None)
-            if callable(ensure_pages):
-                ensure_pages()
+            if view is not None:
+                layer_manager_getter = getattr(view, "layer_manager", None)
+                if callable(layer_manager_getter):
+                    sync_items = getattr(layer_manager_getter(), "sync_items", None)
+                    if callable(sync_items):
+                        sync_items()
+                ensure_pages = getattr(view, "ensure_pages_for_scene_items", None)
+                if callable(ensure_pages):
+                    ensure_pages()
 
         if parent is not None:
             parent.statusBar().showMessage(f"Loaded: {path}", 5000)

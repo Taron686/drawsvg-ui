@@ -13,11 +13,14 @@ sys.path.insert(0, str(SRC_ROOT))
 
 import pytest
 from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6.QtTest import QSignalSpy
 
 import export_drawsvg
 import import_drawsvg
 from canvas_view import CanvasView, GroupItem
 from constants import SHAPES
+from layer_manager import DEFAULT_LAYER_ID
+from scene_codec import KEY_LAYER_ID
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -178,6 +181,82 @@ def test_affine_transform_survives_clone_and_undo(tmp_path: Path) -> None:
     restored_item = _shape_items(view)["Rectangle"]
 
     assert restored_item.transform() == expected_transform
+
+
+def test_import_replaces_scene_as_one_undo_transaction_and_syncs_layers(
+    tmp_path: Path,
+) -> None:
+    import_path = tmp_path / "replacement.py"
+    import_path.write_text(
+        "import drawsvg as draw\n"
+        "d = draw.Drawing(320, 240, origin=(0, 0))\n"
+        "_rect = draw.Rectangle(0, 0, 80, 40)\n"
+        "d.append(_rect)\n",
+        encoding="utf-8",
+    )
+    view = CanvasView()
+    view.add_shape("Ellipse", QtCore.QPointF(10.0, 20.0), snap_to_grid=False)
+    layer_changes = QSignalSpy(view.layer_manager().changed)
+
+    loaded_path = import_drawsvg.import_drawsvg_py(view.scene(), path=import_path)
+    view.history().capture_now()
+
+    assert loaded_path == import_path.resolve()
+    imported = _shape_items(view)["Rectangle"]
+    assert imported.data(KEY_LAYER_ID) == DEFAULT_LAYER_ID
+    assert layer_changes.count() == 1
+
+    view.undo()
+
+    assert set(_shape_items(view)) == {"Ellipse"}
+
+
+def test_folder_tree_import_applies_exported_affine_matrix(tmp_path: Path) -> None:
+    import_path = tmp_path / "folder_tree_affine.py"
+    import_path.write_text(
+        "import drawsvg as draw\n"
+        "d = draw.Drawing(320, 240, origin=(0, 0))\n"
+        "# FolderTree pos=(100, 50) size=(180, 120) rotation=180 scale=1 "
+        'structure={"name": "root", "type": "folder", "children": []}\n'
+        "_folder_tree = draw.Group(transform='matrix(-1 0 0.5 2 100 50)')\n"
+        "d.append(_folder_tree)\n",
+        encoding="utf-8",
+    )
+    view = CanvasView()
+
+    loaded_path = import_drawsvg.import_drawsvg_py(view.scene(), path=import_path)
+
+    assert loaded_path == import_path.resolve()
+    folder_tree = _shape_items(view)["Folder Tree"]
+    assert _matrix_values(folder_tree) == pytest.approx(
+        (-1.0, 0.0, 0.5, 2.0, 100.0, 50.0),
+        abs=1e-6,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        "Rectangle",
+        "Split Rounded Rectangle",
+        "Ellipse",
+        "Triangle",
+        "Diamond",
+        "Block Arrow",
+        "Line",
+        "Curvy Right Bracket",
+    ],
+)
+def test_clone_preserves_item_scale(shape: str) -> None:
+    view = CanvasView()
+    item = view.add_shape(shape, QtCore.QPointF(10.0, 20.0), snap_to_grid=False)
+    assert item is not None
+    item.setScale(1.75)
+
+    clone = view._clone_item(item)
+
+    assert clone is not None
+    assert clone.scale() == pytest.approx(1.75)
 
 
 def test_group_transform_is_flattened_without_moving_children(

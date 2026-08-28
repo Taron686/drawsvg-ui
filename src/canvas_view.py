@@ -2199,6 +2199,17 @@ class CanvasView(QtWidgets.QGraphicsView):
             clone = DiamondItem(item.x(), item.y(), br.width(), br.height())
             clone.setBrush(item.brush())
             clone.setPen(item.pen())
+        elif isinstance(item, BlockArrowItem):
+            clone = BlockArrowItem(
+                item.x(),
+                item.y(),
+                float(getattr(item, "_w", item.boundingRect().width())),
+                float(getattr(item, "_h", item.boundingRect().height())),
+            )
+            clone.set_head_ratio(item.head_ratio())
+            clone.set_shaft_ratio(item.shaft_ratio())
+            clone.setBrush(item.brush())
+            clone.setPen(item.pen())
         elif isinstance(item, LineItem):
             clone = LineItem(
                 item.x(),
@@ -2209,6 +2220,16 @@ class CanvasView(QtWidgets.QGraphicsView):
                 arrow_head_length=getattr(item, "arrow_head_length", lambda: 10.0)(),
                 arrow_head_width=getattr(item, "arrow_head_width", lambda: 10.0)(),
             )
+            clone.setPen(item.pen())
+        elif isinstance(item, CurvyBracketItem):
+            clone = CurvyBracketItem(
+                item.x(),
+                item.y(),
+                item.width(),
+                item.height(),
+                item.hook_ratio(),
+            )
+            clone.setBrush(item.brush())
             clone.setPen(item.pen())
         elif isinstance(item, TextItem):
             br = item.boundingRect()
@@ -2222,18 +2243,17 @@ class CanvasView(QtWidgets.QGraphicsView):
             h_align, v_align = item.text_alignment()
             clone.set_text_alignment(horizontal=h_align, vertical=v_align)
             clone.set_text_direction(item.text_direction())
-            clone.setScale(item.scale())
             br = clone.boundingRect()
             clone.setTransformOriginPoint(br.width() / 2.0, br.height() / 2.0)
         elif isinstance(item, FolderTreeItem):
             clone = FolderTreeItem(item.x(), item.y(), 0.0, 0.0, structure=item.structure())
-            clone.setScale(item.scale())
         else:
             return None
         if isinstance(item, ShapeLabelMixin) and isinstance(clone, ShapeLabelMixin):
             clone.copy_label_from(item)
         clone.setTransform(item.transform())
         clone.setRotation(item.rotation())
+        clone.setScale(item.scale())
         clone.setData(0, item.data(0))
         return clone
 
