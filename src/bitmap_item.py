@@ -39,6 +39,7 @@ class BitmapItem(ResizableItem, QtWidgets.QGraphicsItem):
         QtWidgets.QGraphicsItem.__init__(self)
         ResizableItem.__init__(self)
         self._limits = limits
+        self._asset = asset
         self._asset_name = asset.name
         self._asset_sha256 = decoded.sha256
         self._asset_media_type = asset.media_type
@@ -69,6 +70,10 @@ class BitmapItem(ResizableItem, QtWidgets.QGraphicsItem):
     @property
     def asset_media_type(self) -> str:
         return self._asset_media_type
+
+    @property
+    def asset(self) -> ProjectAsset:
+        return self._asset
 
     def boundingRect(self) -> QtCore.QRectF:
         return QtCore.QRectF(0, 0, self._size.width(), self._size.height())
@@ -108,6 +113,7 @@ class BitmapItem(ResizableItem, QtWidgets.QGraphicsItem):
             asset.media_type,
             decoded.image.copy(),
         )
+        self._asset = asset
         self.update()
 
 

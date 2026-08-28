@@ -112,6 +112,18 @@ class BitmapAssetService:
             raise BitmapAssetError("Bitmap item references a missing asset")
         return asset
 
+    def ensure(self, asset: ProjectAsset) -> ProjectAsset:
+        """Validate and register a bitmap asset, returning its canonical value."""
+        decoded = decode_bitmap_asset(asset, limits=self._limits)
+        existing = self._by_digest.get(decoded.sha256)
+        if existing is not None:
+            return existing
+        conflicting = self._by_name.get(asset.name.casefold())
+        if conflicting is not None:
+            raise BitmapAssetError("Project contains a conflicting bitmap asset name")
+        self._add_existing(decoded)
+        return asset
+
     def _add_existing(self, decoded: DecodedBitmap) -> None:
         asset = decoded.asset
         if len(self._assets) >= self._limits.max_assets:

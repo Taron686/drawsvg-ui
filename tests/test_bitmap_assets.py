@@ -191,3 +191,25 @@ def test_canvas_persists_bitmap_items_through_undo_redo_and_restore(
     assert restored.asset_sha256 == item.asset_sha256
     assert restored.rotation() == pytest.approx(17)
     assert restored.scale() == pytest.approx(1.25)
+
+
+def test_replaced_bitmap_is_registered_before_scene_restore(
+    canvas_view, application: QtWidgets.QApplication
+) -> None:
+    service = BitmapAssetService()
+    first = service.import_bytes(_image_bytes("PNG", "#e14b4b"))
+    replacement = service.import_bytes(_image_bytes("PNG", "#4b7ee1"))
+    canvas_view.set_bitmap_assets((first.asset,))
+    item = canvas_view.add_bitmap_item(first.asset, QtCore.QPointF(10, 20))
+
+    item.replace_asset(replacement.asset)
+    state = canvas_view._serialize_scene_state()
+    assert replacement.asset in canvas_view.bitmap_assets()
+
+    canvas_view._restore_scene_state(state)
+    restored = next(
+        scene_item
+        for scene_item in canvas_view.scene().items()
+        if isinstance(scene_item, BitmapItem)
+    )
+    assert restored.asset_sha256 == sha256(replacement.asset.data).hexdigest()

@@ -968,6 +968,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         if registry_data is not None:
             base.update(registry_data)
         elif isinstance(item, BitmapItem):
+            self._bitmap_assets.ensure(item.asset)
             base.update(serialize_bitmap_item(item))
         elif isinstance(item, RectItem):
             rect = item.rect()
@@ -2272,7 +2273,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         if isinstance(item, BitmapItem):
             size = item.item_size()
             clone = BitmapItem(
-                self._bitmap_assets.resolve(item.asset_name),
+                self._bitmap_assets.ensure(item.asset),
                 item.x(),
                 item.y(),
                 size.width(),
@@ -2507,6 +2508,9 @@ class CanvasView(QtWidgets.QGraphicsView):
     # --- Alignment helpers ---
     @_undo_transaction
     def _align_items(self, items, mode: str):
+        items = [item for item in items if not isinstance(item, ConnectorItem)]
+        if not items:
+            return
         brs = [it.sceneBoundingRect() for it in items]
         if mode == "grid":
             size = self._grid_size
@@ -3076,7 +3080,12 @@ class CanvasView(QtWidgets.QGraphicsView):
                 items = [
                     it
                     for it in scene.items()
-                    if it.data(0) in SHAPES or isinstance(it, GroupItem)
+                    if (
+                        it.data(0) in SHAPES
+                        or isinstance(it, GroupItem)
+                        or isinstance(it, ConnectorItem)
+                        or isinstance(it, BitmapItem)
+                    )
                 ]
                 items.sort(key=lambda it: it.zValue())
                 idx = items.index(item)

@@ -518,7 +518,7 @@ class ConnectorManager(QtCore.QObject):
 
     @QtCore.Slot(list)
     def _on_scene_changed(self, regions: list[QtCore.QRectF]) -> None:
-        if self._updating or not self._bindings:
+        if self._updating or not self._connectors:
             return
         if len(regions) > MAX_DIRTY_REGIONS:
             self._reroute(self._connectors)
@@ -530,6 +530,12 @@ class ConnectorManager(QtCore.QObject):
                 item_id = _normalized_uuid(item.data(KEY_ITEM_ID))
                 if item_id is not None:
                     affected.update(self._bindings.get(item_id, ()))
+            for connector in self._connectors:
+                route_bounds = connector.sceneBoundingRect().adjusted(
+                    -ROUTE_MARGIN, -ROUTE_MARGIN, ROUTE_MARGIN, ROUTE_MARGIN
+                )
+                if route_bounds.intersects(query):
+                    affected.add(connector)
         self._reroute(affected)
 
     def _reroute(self, connectors: Iterable[ConnectorItem]) -> None:
