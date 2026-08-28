@@ -24,6 +24,7 @@ from items import (
     TextItem,
     TriangleItem,
 )
+from items.shapes.paths import FreePathItem
 
 from constants import DEFAULTS, PEN_STYLE_DASH_ARRAYS
 
@@ -58,7 +59,7 @@ def _parse_call(line: str) -> tuple[list[Any], dict[str, Any]]:
 
 
 def _apply_style(item: QtWidgets.QGraphicsItem, kwargs: dict[str, Any]) -> None:
-    if isinstance(item, (QtWidgets.QGraphicsRectItem, QtWidgets.QGraphicsEllipseItem, LineItem, TriangleItem, DiamondItem, BlockArrowItem)):
+    if isinstance(item, (QtWidgets.QGraphicsRectItem, QtWidgets.QGraphicsEllipseItem, LineItem, FreePathItem, TriangleItem, DiamondItem, BlockArrowItem)):
         if kwargs.get("fill") == "none":
             item.setBrush(QtCore.Qt.BrushStyle.NoBrush)
         elif "fill" in kwargs:
@@ -69,6 +70,10 @@ def _apply_style(item: QtWidgets.QGraphicsItem, kwargs: dict[str, Any]) -> None:
         pen = item.pen()
         if "stroke" in kwargs:
             pen.setColor(QtGui.QColor(kwargs["stroke"]))
+            if "stroke_opacity" in kwargs:
+                color = pen.color()
+                color.setAlphaF(float(kwargs["stroke_opacity"]))
+                pen.setColor(color)
         if "stroke_width" in kwargs:
             pen.setWidthF(float(kwargs["stroke_width"]))
         dash_pattern = None
@@ -546,6 +551,39 @@ def import_drawsvg_py(
 
             elif line.startswith("_path = draw.Path("):
                 args, kwargs = _parse_call(line)
+                free_path_raw = kwargs.get("data_free_path")
+                if free_path_raw is not None:
+                    try:
+                        payload = json.loads(str(free_path_raw))
+                        if not isinstance(payload, Mapping):
+                            raise ValueError("Free path payload must be an object")
+                        start = payload.get("start")
+                        segments = payload.get("segments")
+                        if not isinstance(start, (list, tuple)) or not isinstance(segments, list):
+                            raise ValueError("Free path payload is incomplete")
+                        path_type = str(kwargs.get("data_free_path_type", "Free Polyline"))
+                        if path_type not in {"Free Polyline", "Free Polygon", "Bezier Path"}:
+                            raise ValueError("Unsupported free path type")
+                        item = FreePathItem(
+                            0.0,
+                            0.0,
+                            closed=bool(payload.get("closed", path_type == "Free Polygon")),
+                            start=start,
+                            segments=segments,
+                            path_kind={
+                                "Free Polyline": "polyline",
+                                "Free Polygon": "polygon",
+                                "Bezier Path": "bezier",
+                            }[path_type],
+                        )
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        continue
+                    _apply_style(item, kwargs)
+                    if "transform" in kwargs:
+                        _apply_transform(item, kwargs["transform"])
+                    item.setData(0, path_type)
+                    parsed_scene.addItem(item)
+                    continue
                 if pending_bracket is not None:
                     x = float(pending_bracket.get("x", 0.0))
                     y = float(pending_bracket.get("y", 0.0))

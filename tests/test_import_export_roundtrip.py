@@ -21,6 +21,7 @@ from canvas_view import CanvasView, GroupItem
 from constants import SHAPES
 from layer_manager import DEFAULT_LAYER_ID
 from scene_codec import KEY_LAYER_ID
+from items.shapes.paths import FreePathItem
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -89,6 +90,42 @@ def test_all_palette_shapes_roundtrip(
     restored = _roundtrip(monkeypatch, tmp_path, source)
 
     assert set(_shape_items(restored)) == set(SHAPES)
+
+
+@pytest.mark.parametrize("shape", ["Free Polyline", "Free Polygon", "Bezier Path"])
+def test_free_paths_roundtrip_through_exported_python(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    shape: str,
+) -> None:
+    source = CanvasView()
+    item = source.add_shape(shape, QtCore.QPointF(25.0, 40.0), snap_to_grid=False)
+    assert isinstance(item, FreePathItem)
+    item.setPen(QtGui.QPen(QtGui.QColor("#234567"), 3.0, QtCore.Qt.PenStyle.DashLine))
+    item.setBrush(QtGui.QBrush(QtGui.QColor("#abc123")))
+    item.setTransform(QtGui.QTransform(1.0, 0.2, 0.1, 1.1, 15.0, -8.0))
+    if shape == "Bezier Path":
+        item.move_handle(0, "control1", QtCore.QPointF(20.0, 90.0))
+        item.move_handle(0, "control2", QtCore.QPointF(115.0, -30.0))
+    else:
+        item.move_handle(0, "end", QtCore.QPointF(180.0, 70.0))
+
+    restored = _roundtrip(monkeypatch, tmp_path, source)
+    restored_item = next(
+        candidate
+        for candidate in restored.scene().items()
+        if candidate.data(0) == shape
+    )
+
+    assert isinstance(restored_item, FreePathItem)
+    assert restored_item.path_payload() == item.path_payload()
+    assert restored_item.pen().color() == item.pen().color()
+    assert restored_item.pen().widthF() == pytest.approx(item.pen().widthF())
+    assert restored_item.pen().style() == item.pen().style()
+    assert restored_item.brush().color() == item.brush().color()
+    assert _matrix_values(restored_item) == pytest.approx(
+        _matrix_values(item), abs=1e-4
+    )
 
 
 def test_text_roundtrip_preserves_explicit_content_only(

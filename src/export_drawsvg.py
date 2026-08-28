@@ -1254,7 +1254,13 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 f"stroke='{pen.color().name()}'",
                 f"stroke_width={pen.widthF():.2f}",
                 f"fill='{brush.color().name() if brush.style() != QtCore.Qt.BrushStyle.NoBrush else 'none'}'",
+                f"data_free_path={json.dumps(it.path_payload(), separators=(',', ':'))!r}",
+                f"data_free_path_type={str(it.data(0) or it.path_kind)!r}",
             ]
+            if pen.color().alphaF() < 1.0:
+                attrs.append(f"stroke_opacity={pen.color().alphaF():.2f}")
+            if brush.style() != QtCore.Qt.BrushStyle.NoBrush and brush.color().alphaF() < 1.0:
+                attrs.append(f"fill_opacity={brush.color().alphaF():.2f}")
             dash_str = _pen_dash_array_string(pen)
             if dash_str:
                 attrs.append(f"stroke_dasharray='{dash_str}'")
