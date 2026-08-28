@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "drawsvg-ui"
-version = "0.2.0"
+version = "0.3.0"
 description = "GUI for creating drawsvg scenes with PySide6"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -53,3 +53,12 @@ include = ["items*", "ui*"]
 
 [tool.setuptools.package-data]
 ui = ["*.ui"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]
