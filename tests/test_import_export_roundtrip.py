@@ -102,7 +102,9 @@ def test_free_paths_roundtrip_through_exported_python(
     item = source.add_shape(shape, QtCore.QPointF(25.0, 40.0), snap_to_grid=False)
     assert isinstance(item, FreePathItem)
     item.setPen(QtGui.QPen(QtGui.QColor("#234567"), 3.0, QtCore.Qt.PenStyle.DashLine))
-    item.setBrush(QtGui.QBrush(QtGui.QColor("#abc123")))
+    fill_color = QtGui.QColor("#abc123")
+    fill_color.setAlphaF(0.4)
+    item.setBrush(QtGui.QBrush(fill_color))
     item.setTransform(QtGui.QTransform(1.0, 0.2, 0.1, 1.1, 15.0, -8.0))
     if shape == "Bezier Path":
         item.move_handle(0, "control1", QtCore.QPointF(20.0, 90.0))
@@ -122,7 +124,10 @@ def test_free_paths_roundtrip_through_exported_python(
     assert restored_item.pen().color() == item.pen().color()
     assert restored_item.pen().widthF() == pytest.approx(item.pen().widthF())
     assert restored_item.pen().style() == item.pen().style()
-    assert restored_item.brush().color() == item.brush().color()
+    assert restored_item.brush().color().name() == item.brush().color().name()
+    assert restored_item.brush().color().alphaF() == pytest.approx(
+        item.brush().color().alphaF(), abs=0.01
+    )
     assert _matrix_values(restored_item) == pytest.approx(
         _matrix_values(item), abs=1e-4
     )
