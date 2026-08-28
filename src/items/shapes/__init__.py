@@ -2,17 +2,21 @@
 
 from .curves import CurvyBracketItem, EllipseItem
 from .lines import LineHandle, LineItem
+from .paths import BezierPathItem, FreePathItem, PathHandle
 from .polygons import BlockArrowHandle, BlockArrowItem, DiamondItem, TriangleItem
 from .rects import RectItem, SplitDividerHandle, SplitRoundedRectItem
 
 __all__ = [
     "BlockArrowHandle",
     "BlockArrowItem",
+    "BezierPathItem",
     "CurvyBracketItem",
     "DiamondItem",
     "EllipseItem",
     "LineHandle",
     "LineItem",
+    "FreePathItem",
+    "PathHandle",
     "RectItem",
     "SplitDividerHandle",
     "SplitRoundedRectItem",

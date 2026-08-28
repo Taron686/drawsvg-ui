@@ -15,8 +15,8 @@ def test_registry_has_one_stable_definition_for_each_existing_shape() -> None:
     definitions = SHAPE_REGISTRY.definitions()
 
     assert SHAPE_REGISTRY.type_ids() == SHAPES
-    assert len(definitions) == 13
-    assert len({definition.type_id for definition in definitions}) == 13
+    all_definitions = definitions + SHAPE_REGISTRY.extension_definitions()
+    assert len({definition.type_id for definition in all_definitions}) == len(all_definitions)
     assert all(definition.python_export_adapter for definition in definitions)
 
 
@@ -88,7 +88,7 @@ def test_palette_uses_registry_order(application: QtWidgets.QApplication) -> Non
         assert [
             palette.item(index).data(QtCore.Qt.ItemDataRole.UserRole)
             for index in range(palette.count())
-        ] == list(SHAPE_REGISTRY.type_ids())
+        ] == [definition.type_id for definition in SHAPE_REGISTRY.palette_definitions()]
     finally:
         palette.close()
 

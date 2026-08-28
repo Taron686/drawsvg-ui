@@ -332,7 +332,7 @@ class PaletteList(QtWidgets.QListWidget):
         self._hovered_item: QtWidgets.QListWidgetItem | None = None
         self._hover_brush = QtGui.QBrush(QtGui.QColor("#d2e7ff"))
 
-        for definition in SHAPE_REGISTRY.definitions():
+        for definition in SHAPE_REGISTRY.palette_definitions():
             item = QtWidgets.QListWidgetItem("")
             item.setData(QtCore.Qt.ItemDataRole.UserRole, definition.type_id)
             item.setToolTip(definition.palette_label)

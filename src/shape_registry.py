@@ -22,6 +22,7 @@ from items import (
     TextItem,
     TriangleItem,
 )
+from items.shapes.paths import BezierPathItem, FreePathItem
 
 ShapeFactory = Callable[[float, float, float, float], QtWidgets.QGraphicsItem]
 ShapeSerializer = Callable[[QtWidgets.QGraphicsItem], dict[str, Any]]
@@ -361,6 +362,36 @@ def _restore_line(data: Mapping[str, Any]) -> LineItem:
     return item
 
 
+def _serialize_free_path(item: QtWidgets.QGraphicsItem) -> dict[str, Any]:
+    assert isinstance(item, FreePathItem)
+    data = item.path_payload()
+    data["pen"] = _pen_to_data(item.pen())
+    data["brush"] = _brush_to_data(item.brush())
+    return data
+
+
+def _restore_free_path(type_id: str, data: Mapping[str, Any]) -> FreePathItem:
+    start = data.get("start", [0.0, 0.0])
+    segments = data.get("segments", [])
+    closed = bool(data.get("closed", type_id == "Free Polygon"))
+    item_type = BezierPathItem if type_id == "Bezier Path" else FreePathItem
+    item = item_type(
+        0.0,
+        0.0,
+        closed=closed,
+        start=start if isinstance(start, (list, tuple)) else [0.0, 0.0],
+        segments=segments if isinstance(segments, list) else None,
+        path_kind={
+            "Free Polyline": "polyline",
+            "Free Polygon": "polygon",
+            "Bezier Path": "bezier",
+        }[type_id],
+    )
+    item.setPen(_pen_from_data(data.get("pen") if isinstance(data.get("pen"), Mapping) else None))
+    item.setBrush(_brush_from_data(data.get("brush") if isinstance(data.get("brush"), Mapping) else None))
+    return item
+
+
 def _serialize_bracket(item: QtWidgets.QGraphicsItem) -> dict[str, Any]:
     assert isinstance(item, CurvyBracketItem)
     return {
@@ -459,16 +490,28 @@ class ShapeDefinition:
 
 
 class ShapeRegistry:
-    def __init__(self, definitions: tuple[ShapeDefinition, ...]) -> None:
+    def __init__(
+        self,
+        definitions: tuple[ShapeDefinition, ...],
+        extensions: tuple[ShapeDefinition, ...] = (),
+    ) -> None:
         self._definitions = definitions
+        self._extensions = extensions
+        all_definitions = definitions + extensions
         self._by_type_id = {
-            definition.type_id: definition for definition in definitions
+            definition.type_id: definition for definition in all_definitions
         }
-        if len(self._by_type_id) != len(definitions):
+        if len(self._by_type_id) != len(all_definitions):
             raise ValueError("Shape type IDs must be unique")
 
     def definitions(self) -> tuple[ShapeDefinition, ...]:
         return self._definitions
+
+    def extension_definitions(self) -> tuple[ShapeDefinition, ...]:
+        return self._extensions
+
+    def palette_definitions(self) -> tuple[ShapeDefinition, ...]:
+        return self._definitions + self._extensions
 
     def type_ids(self) -> tuple[str, ...]:
         return tuple(definition.type_id for definition in self._definitions)
@@ -648,7 +691,37 @@ _DEFINITIONS = (
     ),
 )
 
+_EXTENSION_DEFINITIONS = (
+    ShapeDefinition(
+        "Free Polyline",
+        "Free Polyline",
+        (150.0, 100.0),
+        lambda x, y, w, h: FreePathItem(x, y, w, h, path_kind="polyline"),
+        _serialize_free_path,
+        lambda data: _restore_free_path("Free Polyline", data),
+        "free_path",
+    ),
+    ShapeDefinition(
+        "Free Polygon",
+        "Free Polygon",
+        (150.0, 100.0),
+        lambda x, y, w, h: FreePathItem(x, y, w, h, closed=True, path_kind="polygon"),
+        _serialize_free_path,
+        lambda data: _restore_free_path("Free Polygon", data),
+        "free_path",
+    ),
+    ShapeDefinition(
+        "Bezier Path",
+        "Bezier Path",
+        (150.0, 100.0),
+        lambda x, y, w, h: BezierPathItem(x, y, w, h),
+        _serialize_free_path,
+        lambda data: _restore_free_path("Bezier Path", data),
+        "free_path",
+    ),
+)
+
 if tuple(definition.type_id for definition in _DEFINITIONS) != SHAPES:
     raise RuntimeError("Shape registry and legacy shape constants are out of sync")
 
-SHAPE_REGISTRY = ShapeRegistry(_DEFINITIONS)
+SHAPE_REGISTRY = ShapeRegistry(_DEFINITIONS, _EXTENSION_DEFINITIONS)

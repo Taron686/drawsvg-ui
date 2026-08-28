@@ -28,6 +28,7 @@ from items import (
 
 )
 from shape_registry import SHAPE_REGISTRY
+from items.shapes.paths import FreePathItem
 
 def _format_item_attributes(
 
@@ -1240,6 +1241,27 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             lines.append("    d.append(_path)")
 
+            lines.append("")
+
+        elif adapter == "free_path" and isinstance(it, FreePathItem):
+
+            path_cmd = _painter_path_to_svg(it.path())
+            if not path_cmd:
+                continue
+            pen = it.pen()
+            brush = it.brush()
+            attrs = [
+                f"stroke='{pen.color().name()}'",
+                f"stroke_width={pen.widthF():.2f}",
+                f"fill='{brush.color().name() if brush.style() != QtCore.Qt.BrushStyle.NoBrush else 'none'}'",
+            ]
+            dash_str = _pen_dash_array_string(pen)
+            if dash_str:
+                attrs.append(f"stroke_dasharray='{dash_str}'")
+            lines.append(
+                f"    _path = draw.Path('{path_cmd}', {', '.join(attrs)}{_item_transform_suffix(it)})"
+            )
+            lines.append("    d.append(_path)")
             lines.append("")
 
         elif adapter == "text" and isinstance(it, QtWidgets.QGraphicsTextItem):
