@@ -7,6 +7,12 @@ from typing import Any
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from connectors import (
+    AnchorName,
+    ConnectorItem,
+    ConnectorManager,
+    is_connector_data,
+)
 from constants import DEFAULTS, PALETTE_MIME, SHAPES
 from items import (
     BlockArrowItem,
@@ -474,6 +480,8 @@ class OpacityDialog(QtWidgets.QDialog):
 class TrackingScene(QtWidgets.QGraphicsScene):
     """QGraphicsScene that keeps strong refs to added items."""
 
+    itemRemoved = QtCore.Signal(object)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._owned_items: set[QtWidgets.QGraphicsItem] = set()
@@ -483,6 +491,7 @@ class TrackingScene(QtWidgets.QGraphicsScene):
         self._owned_items.add(item)
 
     def removeItem(self, item: QtWidgets.QGraphicsItem) -> None:  # type: ignore[override]
+        self.itemRemoved.emit(item)
         super().removeItem(item)
         self._owned_items.discard(item)
 
@@ -808,6 +817,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._suppress_context_menu = False
 
         self._layer_manager = LayerManager(self)
+        self._connector_manager = ConnectorManager(scene, self)
         self._history = SceneHistory(self)
         self._history.capture_initial_state()
 
@@ -823,11 +833,37 @@ class CanvasView(QtWidgets.QGraphicsView):
     def layer_manager(self) -> LayerManager:
         return self._layer_manager
 
+    def connector_manager(self) -> ConnectorManager:
+        return self._connector_manager
+
     def undo(self) -> None:
         self._history.undo()
 
     def redo(self) -> None:
         self._history.redo()
+
+    @_undo_transaction
+    def add_connector(
+        self,
+        start: QtCore.QPointF | QtWidgets.QGraphicsItem,
+        end: QtCore.QPointF | QtWidgets.QGraphicsItem,
+        *,
+        start_anchor: AnchorName = "auto",
+        end_anchor: AnchorName = "auto",
+    ) -> ConnectorItem:
+        """Add a connector with free or item-bound endpoints."""
+        start_endpoint = self._connector_manager.endpoint_for(
+            start, anchor=start_anchor
+        )
+        end_endpoint = self._connector_manager.endpoint_for(end, anchor=end_anchor)
+        connector = self._connector_manager.create_connector(
+            start_endpoint, end_endpoint
+        )
+        self._layer_manager.register_item(connector)
+        connector.setSelected(True)
+        self._ensure_page_for_item(connector, connector.sceneBoundingRect().center())
+        self._update_scene_rect()
+        return connector
 
     # --- Serialization helpers for undo/redo ---
     def _is_serializable_item(self, item: QtWidgets.QGraphicsItem) -> bool:
@@ -876,6 +912,14 @@ class CanvasView(QtWidgets.QGraphicsView):
         return state
 
     def _serialize_item(self, item: QtWidgets.QGraphicsItem) -> dict[str, Any]:
+        if isinstance(item, ConnectorItem):
+            self._connector_manager.update_connector(item)
+            connector_data = item.to_data()
+            owner_page = self._owner_page_index(item)
+            if owner_page is not None:
+                connector_data["owner_page"] = [owner_page[0], owner_page[1]]
+            connector_data.update(self._layer_manager.item_metadata(item))
+            return connector_data
         registry_data = SHAPE_REGISTRY.serialize(item)
         shape = (
             str(registry_data["shape"])
@@ -1348,10 +1392,14 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._active_snap_guides.clear()
         self._layer_manager.restore_state(state.get("layers"))
         restored: list[QtWidgets.QGraphicsItem] = []
+        connector_data: list[Mapping[str, Any]] = []
         items_data = state.get("items") if isinstance(state, Mapping) else None
         if isinstance(items_data, list):
             for data in items_data:
                 if not isinstance(data, Mapping):
+                    continue
+                if is_connector_data(data):
+                    connector_data.append(data)
                     continue
                 item = self._instantiate_item(data)
                 if item is None:
@@ -1366,6 +1414,16 @@ class CanvasView(QtWidgets.QGraphicsView):
                         self._restore_group_children(item, children)
                 self._apply_item_transform(item, data)
                 restored.append(item)
+        self._connector_manager.rebuild_item_index()
+        for data in connector_data:
+            connector = ConnectorItem.from_data(data)
+            scene.addItem(connector)
+            SceneCodec.restore_item_metadata(connector, data)
+            self._restore_owner_page(connector, data.get("owner_page"))
+            self._layer_manager.restore_item_state(connector, data)
+            self._connector_manager.register_connector(connector)
+            restored.append(connector)
+        self._connector_manager.resolve_bindings()
         for item in restored:
             self._ensure_page_for_item(item, None)
         self._layer_manager.sync_items()
@@ -1614,6 +1672,7 @@ class CanvasView(QtWidgets.QGraphicsView):
     def clear_canvas(self):
         """Remove all items from the scene."""
         scene = self.scene()
+        self._connector_manager.reset()
         for item in list(scene.items()):
             if isinstance(item, A4PageItem):
                 continue
@@ -2282,7 +2341,11 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     @_undo_transaction
     def _group_selected_items(self):
-        selected = self.scene().selectedItems()
+        selected = [
+            item
+            for item in self.scene().selectedItems()
+            if not isinstance(item, ConnectorItem)
+        ]
         if len(selected) < 2:
             return
 

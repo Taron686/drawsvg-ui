@@ -34,6 +34,7 @@ py-modules = [
   "app_logging",
   "canvas_view",
   "clipboard_service",
+  "connectors",
   "constants",
   "document_format",
   "document_io",
