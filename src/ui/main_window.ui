@@ -73,6 +73,10 @@
     <addaction name="actionLoad_drawsvg_py"/>
     <addaction name="actionSave_drawsvg_py"/>
     <addaction name="separator"/>
+    <addaction name="actionExport_svg"/>
+    <addaction name="actionExport_png"/>
+    <addaction name="actionExport_pdf"/>
+    <addaction name="separator"/>
     <addaction name="actionQuit"/>
    </widget>
    <widget class="QMenu" name="menuEdit">
@@ -104,6 +108,21 @@
   <action name="actionSave_drawsvg_py">
    <property name="text">
     <string>Save drawsvg-.py</string>
+   </property>
+  </action>
+  <action name="actionExport_svg">
+   <property name="text">
+    <string>Export SVG…</string>
+   </property>
+  </action>
+  <action name="actionExport_png">
+   <property name="text">
+    <string>Export PNG…</string>
+   </property>
+  </action>
+  <action name="actionExport_pdf">
+   <property name="text">
+    <string>Export PDF…</string>
    </property>
   </action>
   <action name="actionQuit">

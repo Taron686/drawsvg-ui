@@ -11,6 +11,7 @@ from PySide6.QtUiTools import QUiLoader
 from app_info import GITHUB_URL, get_version
 from canvas_view import CanvasView
 from export_drawsvg import export_drawsvg_py
+from export_renderer import ExportRenderer, ExportRequest
 from import_drawsvg import import_drawsvg_py
 from layers_panel import LayersPanel
 from palette import PaletteList
@@ -20,6 +21,11 @@ from ruler_widget import RulerWidget
 _UI_PATH = Path(__file__).resolve().parent / "ui" / "main_window.ui"
 _RECENT_FILES_LIMIT = 10
 _RECENT_FILES_NAME = "recent_files.json"
+_EXPORT_FORMATS = {
+    "svg": ("SVG image (*.svg)", ".svg", "export_svg"),
+    "png": ("PNG image (*.png)", ".png", "export_png"),
+    "pdf": ("PDF document (*.pdf)", ".pdf", "export_pdf"),
+}
 
 
 def _default_recent_files_path() -> Path:
@@ -97,6 +103,9 @@ class MainWindow(QtWidgets.QMainWindow):
         action_names = [
             "actionLoad_drawsvg_py",
             "actionSave_drawsvg_py",
+            "actionExport_svg",
+            "actionExport_png",
+            "actionExport_pdf",
             "actionQuit",
             "actionUndo",
             "actionRedo",
@@ -222,6 +231,15 @@ class MainWindow(QtWidgets.QMainWindow):
     def _configure_actions(self) -> None:
         self.actionLoad_drawsvg_py.triggered.connect(self.load_drawsvg_py)
         self.actionSave_drawsvg_py.triggered.connect(self.export_drawsvg_py)
+        self.actionExport_svg.triggered.connect(
+            lambda _checked=False: self._export_scene("svg")
+        )
+        self.actionExport_png.triggered.connect(
+            lambda _checked=False: self._export_scene("png")
+        )
+        self.actionExport_pdf.triggered.connect(
+            lambda _checked=False: self._export_scene("pdf")
+        )
         self.actionQuit.triggered.connect(self.close)
 
         self.actionUndo.setShortcutContext(
@@ -284,6 +302,36 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def export_drawsvg_py(self) -> None:
         export_drawsvg_py(self.canvas.scene(), self)
+
+    def _export_scene(self, export_format: str) -> None:
+        file_filter, extension, method_name = _EXPORT_FORMATS[export_format]
+        selected_path, _selected_filter = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            f"Export {export_format.upper()}",
+            "",
+            file_filter,
+        )
+        if not selected_path:
+            return
+
+        output_path = Path(selected_path)
+        if output_path.suffix.casefold() != extension:
+            output_path = output_path.parent / f"{output_path.name}{extension}"
+
+        renderer = ExportRenderer(self.canvas.scene())
+        export_method = getattr(renderer, method_name)
+        try:
+            export_method(output_path, ExportRequest())
+        except (OSError, RuntimeError, ValueError) as error:
+            QtWidgets.QMessageBox.critical(
+                self,
+                f"Export {export_format.upper()} failed",
+                str(error),
+            )
+            return
+        self.statusBar().showMessage(
+            f"Exported {export_format.upper()} to {output_path}", 5000
+        )
 
     def load_drawsvg_py(self) -> None:
         loaded_path = import_drawsvg_py(self.canvas.scene(), self)
