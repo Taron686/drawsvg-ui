@@ -3195,7 +3195,7 @@ class CanvasView(QtWidgets.QGraphicsView):
                     it
                     for it in scene.items()
                     if (
-                        it.data(0) in SHAPES
+                        SHAPE_REGISTRY.definition_for_item(it) is not None
                         or isinstance(it, GroupItem)
                         or isinstance(it, ConnectorItem)
                         or isinstance(it, BitmapItem)

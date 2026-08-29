@@ -137,3 +137,18 @@ def test_free_path_python_export_compiles(
     code = output.read_text(encoding="utf-8")
     compile(code, str(output), "exec")
     assert "draw.Path" in code
+
+
+def test_free_path_is_registered_for_context_menu_stack_order(canvas_view) -> None:
+    item = canvas_view.add_shape(
+        "Free Polyline", QtCore.QPointF(20.0, 30.0), snap_to_grid=False
+    )
+    assert isinstance(item, FreePathItem)
+
+    stack_items = [
+        candidate
+        for candidate in canvas_view.scene().items()
+        if SHAPE_REGISTRY.definition_for_item(candidate) is not None
+    ]
+
+    assert item in stack_items
