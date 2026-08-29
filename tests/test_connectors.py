@@ -58,12 +58,15 @@ def test_connector_creation_mode_binds_two_clicked_items_in_one_undo_step(
 
     canvas_view.set_connector_creation_enabled(True)
     _click_scene(canvas_view, start.sceneBoundingRect().center(), application)
+    assert canvas_view._connector_preview_position is not None
     _click_scene(canvas_view, end.sceneBoundingRect().center(), application)
 
     connector = _connectors(canvas_view)[0]
     assert connector.start_endpoint.target_id == start.data(KEY_ITEM_ID)
     assert connector.end_endpoint.target_id == end.data(KEY_ITEM_ID)
     assert len(history._states) == states_before + 1
+    assert not canvas_view.connector_creation_enabled()
+    assert canvas_view._connector_preview_position is None
 
     canvas_view.undo()
     assert not _connectors(canvas_view)
@@ -98,6 +101,7 @@ def test_connector_creation_mode_uses_free_points_and_escape_cancels(
     assert connector.end_endpoint.target_id is None
     assert connector.route_points()[0] == clicked_start
     assert connector.route_points()[-1] == clicked_end
+    assert not canvas_view.connector_creation_enabled()
 
 
 def test_bound_and_free_endpoints_serialize_with_stable_references(canvas_view) -> None:

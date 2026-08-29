@@ -766,6 +766,7 @@ class CanvasView(QtWidgets.QGraphicsView):
     gridVisibilityChanged = QtCore.Signal(bool)
     guidesVisibilityChanged = QtCore.Signal(bool)
     connectorCreationChanged = QtCore.Signal(bool)
+    connectorCreationStartChanged = QtCore.Signal(bool)
     viewChanged = QtCore.Signal()
     selectionSnapshotChanged = QtCore.Signal(dict)
 
@@ -821,6 +822,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._suppress_context_menu = False
         self._connector_creation_enabled = False
         self._connector_start: QtCore.QPointF | QtWidgets.QGraphicsItem | None = None
+        self._connector_preview_position: QtCore.QPointF | None = None
 
         self._layer_manager = LayerManager(self)
         self._connector_manager = ConnectorManager(scene, self)
@@ -872,7 +874,22 @@ class CanvasView(QtWidgets.QGraphicsView):
             return
         self._connector_creation_enabled = enabled
         self._connector_start = None
+        self._connector_preview_position = None
+        if enabled:
+            self.viewport().setCursor(QtCore.Qt.CursorShape.CrossCursor)
+        else:
+            self.viewport().unsetCursor()
         self.connectorCreationChanged.emit(enabled)
+        self.connectorCreationStartChanged.emit(False)
+        self.viewport().update()
+
+    def _connector_preview_start(self) -> QtCore.QPointF | None:
+        start = self._connector_start
+        if start is None:
+            return None
+        if isinstance(start, QtWidgets.QGraphicsItem):
+            return start.sceneBoundingRect().center()
+        return QtCore.QPointF(start)
 
     def _connector_target_at(
         self, position: QtCore.QPoint
@@ -901,9 +918,12 @@ class CanvasView(QtWidgets.QGraphicsView):
         endpoint = self._connector_target_at(position)
         if self._connector_start is None:
             self._connector_start = endpoint
+            self._connector_preview_position = self.mapToScene(position)
+            self.connectorCreationStartChanged.emit(True)
+            self.viewport().update()
             return
         self.add_connector(self._connector_start, endpoint)
-        self._connector_start = None
+        self.set_connector_creation_enabled(False)
 
     @_undo_transaction
     def add_connector(
@@ -1769,23 +1789,34 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     def drawForeground(self, painter: QtGui.QPainter, rect: QtCore.QRectF):
         super().drawForeground(painter, rect)
-        if not self._guides_visible or (
-            not self._guides and not self._active_snap_guides
-        ):
+        preview_start = self._connector_preview_start()
+        preview_end = self._connector_preview_position
+        draw_guides = self._guides_visible and bool(
+            self._guides or self._active_snap_guides
+        )
+        if not draw_guides and (preview_start is None or preview_end is None):
             return
         painter.save()
-        guide_pen = QtGui.QPen(QtGui.QColor("#28c7d9"))
-        guide_pen.setStyle(QtCore.Qt.PenStyle.DashLine)
-        guide_pen.setCosmetic(True)
-        painter.setPen(guide_pen)
-        for orientation, position in self._guides:
-            self._draw_guide_line(painter, rect, orientation, position)
-        active_pen = QtGui.QPen(QtGui.QColor("#00cfe8"))
-        active_pen.setCosmetic(True)
-        active_pen.setWidth(2)
-        painter.setPen(active_pen)
-        for orientation, position in self._active_snap_guides.items():
-            self._draw_guide_line(painter, rect, orientation, position)
+        if draw_guides:
+            guide_pen = QtGui.QPen(QtGui.QColor("#28c7d9"))
+            guide_pen.setStyle(QtCore.Qt.PenStyle.DashLine)
+            guide_pen.setCosmetic(True)
+            painter.setPen(guide_pen)
+            for orientation, position in self._guides:
+                self._draw_guide_line(painter, rect, orientation, position)
+            active_pen = QtGui.QPen(QtGui.QColor("#00cfe8"))
+            active_pen.setCosmetic(True)
+            active_pen.setWidth(2)
+            painter.setPen(active_pen)
+            for orientation, position in self._active_snap_guides.items():
+                self._draw_guide_line(painter, rect, orientation, position)
+        if preview_start is not None and preview_end is not None:
+            preview_pen = QtGui.QPen(QtGui.QColor("#0b9ec9"))
+            preview_pen.setStyle(QtCore.Qt.PenStyle.DashLine)
+            preview_pen.setCosmetic(True)
+            preview_pen.setWidth(2)
+            painter.setPen(preview_pen)
+            painter.drawLine(preview_start, preview_end)
         painter.restore()
 
     @staticmethod
@@ -2186,6 +2217,17 @@ class CanvasView(QtWidgets.QGraphicsView):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QtGui.QMouseEvent):
+        if self._connector_creation_enabled and not event.buttons() & (
+            QtCore.Qt.MouseButton.MiddleButton | QtCore.Qt.MouseButton.RightButton
+        ):
+            if self._connector_start is not None:
+                self._connector_preview_position = self.mapToScene(
+                    event.position().toPoint()
+                )
+                self.viewport().update()
+            self.viewport().setCursor(QtCore.Qt.CursorShape.CrossCursor)
+            event.accept()
+            return
         
         item = self.itemAt(event.position().toPoint())
         if item and item.flags() & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable:

@@ -278,8 +278,10 @@ def test_tools_action_toggles_connector_creation_mode(application) -> None:
     assert window.actionCreate_connector in window.menuTools.actions()
     window.actionCreate_connector.setChecked(True)
     assert window.canvas.connector_creation_enabled()
+    assert window.actionCreate_connector.text() == "Create connector (active)"
     window.canvas.set_connector_creation_enabled(False)
     assert not window.actionCreate_connector.isChecked()
+    assert window.actionCreate_connector.text() == "Create connector"
     window.close()
 
 

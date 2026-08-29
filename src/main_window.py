@@ -313,13 +313,35 @@ class MainWindow(QtWidgets.QMainWindow):
             self.canvas.set_connector_creation_enabled
         )
         self.canvas.connectorCreationChanged.connect(
-            self.actionCreate_connector.setChecked
+            self._update_connector_creation_action
+        )
+        self.canvas.connectorCreationStartChanged.connect(
+            self._update_connector_creation_prompt
         )
 
         self.actionInfo.triggered.connect(self._show_about_dialog)
 
     def _handle_undo(self) -> None:
         self.canvas.undo()
+
+    def _update_connector_creation_action(self, enabled: bool) -> None:
+        self.actionCreate_connector.setChecked(enabled)
+        self.actionCreate_connector.setText(
+            "Create connector (active)" if enabled else "Create connector"
+        )
+        message = (
+            "Connector mode: click a start point or object. Press Esc to cancel."
+            if enabled
+            else "Connector mode off."
+        )
+        self.statusBar().showMessage(message, 5000)
+
+    def _update_connector_creation_prompt(self, has_start: bool) -> None:
+        if has_start and self.canvas.connector_creation_enabled():
+            self.statusBar().showMessage(
+                "Connector mode: click an end point or object. Press Esc to cancel.",
+                0,
+            )
 
     def _handle_redo(self) -> None:
         self.canvas.redo()
