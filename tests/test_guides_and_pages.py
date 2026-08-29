@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import pytest
-from PySide6 import QtCore, QtGui
+from PySide6 import QtCore, QtGui, QtWidgets
 
-from items import RectItem
+from items import BlockArrowItem, RectItem
 from main_window import MainWindow
 from ruler_widget import RulerWidget
 
@@ -130,6 +130,78 @@ def _mouse_event(
         buttons,
         QtCore.Qt.KeyboardModifier.NoModifier,
     )
+
+
+def _send_viewport_mouse_event(
+    view,
+    event_type: QtCore.QEvent.Type,
+    point: QtCore.QPoint,
+    button: QtCore.Qt.MouseButton,
+    buttons: QtCore.Qt.MouseButton,
+) -> None:
+    global_point = view.viewport().mapToGlobal(point)
+    event = QtGui.QMouseEvent(
+        event_type,
+        QtCore.QPointF(point),
+        QtCore.QPointF(point),
+        QtCore.QPointF(global_point),
+        button,
+        buttons,
+        QtCore.Qt.KeyboardModifier.NoModifier,
+    )
+    QtWidgets.QApplication.sendEvent(view.viewport(), event)
+
+
+def test_corner_resize_does_not_snap_the_selected_arrow_to_a_guide(
+    canvas_view, application
+) -> None:
+    canvas_view.resize(800, 600)
+    canvas_view.show()
+    origin = canvas_view._master_origin
+    arrow = BlockArrowItem(origin.x() + 200.0, origin.y() + 200.0, 50.0, 50.0)
+    canvas_view.scene().addItem(arrow)
+    arrow.setSelected(True)
+    application.processEvents()
+
+    assert arrow._head_handle is not None
+    assert arrow._body_handle is not None
+    assert arrow._head_handle.isVisible()
+    assert arrow._body_handle.isVisible()
+    before_position = QtCore.QPointF(arrow.pos())
+    canvas_view.add_guide("vertical", arrow.sceneBoundingRect().left() + 3.0)
+    resize_handle = next(
+        handle for handle in arrow._handles if handle._direction == "bottom_right"
+    )
+    start = canvas_view.mapFromScene(resize_handle.scenePos())
+    end = start + QtCore.QPoint(30, 30)
+
+    _send_viewport_mouse_event(
+        canvas_view,
+        QtCore.QEvent.Type.MouseButtonPress,
+        start,
+        QtCore.Qt.MouseButton.LeftButton,
+        QtCore.Qt.MouseButton.LeftButton,
+    )
+    _send_viewport_mouse_event(
+        canvas_view,
+        QtCore.QEvent.Type.MouseMove,
+        end,
+        QtCore.Qt.MouseButton.NoButton,
+        QtCore.Qt.MouseButton.LeftButton,
+    )
+    _send_viewport_mouse_event(
+        canvas_view,
+        QtCore.QEvent.Type.MouseButtonRelease,
+        end,
+        QtCore.Qt.MouseButton.LeftButton,
+        QtCore.Qt.MouseButton.NoButton,
+    )
+
+    assert arrow.pos() == before_position
+    assert arrow.scale() > 1.0
+    assert arrow._head_handle.isVisible()
+    assert arrow._body_handle.isVisible()
+    assert canvas_view._active_snap_guides == {}
 
 
 def test_horizontal_ruler_creates_moves_and_deletes_a_vertical_guide(

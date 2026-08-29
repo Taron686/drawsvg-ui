@@ -2242,6 +2242,12 @@ class CanvasView(QtWidgets.QGraphicsView):
             self.viewport().update()
             return
         if event.buttons() & QtCore.Qt.MouseButton.LeftButton:
+            grabber = self.scene().mouseGrabberItem()
+            if grabber is not None and grabber.__class__.__name__.endswith("Handle"):
+                if self._active_snap_guides:
+                    self._active_snap_guides.clear()
+                    self.viewport().update()
+                return
             self._snap_selected_items()
 
     def mouseReleaseEvent(self, event: QtGui.QMouseEvent):
