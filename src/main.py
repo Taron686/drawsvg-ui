@@ -12,7 +12,7 @@ def main():
     start_session()
     try:
         app = QtWidgets.QApplication(sys.argv)
-        win = MainWindow()
+        win = MainWindow(check_startup_recovery=True)
         win.show()
         return app.exec()
     finally:

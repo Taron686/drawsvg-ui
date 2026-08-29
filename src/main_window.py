@@ -10,17 +10,20 @@ from PySide6.QtUiTools import QUiLoader
 
 from app_info import GITHUB_URL, get_version
 from canvas_view import CanvasView
+from document_controller import DocumentController, DocumentWindowRegistry
 from export_drawsvg import export_drawsvg_py
 from export_renderer import ExportRenderer, ExportRequest
 from import_drawsvg import import_drawsvg_py
 from layers_panel import LayersPanel
 from palette import PaletteList
 from properties_panel import PropertiesPanel
+from recovery import RecoveryCandidate, RecoveryStore
 from ruler_widget import RulerWidget
 
 _UI_PATH = Path(__file__).resolve().parent / "ui" / "main_window.ui"
 _RECENT_FILES_LIMIT = 10
 _RECENT_FILES_NAME = "recent_files.json"
+_PROJECT_FILTER = "DrawSVG project (*.drawsvg)"
 _EXPORT_FORMATS = {
     "svg": ("SVG image (*.svg)", ".svg", "export_svg"),
     "png": ("PNG image (*.png)", ".png", "export_png"),
@@ -36,12 +39,28 @@ def _default_recent_files_path() -> Path:
 
 
 class MainWindow(QtWidgets.QMainWindow):
-    def __init__(self, recent_files_path: Path | None = None):
+    def __init__(
+        self,
+        recent_files_path: Path | None = None,
+        *,
+        window_registry: DocumentWindowRegistry | None = None,
+        recovery_store: RecoveryStore | None = None,
+        check_startup_recovery: bool = False,
+    ):
         super().__init__()
+
+        self._window_registry = window_registry or DocumentWindowRegistry()
+        self._recovery_store = recovery_store or RecoveryStore()
+        self._force_close = False
 
         self._load_ui()
 
         self._install_custom_widgets()
+        self.document_controller = DocumentController(
+            self.canvas,
+            recovery_store=self._recovery_store,
+            parent=self,
+        )
         self._recent_files_path = recent_files_path or _default_recent_files_path()
         self._recent_files = self._load_recent_files()
         self._install_recent_files_menu()
@@ -57,6 +76,17 @@ class MainWindow(QtWidgets.QMainWindow):
         history = self.canvas.history()
         history.historyChanged.connect(self._update_history_actions)
         self._update_history_actions(history.can_undo(), history.can_redo())
+
+        self.document_controller.dirtyChanged.connect(self._update_document_title)
+        self.document_controller.pathChanged.connect(self._update_document_title)
+        self._update_document_title()
+        self._window_registry.register(self)
+        if (
+            check_startup_recovery
+            and not self._window_registry.startup_recovery_checked
+        ):
+            self._window_registry.startup_recovery_checked = True
+            QtCore.QTimer.singleShot(0, self._offer_recovery_candidates)
 
     def _load_ui(self) -> None:
         loader = QUiLoader()
@@ -101,6 +131,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 layout.setSpacing(0)
 
         action_names = [
+            "actionNew",
+            "actionOpen_project",
+            "actionSave_project",
+            "actionSave_project_as",
             "actionLoad_drawsvg_py",
             "actionSave_drawsvg_py",
             "actionExport_svg",
@@ -229,6 +263,10 @@ class MainWindow(QtWidgets.QMainWindow):
             layout.addWidget(replacement)
 
     def _configure_actions(self) -> None:
+        self.actionNew.triggered.connect(self.new_document_window)
+        self.actionOpen_project.triggered.connect(self.open_project)
+        self.actionSave_project.triggered.connect(self.save_document)
+        self.actionSave_project_as.triggered.connect(self.save_document_as)
         self.actionLoad_drawsvg_py.triggered.connect(self.load_drawsvg_py)
         self.actionSave_drawsvg_py.triggered.connect(self.export_drawsvg_py)
         self.actionExport_svg.triggered.connect(
@@ -240,7 +278,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.actionExport_pdf.triggered.connect(
             lambda _checked=False: self._export_scene("pdf")
         )
-        self.actionQuit.triggered.connect(self.close)
+        self.actionQuit.triggered.connect(self._request_quit)
 
         self.actionUndo.setShortcutContext(
             QtCore.Qt.ShortcutContext.WidgetWithChildrenShortcut
@@ -312,6 +350,220 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Ok)
         dialog.exec()
 
+    def _create_document_window(self) -> "MainWindow":
+        return type(self)(
+            recent_files_path=self._recent_files_path,
+            window_registry=self._window_registry,
+            recovery_store=self._recovery_store,
+            check_startup_recovery=False,
+        )
+
+    def new_document_window(self, _checked: bool = False) -> "MainWindow":
+        window = self._create_document_window()
+        window.show()
+        return window
+
+    def open_project(self, _checked: bool = False) -> "MainWindow | None":
+        selected_path, _selected_filter = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Open DrawSVG Project",
+            "",
+            _PROJECT_FILTER,
+        )
+        if not selected_path:
+            return None
+        return self._open_project_path(selected_path)
+
+    def _open_project_path(self, path: str | Path) -> "MainWindow | None":
+        source = Path(path).expanduser().resolve()
+        existing = self._window_registry.window_for_path(source)
+        if existing is not None:
+            existing.raise_()
+            existing.activateWindow()
+            return existing  # type: ignore[return-value]
+
+        window = self._create_document_window()
+        try:
+            window.document_controller.load(source)
+        except Exception as error:
+            window._force_close = True
+            window.close()
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Open Project failed",
+                f"{error}\n\nSee the application log for diagnostic details.",
+            )
+            return None
+        self._remember_recent_file(source)
+        window._remember_recent_file(source)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        return window
+
+    def save_document(self, _checked: bool = False) -> bool:
+        if self.document_controller.path is None:
+            return self.save_document_as()
+        return self._save_document_to(self.document_controller.path)
+
+    def save_document_as(self, _checked: bool = False) -> bool:
+        current_path = self.document_controller.path
+        suggested = str(current_path) if current_path is not None else "Untitled.drawsvg"
+        selected_path, _selected_filter = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Save DrawSVG Project",
+            suggested,
+            _PROJECT_FILTER,
+        )
+        if not selected_path:
+            return False
+        destination = Path(selected_path)
+        if destination.suffix.casefold() != ".drawsvg":
+            destination = destination.parent / f"{destination.name}.drawsvg"
+        return self._save_document_to(destination)
+
+    def _save_document_to(self, path: str | Path) -> bool:
+        destination = Path(path).expanduser().resolve()
+        existing = self._window_registry.window_for_path(destination)
+        if existing is not None and existing is not self:
+            existing.raise_()
+            existing.activateWindow()
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Project already open",
+                "This project is already open in another editor window.",
+            )
+            return False
+        try:
+            saved_path = self.document_controller.save(destination)
+        except Exception as error:
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Save Project failed",
+                f"{error}\n\nSee the application log for diagnostic details.",
+            )
+            return False
+        self._remember_recent_file(saved_path)
+        self.statusBar().showMessage(f"Saved {saved_path.name}", 5000)
+        return True
+
+    def _update_document_title(self, *_args: object) -> None:
+        path = self.document_controller.path
+        name = path.name if path is not None else "Untitled"
+        dirty_marker = " *" if self.document_controller.dirty else ""
+        self.setWindowTitle(f"{name}{dirty_marker} — DrawSVG UI")
+
+    def _ask_unsaved_changes(self) -> str:
+        name = (
+            self.document_controller.path.name
+            if self.document_controller.path is not None
+            else "Untitled"
+        )
+        result = QtWidgets.QMessageBox.warning(
+            self,
+            "Unsaved changes",
+            f"Save changes to {name}?",
+            QtWidgets.QMessageBox.StandardButton.Save
+            | QtWidgets.QMessageBox.StandardButton.Discard
+            | QtWidgets.QMessageBox.StandardButton.Cancel,
+            QtWidgets.QMessageBox.StandardButton.Save,
+        )
+        if result == QtWidgets.QMessageBox.StandardButton.Save:
+            return "save"
+        if result == QtWidgets.QMessageBox.StandardButton.Discard:
+            return "discard"
+        return "cancel"
+
+    def _request_quit(self, _checked: bool = False) -> bool:
+        windows = tuple(self._window_registry.windows())
+        discard_windows: list[MainWindow] = []
+        for window in windows:
+            if not window.document_controller.dirty:
+                continue
+            choice = window._ask_unsaved_changes()
+            if choice == "cancel":
+                return False
+            if choice == "save" and not window.save_document():
+                return False
+            if choice == "discard":
+                discard_windows.append(window)
+
+        for window in discard_windows:
+            window.document_controller.discard_recovery()
+        self._window_registry.quitting = True
+        try:
+            for window in windows:
+                window.close()
+        finally:
+            self._window_registry.quitting = False
+        return True
+
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
+        if self._force_close or self._window_registry.quitting:
+            self._window_registry.unregister(self)
+            event.accept()
+            return
+        if self.document_controller.dirty:
+            choice = self._ask_unsaved_changes()
+            if choice == "cancel" or choice == "save" and not self.save_document():
+                event.ignore()
+                return
+            if choice == "discard":
+                self.document_controller.discard_recovery()
+        else:
+            self.document_controller.discard_recovery()
+        self._window_registry.unregister(self)
+        event.accept()
+
+    def _offer_recovery_candidates(self) -> None:
+        for candidate in self._recovery_store.candidates():
+            choice = self._ask_recovery_candidate(candidate)
+            if choice == "later":
+                break
+            if choice == "discard":
+                self._recovery_store.discard(candidate.document_id)
+                continue
+            use_current = (
+                self.document_controller.path is None
+                and not self.document_controller.dirty
+                and not self.canvas._serialize_scene_state()["items"]
+            )
+            window = self if use_current else self._create_document_window()
+            try:
+                window.document_controller.restore_recovery(candidate)
+            except Exception as error:
+                if window is not self:
+                    window._force_close = True
+                    window.close()
+                QtWidgets.QMessageBox.critical(
+                    self,
+                    "Recovery failed",
+                    f"{error}\n\nSee the application log for diagnostic details.",
+                )
+                continue
+            window.show()
+            window.raise_()
+            window.activateWindow()
+
+    def _ask_recovery_candidate(self, candidate: RecoveryCandidate) -> str:
+        dialog = QtWidgets.QMessageBox(self)
+        dialog.setIcon(QtWidgets.QMessageBox.Icon.Question)
+        dialog.setWindowTitle("Recover document")
+        dialog.setText(f"Recover unsaved changes for {candidate.display_name}?")
+        recover_button = dialog.addButton(
+            "Recover", QtWidgets.QMessageBox.ButtonRole.AcceptRole
+        )
+        discard_button = dialog.addButton(
+            "Discard", QtWidgets.QMessageBox.ButtonRole.DestructiveRole
+        )
+        dialog.addButton("Later", QtWidgets.QMessageBox.ButtonRole.RejectRole)
+        dialog.exec()
+        if dialog.clickedButton() is recover_button:
+            return "recover"
+        if dialog.clickedButton() is discard_button:
+            return "discard"
+        return "later"
+
     def export_drawsvg_py(self) -> None:
         export_drawsvg_py(self.canvas.scene(), self)
 
@@ -346,9 +598,22 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     def load_drawsvg_py(self) -> None:
-        loaded_path = import_drawsvg_py(self.canvas.scene(), self)
-        if loaded_path is not None:
-            self._remember_recent_file(loaded_path)
+        self._open_python_document()
+
+    def _open_python_document(self, path: str | Path | None = None) -> Path | None:
+        window = self._create_document_window()
+        loaded_path = import_drawsvg_py(window.canvas.scene(), window, path)
+        if loaded_path is None:
+            window._force_close = True
+            window.close()
+            return None
+        window.document_controller.mark_imported()
+        self._remember_recent_file(loaded_path)
+        window._remember_recent_file(loaded_path)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        return Path(loaded_path)
 
     def _add_shape_at_center(self, shape: str) -> None:
         self.canvas.add_shape_at_view_center(shape)
@@ -417,7 +682,7 @@ class MainWindow(QtWidgets.QMainWindow):
             raise RuntimeError("Missing File menu in UI file")
         self.recent_files_menu = QtWidgets.QMenu("Recently Opened", file_menu)
         self.recent_files_menu.setObjectName("menuRecentlyOpened")
-        file_menu.insertMenu(self.actionSave_drawsvg_py, self.recent_files_menu)
+        file_menu.insertMenu(self.actionLoad_drawsvg_py, self.recent_files_menu)
         self._refresh_recent_files_menu()
 
     def _refresh_recent_files_menu(self) -> None:
@@ -447,9 +712,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._refresh_recent_files_menu()
 
     def _open_recent_file(self, path: str) -> None:
-        loaded_path = import_drawsvg_py(self.canvas.scene(), self, path)
-        if loaded_path is not None:
-            self._remember_recent_file(loaded_path)
+        suffix = Path(path).suffix.casefold()
+        if suffix == ".drawsvg":
+            if self._open_project_path(path) is not None:
+                self._remember_recent_file(path)
+                return
+        elif self._open_python_document(path) is not None:
             return
         failed_key = os.path.normcase(str(Path(path).expanduser().resolve()))
         self._recent_files = [
