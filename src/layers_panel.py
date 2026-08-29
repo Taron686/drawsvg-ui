@@ -60,6 +60,8 @@ class LayersPanel(QtWidgets.QWidget):
         self.refresh()
 
     def refresh(self) -> None:
+        if self._syncing:
+            return
         selected_ids = {
             id(item)
             for item in self._canvas.scene().selectedItems()
@@ -121,23 +123,29 @@ class LayersPanel(QtWidgets.QWidget):
             return
         kind = row.data(0, QtCore.Qt.ItemDataRole.UserRole.value + 1)
         value = row.checkState(column) == QtCore.Qt.CheckState.Checked
-        with self._canvas.history().transaction():
-            if kind == "layer":
-                layer_id = row.data(0, QtCore.Qt.ItemDataRole.UserRole)
-                changed = (
-                    self._manager.set_layer_visible(layer_id, value)
-                    if column == 1
-                    else self._manager.set_layer_locked(layer_id, value)
-                )
-            else:
-                item = row.data(0, QtCore.Qt.ItemDataRole.UserRole)
-                changed = (
-                    self._manager.set_item_visible(item, value)
-                    if column == 1
-                    else self._manager.set_item_locked(item, value)
-                )
-            if changed:
-                self._canvas.history().mark_dirty()
+        self._syncing = True
+        try:
+            with self._canvas.history().transaction():
+                if kind == "layer":
+                    layer_id = row.data(0, QtCore.Qt.ItemDataRole.UserRole)
+                    changed = (
+                        self._manager.set_layer_visible(layer_id, value)
+                        if column == 1
+                        else self._manager.set_layer_locked(layer_id, value)
+                    )
+                else:
+                    item = row.data(0, QtCore.Qt.ItemDataRole.UserRole)
+                    changed = (
+                        self._manager.set_item_visible(item, value)
+                        if column == 1
+                        else self._manager.set_item_locked(item, value)
+                    )
+                if changed:
+                    self._canvas.history().mark_dirty()
+        finally:
+            self._syncing = False
+        if changed:
+            QtCore.QTimer.singleShot(0, self.refresh)
 
     def _tree_selection_changed(self) -> None:
         if self._syncing:

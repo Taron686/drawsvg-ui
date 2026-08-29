@@ -4,6 +4,7 @@ from PySide6 import QtCore, QtWidgets
 
 from items import GroupItem
 from layer_manager import DEFAULT_LAYER_ID
+from layers_panel import LayersPanel
 from scene_codec import KEY_ITEM_ID, KEY_LAYER_ID
 
 
@@ -120,6 +121,20 @@ def test_layer_lock_disables_direct_item_interaction(canvas_view) -> None:
     assert item.locked
     assert not item.flags() & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
     assert not item.flags() & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+
+
+def test_layer_panel_lock_checkbox_refreshes_without_invalidating_row(canvas_view) -> None:
+    panel = LayersPanel(canvas_view)
+    row = panel._tree.topLevelItem(0)
+    assert row is not None
+
+    row.setCheckState(2, QtCore.Qt.CheckState.Checked)
+    QtWidgets.QApplication.processEvents()
+
+    assert canvas_view.layer_manager().layers()[0].locked
+    refreshed = panel._tree.topLevelItem(0)
+    assert refreshed is not None
+    assert refreshed.checkState(2) == QtCore.Qt.CheckState.Checked
 
 
 def test_layer_state_reaches_group_children(canvas_view) -> None:
