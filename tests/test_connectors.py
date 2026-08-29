@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from PySide6 import QtCore, QtWidgets
+from PySide6.QtTest import QTest
 
 from connectors import (
     MAX_OBSTACLES,
@@ -29,6 +30,74 @@ def _connectors(canvas_view) -> list[ConnectorItem]:
 def _east_anchor(item: QtWidgets.QGraphicsItem) -> QtCore.QPointF:
     bounds = item.boundingRect()
     return item.mapToScene(QtCore.QPointF(bounds.right(), bounds.center().y()))
+
+
+def _click_scene(
+    canvas_view, scene_position: QtCore.QPointF, application
+) -> QtCore.QPointF:
+    canvas_view.resize(800, 600)
+    canvas_view.show()
+    application.processEvents()
+    view_position = canvas_view.mapFromScene(scene_position)
+    clicked_position = canvas_view.mapToScene(view_position)
+    QTest.mouseClick(
+        canvas_view.viewport(),
+        QtCore.Qt.MouseButton.LeftButton,
+        pos=view_position,
+    )
+    return clicked_position
+
+
+def test_connector_creation_mode_binds_two_clicked_items_in_one_undo_step(
+    canvas_view, application
+) -> None:
+    start = _shape(canvas_view, 40.0)
+    end = _shape(canvas_view, 360.0)
+    history = canvas_view.history()
+    states_before = len(history._states)
+
+    canvas_view.set_connector_creation_enabled(True)
+    _click_scene(canvas_view, start.sceneBoundingRect().center(), application)
+    _click_scene(canvas_view, end.sceneBoundingRect().center(), application)
+
+    connector = _connectors(canvas_view)[0]
+    assert connector.start_endpoint.target_id == start.data(KEY_ITEM_ID)
+    assert connector.end_endpoint.target_id == end.data(KEY_ITEM_ID)
+    assert len(history._states) == states_before + 1
+
+    canvas_view.undo()
+    assert not _connectors(canvas_view)
+    canvas_view.redo()
+    restored = _connectors(canvas_view)[0]
+    assert restored.start_endpoint.target_id == start.data(KEY_ITEM_ID)
+    assert restored.end_endpoint.target_id == end.data(KEY_ITEM_ID)
+
+
+def test_connector_creation_mode_uses_free_points_and_escape_cancels(
+    canvas_view, application
+) -> None:
+    history = canvas_view.history()
+    states_before = len(history._states)
+    start = QtCore.QPointF(-200.0, -100.0)
+    end = QtCore.QPointF(-80.0, -100.0)
+
+    canvas_view.set_connector_creation_enabled(True)
+    _click_scene(canvas_view, start, application)
+    QTest.keyClick(canvas_view, QtCore.Qt.Key.Key_Escape)
+
+    assert not canvas_view.connector_creation_enabled()
+    assert not _connectors(canvas_view)
+    assert len(history._states) == states_before
+
+    canvas_view.set_connector_creation_enabled(True)
+    clicked_start = _click_scene(canvas_view, start, application)
+    clicked_end = _click_scene(canvas_view, end, application)
+
+    connector = _connectors(canvas_view)[0]
+    assert connector.start_endpoint.target_id is None
+    assert connector.end_endpoint.target_id is None
+    assert connector.route_points()[0] == clicked_start
+    assert connector.route_points()[-1] == clicked_end
 
 
 def test_bound_and_free_endpoints_serialize_with_stable_references(canvas_view) -> None:

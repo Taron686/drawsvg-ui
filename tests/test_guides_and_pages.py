@@ -198,6 +198,19 @@ def test_view_action_toggles_visible_rulers_and_guides(application) -> None:
     window.close()
 
 
+def test_tools_action_toggles_connector_creation_mode(application) -> None:
+    window = MainWindow()
+    window.show()
+    application.processEvents()
+
+    assert window.actionCreate_connector in window.menuTools.actions()
+    window.actionCreate_connector.setChecked(True)
+    assert window.canvas.connector_creation_enabled()
+    window.canvas.set_connector_creation_enabled(False)
+    assert not window.actionCreate_connector.isChecked()
+    window.close()
+
+
 def test_guide_inside_an_a4_page_is_painted_in_the_foreground(
     canvas_view, application
 ) -> None:

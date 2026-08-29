@@ -266,6 +266,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.actionShow_guides.toggled.connect(self.canvas.set_guides_visible)
         self.canvas.guidesVisibilityChanged.connect(self.actionShow_guides.setChecked)
 
+        self.menuTools = self.menuBar().addMenu("&Tools")
+        self.actionCreate_connector = QtGui.QAction(
+            "Create connector", self, checkable=True
+        )
+        self.menuTools.addAction(self.actionCreate_connector)
+        self.actionCreate_connector.toggled.connect(
+            self.canvas.set_connector_creation_enabled
+        )
+        self.canvas.connectorCreationChanged.connect(
+            self.actionCreate_connector.setChecked
+        )
+
         self.actionInfo.triggered.connect(self._show_about_dialog)
 
     def _handle_undo(self) -> None:

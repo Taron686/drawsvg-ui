@@ -35,7 +35,7 @@ from items import (
     TriangleItem,
 )
 from layer_manager import LayerManager
-from scene_codec import SceneCodec
+from scene_codec import KEY_ITEM_ID, SceneCodec
 from shape_registry import SHAPE_REGISTRY
 
 A4_WIDTH_MM = 210
@@ -765,6 +765,7 @@ def _undo_transaction(method: Callable[..., Any]) -> Callable[..., Any]:
 class CanvasView(QtWidgets.QGraphicsView):
     gridVisibilityChanged = QtCore.Signal(bool)
     guidesVisibilityChanged = QtCore.Signal(bool)
+    connectorCreationChanged = QtCore.Signal(bool)
     viewChanged = QtCore.Signal()
     selectionSnapshotChanged = QtCore.Signal(dict)
 
@@ -818,6 +819,8 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._prev_drag_mode = self.dragMode()
         self._right_button_pressed = False
         self._suppress_context_menu = False
+        self._connector_creation_enabled = False
+        self._connector_start: QtCore.QPointF | QtWidgets.QGraphicsItem | None = None
 
         self._layer_manager = LayerManager(self)
         self._connector_manager = ConnectorManager(scene, self)
@@ -857,6 +860,50 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     def redo(self) -> None:
         self._history.redo()
+
+    def connector_creation_enabled(self) -> bool:
+        return self._connector_creation_enabled
+
+    def set_connector_creation_enabled(self, enabled: bool) -> None:
+        """Toggle the two-click connector creation mode."""
+
+        enabled = bool(enabled)
+        if self._connector_creation_enabled == enabled:
+            return
+        self._connector_creation_enabled = enabled
+        self._connector_start = None
+        self.connectorCreationChanged.emit(enabled)
+
+    def _connector_target_at(
+        self, position: QtCore.QPoint
+    ) -> QtCore.QPointF | QtWidgets.QGraphicsItem:
+        """Return a bindable item at *position*, or its free scene position."""
+
+        item = self.itemAt(position)
+        while (
+            item is not None
+            and item.parentItem() is not None
+            and (
+                item.__class__.__name__.endswith("Handle")
+                or item.data(KEY_ITEM_ID) is None
+            )
+        ):
+            item = item.parentItem()
+        if (
+            item is None
+            or isinstance(item, (A4PageItem, ConnectorItem))
+            or SceneCodec.is_transient(item)
+        ):
+            return self.mapToScene(position)
+        return item
+
+    def _handle_connector_click(self, position: QtCore.QPoint) -> None:
+        endpoint = self._connector_target_at(position)
+        if self._connector_start is None:
+            self._connector_start = endpoint
+            return
+        self.add_connector(self._connector_start, endpoint)
+        self._connector_start = None
 
     @_undo_transaction
     def add_connector(
@@ -2084,6 +2131,13 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     # --- Duplicate selected items with Ctrl+drag ---
     def mousePressEvent(self, event: QtGui.QMouseEvent):
+        if (
+            self._connector_creation_enabled
+            and event.button() == QtCore.Qt.MouseButton.LeftButton
+        ):
+            self._handle_connector_click(event.position().toPoint())
+            event.accept()
+            return
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
             self._history.begin_transaction()
         if event.button() == QtCore.Qt.MouseButton.MiddleButton:
@@ -2468,6 +2522,13 @@ class CanvasView(QtWidgets.QGraphicsView):
     # --- Keyboard shortcut to delete selected items ---
     @_undo_transaction
     def keyPressEvent(self, event: QtGui.QKeyEvent):
+        if (
+            self._connector_creation_enabled
+            and event.key() == QtCore.Qt.Key.Key_Escape
+        ):
+            self.set_connector_creation_enabled(False)
+            event.accept()
+            return
         if event.key() == QtCore.Qt.Key.Key_Delete:
             selected = self.scene().selectedItems()
             if selected:
