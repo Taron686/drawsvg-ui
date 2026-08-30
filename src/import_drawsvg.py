@@ -15,6 +15,7 @@ from items import (
     BlockArrowItem,
     CurvyBracketItem,
     DiamondItem,
+    DiagramItem,
     EllipseItem,
     FolderTreeItem,
     LineItem,
@@ -25,6 +26,8 @@ from items import (
     TriangleItem,
 )
 from items.shapes.paths import FreePathItem
+
+from shape_registry import SHAPE_REGISTRY
 
 from constants import DEFAULTS, PEN_STYLE_DASH_ARRAYS
 
@@ -59,7 +62,7 @@ def _parse_call(line: str) -> tuple[list[Any], dict[str, Any]]:
 
 
 def _apply_style(item: QtWidgets.QGraphicsItem, kwargs: dict[str, Any]) -> None:
-    if isinstance(item, (QtWidgets.QGraphicsRectItem, QtWidgets.QGraphicsEllipseItem, LineItem, FreePathItem, TriangleItem, DiamondItem, BlockArrowItem)):
+    if isinstance(item, (QtWidgets.QGraphicsRectItem, QtWidgets.QGraphicsEllipseItem, LineItem, FreePathItem, TriangleItem, DiamondItem, BlockArrowItem, DiagramItem)):
         if kwargs.get("fill") == "none":
             item.setBrush(QtCore.Qt.BrushStyle.NoBrush)
         elif "fill" in kwargs:
@@ -549,8 +552,43 @@ def import_drawsvg_py(
                 parsed_scene.addItem(item)
                 pending_block = None
 
-            elif line.startswith("_path = draw.Path("):
+            elif line.startswith(("_path = draw.Path(", "_diagram = draw.Path(")):
                 args, kwargs = _parse_call(line)
+                diagram_raw = kwargs.get("data_diagram")
+                if diagram_raw is not None:
+                    try:
+                        payload = json.loads(str(diagram_raw))
+                        if not isinstance(payload, Mapping):
+                            raise ValueError("Diagram payload must be an object")
+                        type_id = payload.get("type_id")
+                        if not isinstance(type_id, str):
+                            raise ValueError("Diagram payload has no type ID")
+                        definition = SHAPE_REGISTRY.get(type_id)
+                        if definition is None or definition.python_export_adapter != "diagram":
+                            raise ValueError("Unsupported diagram type")
+                        item = SHAPE_REGISTRY.create(type_id, 0.0, 0.0)
+                        if not isinstance(item, DiagramItem):
+                            raise ValueError("Diagram registry entry is invalid")
+                        size = payload.get("size")
+                        if isinstance(size, (list, tuple)) and len(size) == 2:
+                            item.set_size(float(size[0]), float(size[1]))
+                        parameters = payload.get("parameters")
+                        if isinstance(parameters, Mapping):
+                            item.apply_parameters(dict(parameters))
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        continue
+                    _apply_style(item, kwargs)
+                    if "transform" in kwargs:
+                        _apply_transform(item, kwargs["transform"])
+                    label_id = kwargs.get("data_label_id")
+                    if label_id:
+                        key = str(label_id)
+                        shape_label_targets[key] = item
+                        pending = shape_label_pending.pop(key, None)
+                        if pending:
+                            _apply_shape_label(item, pending)
+                    parsed_scene.addItem(item)
+                    continue
                 free_path_raw = kwargs.get("data_free_path")
                 if free_path_raw is not None:
                     try:

@@ -16,6 +16,8 @@ from items import (
 
     DiamondItem,
 
+    DiagramItem,
+
     FolderTreeItem,
 
     LineItem,
@@ -1064,6 +1066,64 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             )
 
             lines.append("    d.append(_block_arrow)")
+
+            lines.append("")
+
+        elif adapter == "diagram" and isinstance(it, DiagramItem):
+
+            path_cmd = _painter_path_to_svg(it.path())
+
+            if not path_cmd:
+                continue
+
+            label_id = None
+
+            if it.has_label():
+
+                label_counter += 1
+
+                label_id = f"diagram_label_{label_counter}"
+
+            payload = json.dumps(
+                {
+                    "type_id": str(it.data(0)),
+                    "size": [it._w, it._h],
+                    "parameters": it.parameters(),
+                },
+                separators=(",", ":"),
+            )
+
+            extra_attrs = [f"data_diagram={payload!r}"]
+
+            if label_id:
+
+                extra_attrs.append(f"data_label_id='{label_id}'")
+
+            attr_str = _format_item_attributes(it, extra_attrs=extra_attrs)
+
+            lines.append(
+
+                f"    _diagram = draw.Path('{path_cmd}', {attr_str}{_item_transform_suffix(it)})"
+
+            )
+
+            lines.append("    d.append(_diagram)")
+
+            if label_id:
+
+                _export_shape_label(
+
+                    it,
+
+                    lines,
+
+                    shape_id=label_id,
+
+                    var_name="diagram_label",
+
+                    label_kind="diagram",
+
+                )
 
             lines.append("")
 

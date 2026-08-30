@@ -13,6 +13,7 @@ from items import (
     BlockArrowItem,
     CurvyBracketItem,
     DiamondItem,
+    DiagramItem,
     EllipseItem,
     FolderTreeItem,
     LineItem,
@@ -478,6 +479,54 @@ def _restore_folder(data: Mapping[str, Any]) -> FolderTreeItem:
     )
 
 
+_DIAGRAM_KINDS = {
+    "Hexagon": "hexagon",
+    "Parallelogram": "parallelogram",
+    "Database": "database",
+    "Document": "document",
+    "Multiple Document": "multiple_document",
+    "Cloud": "cloud",
+    "Callout": "callout",
+    "Table": "table",
+    "Swimlane": "swimlane",
+}
+
+
+def _serialize_diagram(item: QtWidgets.QGraphicsItem) -> dict[str, Any]:
+    assert isinstance(item, DiagramItem)
+    data: dict[str, Any] = {
+        "size": [float(item._w), float(item._h)],
+        "parameters": item.parameters(),
+        "pen": _pen_to_data(item.pen()),
+        "brush": _brush_to_data(item.brush()),
+    }
+    label = _serialize_label(item)
+    if label:
+        data["label"] = label
+    return data
+
+
+def _restore_diagram(type_id: str, data: Mapping[str, Any]) -> DiagramItem:
+    width, height = _size(data, DEFAULTS[type_id])
+    item = DiagramItem(0.0, 0.0, width, height, _DIAGRAM_KINDS[type_id])
+    parameters = data.get("parameters")
+    if isinstance(parameters, Mapping):
+        item.apply_parameters(dict(parameters))
+    item.setPen(
+        _pen_from_data(
+            data.get("pen") if isinstance(data.get("pen"), Mapping) else None
+        )
+    )
+    item.setBrush(
+        _brush_from_data(
+            data.get("brush") if isinstance(data.get("brush"), Mapping) else None
+        )
+    )
+    label = data.get("label")
+    _apply_label(item, label if isinstance(label, Mapping) else None)
+    return item
+
+
 @dataclass(frozen=True)
 class ShapeDefinition:
     type_id: str
@@ -692,6 +741,18 @@ _DEFINITIONS = (
 )
 
 _EXTENSION_DEFINITIONS = (
+    *(
+        ShapeDefinition(
+            type_id,
+            type_id,
+            DEFAULTS[type_id],
+            lambda x, y, w, h, kind=kind: DiagramItem(x, y, w, h, kind),
+            _serialize_diagram,
+            lambda data, type_id=type_id: _restore_diagram(type_id, data),
+            "diagram",
+        )
+        for type_id, kind in _DIAGRAM_KINDS.items()
+    ),
     ShapeDefinition(
         "Free Polyline",
         "Free Polyline",

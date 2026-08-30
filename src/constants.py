@@ -31,6 +31,15 @@ DEFAULTS = {
     "Curvy Right Bracket": (80.0, 160.0),  # w, h
     "Text":      (100.0, 50.0),    # placeholder bbox
     "Folder Tree": (240.0, 200.0), # auto-sized, reference bbox
+    "Hexagon": (160.0, 100.0),
+    "Parallelogram": (160.0, 100.0),
+    "Database": (160.0, 110.0),
+    "Document": (160.0, 110.0),
+    "Multiple Document": (170.0, 120.0),
+    "Cloud": (170.0, 110.0),
+    "Callout": (170.0, 120.0),
+    "Table": (240.0, 150.0),
+    "Swimlane": (300.0, 180.0),
 }
 
 PEN_NORMAL = QtGui.QPen(QtGui.QColor("#000"), 2)
