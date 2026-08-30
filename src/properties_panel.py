@@ -24,6 +24,7 @@ from items import (
     TriangleItem,
 )
 from property_command_service import PropertyCommandService
+from style_presets import STYLE_VERSION, apply_preset, apply_style_data, preset_choices, style_data
 
 if TYPE_CHECKING:  # pragma: no cover - only for typing
     from canvas_view import CanvasView
@@ -239,6 +240,7 @@ class PropertiesPanel(QtWidgets.QWidget):
                 self._layout.setStretch(index, 1)
 
         self._cache_object_widgets()
+        self._install_style_preset_section()
         self._cache_text_widgets()
         self._initialize_combobox_options()
         self._initialize_half_width_tracking()
@@ -317,6 +319,52 @@ class PropertiesPanel(QtWidgets.QWidget):
             self._group_bracket,
             self._group_line_arrows,
         ]
+
+    def _install_style_preset_section(self) -> None:
+        self._group_style_preset = QtWidgets.QGroupBox("Style", self)
+        form = QtWidgets.QFormLayout(self._group_style_preset)
+        self._combo_style_preset = QtWidgets.QComboBox(self._group_style_preset)
+        for preset_id, label in preset_choices():
+            self._combo_style_preset.addItem(label, preset_id)
+        form.addRow("Preset", self._combo_style_preset)
+        self._check_style_shadow = QtWidgets.QCheckBox("Enable shadow", self._group_style_preset)
+        form.addRow(self._check_style_shadow)
+        self._spin_shadow_x = QtWidgets.QDoubleSpinBox(self._group_style_preset)
+        self._spin_shadow_y = QtWidgets.QDoubleSpinBox(self._group_style_preset)
+        self._spin_shadow_blur = QtWidgets.QDoubleSpinBox(self._group_style_preset)
+        for spin in (self._spin_shadow_x, self._spin_shadow_y):
+            spin.setRange(-100.0, 100.0)
+            spin.setDecimals(1)
+        self._spin_shadow_blur.setRange(0.0, 100.0)
+        self._spin_shadow_blur.setDecimals(1)
+        self._color_shadow = ColorButton(QtGui.QColor("#66000000"), self._group_style_preset)
+        form.addRow("Offset X", self._spin_shadow_x)
+        form.addRow("Offset Y", self._spin_shadow_y)
+        form.addRow("Blur", self._spin_shadow_blur)
+        form.addRow("Color", self._color_shadow)
+        layout = self._group_fill.parentWidget().layout()
+        if isinstance(layout, QtWidgets.QVBoxLayout):
+            layout.addWidget(self._group_style_preset)
+        self._object_groups.append(self._group_style_preset)
+        self._combo_style_preset.activated.connect(self._apply_selected_preset)
+        self._check_style_shadow.toggled.connect(self._write_shadow_style)
+        self._spin_shadow_x.valueChanged.connect(self._write_shadow_style)
+        self._spin_shadow_y.valueChanged.connect(self._write_shadow_style)
+        self._spin_shadow_blur.valueChanged.connect(self._write_shadow_style)
+        self._color_shadow.colorChanged.connect(lambda _color: self._write_shadow_style())
+
+    def _apply_selected_preset(self) -> None:
+        if self._current_item is not None and apply_preset(self._current_item, str(self._combo_style_preset.currentData())):
+            self._after_property_change()
+            self._rebuild_for_item(self._current_item)
+
+    def _write_shadow_style(self) -> None:
+        if self._current_item is None:
+            return
+        data = style_data(self._current_item) or {"version": STYLE_VERSION}
+        data["shadow"] = ({"offset_x": self._spin_shadow_x.value(), "offset_y": self._spin_shadow_y.value(), "blur_radius": self._spin_shadow_blur.value(), "color": self._color_shadow.color().name(QtGui.QColor.NameFormat.HexArgb)} if self._check_style_shadow.isChecked() else {})
+        apply_style_data(self._current_item, data)
+        self._after_property_change()
 
     def _cache_text_widgets(self) -> None:
         self._group_label = self._require_widget(QtWidgets.QGroupBox, "groupLabel")
@@ -903,6 +951,22 @@ class PropertiesPanel(QtWidgets.QWidget):
                 lambda: item.brush().color(),
                 lambda color: self._set_brush_color(item, color),
             )
+
+        if hasattr(item, "setGraphicsEffect"):
+            self._group_style_preset.show()
+            data = style_data(item) or {}
+            shadow = data.get("shadow") if isinstance(data.get("shadow"), dict) else {}
+            with QtCore.QSignalBlocker(self._combo_style_preset):
+                preset_id = data.get("preset_id")
+                index = self._combo_style_preset.findData(preset_id)
+                self._combo_style_preset.setCurrentIndex(max(0, index))
+            with QtCore.QSignalBlocker(self._check_style_shadow):
+                self._check_style_shadow.setChecked(bool(shadow))
+            for spin, key in ((self._spin_shadow_x, "offset_x"), (self._spin_shadow_y, "offset_y"), (self._spin_shadow_blur, "blur_radius")):
+                with QtCore.QSignalBlocker(spin):
+                    spin.setValue(float(shadow.get(key, 0.0)))
+            with QtCore.QSignalBlocker(self._color_shadow):
+                self._color_shadow.setColor(str(shadow.get("color", "#66000000")))
 
         if isinstance(item, BlockArrowItem):
             self._group_arrow_shape.show()
