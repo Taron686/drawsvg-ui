@@ -29,6 +29,11 @@ _EXPORT_FORMATS = {
     "png": ("PNG image (*.png)", ".png", "export_png"),
     "pdf": ("PDF document (*.pdf)", ".pdf", "export_pdf"),
 }
+_TEMPLATES = {
+    "Blank": (),
+    "Flowchart": (("Rounded Rectangle", 80.0, 80.0), ("Diamond", 320.0, 80.0), ("Arrow", 190.0, 130.0)),
+    "Swimlane": (("Swimlane", 80.0, 80.0),),
+}
 
 
 def _default_recent_files_path() -> Path:
@@ -45,12 +50,14 @@ class MainWindow(QtWidgets.QMainWindow):
         *,
         window_registry: DocumentWindowRegistry | None = None,
         recovery_store: RecoveryStore | None = None,
+        settings: QtCore.QSettings | None = None,
         check_startup_recovery: bool = False,
     ):
         super().__init__()
 
         self._window_registry = window_registry or DocumentWindowRegistry()
         self._recovery_store = recovery_store or RecoveryStore()
+        self._settings_instance = settings
         self._force_close = False
 
         self._load_ui()
@@ -65,6 +72,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._recent_files = self._load_recent_files()
         self._install_recent_files_menu()
         self._configure_actions()
+        self._restore_view_settings()
 
         self.statusBar().showMessage(
             "Tip: Ctrl+drag duplicates selected objects, Alt+mouse wheel zooms"
@@ -304,6 +312,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self.actionShow_guides.toggled.connect(self.canvas.set_guides_visible)
         self.canvas.guidesVisibilityChanged.connect(self.actionShow_guides.setChecked)
 
+        file_menu = self.menuBar().findChild(QtWidgets.QMenu, "menuFile")
+        if file_menu is None:
+            raise RuntimeError("Missing File menu in UI file")
+        self.actionNew_from_template = QtGui.QAction("New from template…", self)
+        file_menu.insertAction(self.actionOpen_project, self.actionNew_from_template)
+        self.actionNew_from_template.triggered.connect(self.show_template_dialog)
+
+        theme_menu = self.menuView.addMenu("Theme")
+        self._theme_actions = QtGui.QActionGroup(self)
+        for name in ("Light", "Dark"):
+            action = theme_menu.addAction(name)
+            action.setCheckable(True)
+            action.setData(name.lower())
+            self._theme_actions.addAction(action)
+        self._theme_actions.triggered.connect(lambda action: self._set_theme(str(action.data())))
+        self.actionShow_grid.toggled.connect(lambda _value: self._save_view_settings())
+        self.actionShow_guides.toggled.connect(lambda _value: self._save_view_settings())
+
         self.menuTools = self.menuBar().addMenu("&Tools")
         self.actionCreate_connector = QtGui.QAction(
             "Create connector", self, checkable=True
@@ -384,6 +410,73 @@ class MainWindow(QtWidgets.QMainWindow):
         window = self._create_document_window()
         window.show()
         return window
+
+    def new_document_from_template(self, template: str) -> "MainWindow":
+        window = self._create_document_window()
+        for shape, x, y in _TEMPLATES.get(template, ()):
+            window.canvas.add_shape(shape, QtCore.QPointF(x, y), snap_to_grid=False)
+        window.document_controller.refresh_dirty_state()
+        window.show()
+        return window
+
+    def show_template_dialog(self, _checked: bool = False) -> "MainWindow | None":
+        template, accepted = QtWidgets.QInputDialog.getItem(
+            self,
+            "New from template",
+            "Template:",
+            tuple(_TEMPLATES),
+            editable=False,
+        )
+        if not accepted:
+            return None
+        return self.new_document_from_template(template)
+
+    def _settings(self) -> QtCore.QSettings:
+        return self._settings_instance or QtCore.QSettings(
+            QtCore.QSettings.Format.IniFormat,
+            QtCore.QSettings.Scope.UserScope,
+            "DrawSVG UI",
+            "DrawSVG UI Settings v1",
+        )
+
+    def _restore_view_settings(self) -> None:
+        settings = self._settings()
+        if settings.value("view/settings_version", 0, int) != 1:
+            return
+        self._restoring_view_settings = True
+        try:
+            self.actionShow_grid.setChecked(
+                self._read_setting_bool(settings, "view/grid")
+            )
+            self.actionShow_guides.setChecked(
+                self._read_setting_bool(settings, "view/guides")
+            )
+            self._set_theme(settings.value("view/theme", "light", str), persist=False)
+        finally:
+            self._restoring_view_settings = False
+
+    @staticmethod
+    def _read_setting_bool(settings: QtCore.QSettings, key: str) -> bool:
+        value = settings.value(key, True)
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    def _save_view_settings(self) -> None:
+        if getattr(self, "_restoring_view_settings", False):
+            return
+        settings = self._settings()
+        settings.setValue("view/settings_version", 1)
+        settings.setValue("view/grid", self.actionShow_grid.isChecked())
+        settings.setValue("view/guides", self.actionShow_guides.isChecked())
+
+    def _set_theme(self, theme: str, *, persist: bool = True) -> None:
+        dark = theme == "dark"
+        self.setStyleSheet("QMainWindow { background: #252526; color: #f0f0f0; }" if dark else "")
+        for action in self._theme_actions.actions():
+            action.setChecked(str(action.data()) == ("dark" if dark else "light"))
+        if persist:
+            self._settings().setValue("view/theme", "dark" if dark else "light")
 
     def open_project(self, _checked: bool = False) -> "MainWindow | None":
         selected_path, _selected_filter = QtWidgets.QFileDialog.getOpenFileName(
