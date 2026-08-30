@@ -24,6 +24,7 @@ from items import (
     TriangleItem,
 )
 from items.shapes.paths import BezierPathItem, FreePathItem
+from style_presets import apply_style_data, style_data
 
 ShapeFactory = Callable[[float, float, float, float], QtWidgets.QGraphicsItem]
 ShapeSerializer = Callable[[QtWidgets.QGraphicsItem], dict[str, Any]]
@@ -51,6 +52,17 @@ def _brush_to_data(brush: QtGui.QBrush) -> dict[str, Any]:
     data: dict[str, Any] = {"style": style}
     if style != _enum_to_int(QtCore.Qt.BrushStyle.NoBrush):
         data["color"] = _color_to_data(brush.color())
+    gradient = brush.gradient()
+    if isinstance(gradient, QtGui.QLinearGradient):
+        data["linear_gradient"] = {
+            "start": [gradient.start().x(), gradient.start().y()],
+            "end": [gradient.finalStop().x(), gradient.finalStop().y()],
+            "coordinate_mode": _enum_to_int(gradient.coordinateMode()),
+            "stops": [
+                [float(position), _color_to_data(color)]
+                for position, color in gradient.stops()
+            ],
+        }
     return data
 
 
@@ -61,6 +73,17 @@ def _brush_from_data(data: Mapping[str, Any] | None) -> QtGui.QBrush:
     color_data = data.get("color") if data else None
     if style != default_style and isinstance(color_data, Mapping):
         brush.setColor(_color_from_data(color_data))
+    gradient_data = data.get("linear_gradient") if data else None
+    if isinstance(gradient_data, Mapping):
+        start = gradient_data.get("start")
+        end = gradient_data.get("end")
+        if isinstance(start, (list, tuple)) and isinstance(end, (list, tuple)) and len(start) == 2 and len(end) == 2:
+            gradient = QtGui.QLinearGradient(float(start[0]), float(start[1]), float(end[0]), float(end[1]))
+            gradient.setCoordinateMode(QtGui.QGradient.CoordinateMode(int(gradient_data.get("coordinate_mode", 2))))
+            for stop in gradient_data.get("stops", []):
+                if isinstance(stop, (list, tuple)) and len(stop) == 2 and isinstance(stop[1], Mapping):
+                    gradient.setColorAt(float(stop[0]), _color_from_data(stop[1]))
+            brush = QtGui.QBrush(gradient)
     return brush
 
 
@@ -608,6 +631,9 @@ class ShapeRegistry:
         data = definition.serializer(item)
         data["shape"] = definition.palette_label
         data["type_id"] = definition.type_id
+        style = style_data(item)
+        if style is not None:
+            data["item_style"] = style
         return data
 
     def restore(self, data: Mapping[str, Any]) -> QtWidgets.QGraphicsItem | None:
@@ -617,6 +643,8 @@ class ShapeRegistry:
             return None
         item = definition.restorer(data)
         item.setData(0, definition.type_id)
+        style = data.get("item_style")
+        apply_style_data(item, style if isinstance(style, Mapping) else None)
         return item
 
 
