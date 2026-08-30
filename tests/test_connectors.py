@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtTest import QTest
 
 from connectors import (
@@ -11,6 +13,7 @@ from connectors import (
     ConnectorItem,
     _polyline_intersects_rect,
 )
+from export_renderer import ExportArea, ExportRenderer, ExportRequest
 from items import GroupItem
 from scene_codec import KEY_ITEM_ID
 
@@ -203,6 +206,114 @@ def test_alignment_does_not_move_connector_item(canvas_view) -> None:
     canvas_view._align_items([shape, connector], "right")
 
     assert connector.route_points() == before
+
+
+def test_connector_hides_with_bound_hidden_target(
+    canvas_view, application, tmp_path: Path
+) -> None:
+    target = _shape(canvas_view, 40.0)
+    target_id = target.data(KEY_ITEM_ID)
+    connector = canvas_view.add_connector(
+        target,
+        QtCore.QPointF(360.0, 20.0),
+        start_anchor="east",
+    )
+
+    with canvas_view.history().transaction():
+        assert canvas_view.layer_manager().set_item_visible(target, False)
+        canvas_view.history().mark_dirty()
+    application.processEvents()
+
+    assert not connector.isVisible()
+
+    page = canvas_view._page_item
+    assert page is not None
+    output = ExportRenderer(canvas_view.scene()).export_png(
+        tmp_path / "hidden-connector.png",
+        ExportRequest(
+            area=ExportArea.CURRENT_PAGE,
+            current_page=QtCore.QRectF(0.0, 0.0, 500.0, 200.0),
+            hidden_items=(page,),
+        ),
+    )
+    image = QtGui.QImage(str(output[0]))
+    assert all(
+        image.pixelColor(x, y) == QtGui.QColor("white")
+        for y in range(image.height())
+        for x in range(image.width())
+    )
+
+    canvas_view.undo()
+    restored_target = next(
+        item
+        for item in canvas_view.scene().items()
+        if item.data(KEY_ITEM_ID) == target_id
+    )
+    assert restored_target.isVisible()
+    assert _connectors(canvas_view)[0].isVisible()
+
+    canvas_view.redo()
+    restored_target = next(
+        item
+        for item in canvas_view.scene().items()
+        if item.data(KEY_ITEM_ID) == target_id
+    )
+    assert not restored_target.isVisible()
+    assert not _connectors(canvas_view)[0].isVisible()
+
+    state = canvas_view._serialize_scene_state()
+    canvas_view._restore_scene_state(state)
+    restored_target = next(
+        item
+        for item in canvas_view.scene().items()
+        if item.data(KEY_ITEM_ID) == target_id
+    )
+    assert not restored_target.isVisible()
+    assert not _connectors(canvas_view)[0].isVisible()
+
+    assert canvas_view.layer_manager().set_item_visible(restored_target, True)
+    application.processEvents()
+
+    assert _connectors(canvas_view)[0].isVisible()
+
+
+def test_manually_hidden_connector_stays_hidden_when_target_reappears(
+    canvas_view, application
+) -> None:
+    target = _shape(canvas_view, 40.0)
+    connector = canvas_view.add_connector(
+        target,
+        QtCore.QPointF(360.0, 20.0),
+        start_anchor="east",
+    )
+    layer_manager = canvas_view.layer_manager()
+
+    assert layer_manager.set_item_visible(target, False)
+    assert not connector.isVisible()
+    assert layer_manager.set_item_visible(connector, False)
+    assert layer_manager.set_item_visible(target, True)
+    application.processEvents()
+
+    assert not connector.isVisible()
+
+    state = canvas_view._serialize_scene_state()
+    canvas_view._restore_scene_state(state)
+    assert not _connectors(canvas_view)[0].isVisible()
+
+
+def test_unbound_manually_hidden_connector_stays_hidden_on_visibility_refresh(
+    canvas_view, application
+) -> None:
+    connector = canvas_view.add_connector(
+        QtCore.QPointF(20.0, 20.0), QtCore.QPointF(180.0, 20.0)
+    )
+
+    assert canvas_view.layer_manager().set_item_visible(connector, False)
+    application.processEvents()
+
+    canvas_view.connector_manager().refresh_visibility()
+
+    assert not connector.isVisible()
 
 
 def test_connector_bound_to_group_child_follows_group_transform(canvas_view) -> None:

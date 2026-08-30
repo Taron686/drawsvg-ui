@@ -826,6 +826,7 @@ class CanvasView(QtWidgets.QGraphicsView):
 
         self._layer_manager = LayerManager(self)
         self._connector_manager = ConnectorManager(scene, self)
+        self._layer_manager.changed.connect(self._connector_manager.refresh_visibility)
         # Project archives own the binary data. History snapshots retain only
         # item-to-asset references and resolve them through this service.
         self._bitmap_assets = BitmapAssetService()

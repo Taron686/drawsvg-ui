@@ -72,6 +72,7 @@ class ConnectorItem(QtWidgets.QGraphicsPathItem):
         self.start_endpoint = start
         self.end_endpoint = end
         self._route_points: tuple[QtCore.QPointF, ...] = ()
+        self._hidden_by_target = False
         self.setData(0, CONNECTOR_TYPE_ID)
         self.setFlags(
             QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
@@ -306,6 +307,7 @@ class ConnectorManager(QtCore.QObject):
             return
         self._detach_missing_target(connector, "start")
         self._detach_missing_target(connector, "end")
+        self._sync_visibility(connector)
         start, end = self._resolved_points(connector)
         if (
             connector.start_endpoint.target_id is not None
@@ -321,6 +323,38 @@ class ConnectorManager(QtCore.QObject):
         connector.set_route_points(points)
         self._last_obstacle_count = obstacle_count
         self._reroute_count += 1
+
+    def _sync_visibility(self, connector: ConnectorItem) -> None:
+        targets = (
+            self._target_for(connector.start_endpoint),
+            self._target_for(connector.end_endpoint),
+        )
+        target_hidden = any(
+            target is not None and not target.isVisible() for target in targets
+        )
+        if target_hidden:
+            if connector.isVisible():
+                connector._hidden_by_target = True
+                connector.setVisible(False)
+        elif connector._hidden_by_target:
+            connector._hidden_by_target = False
+            if self._is_visible_in_layers(connector):
+                connector.setVisible(True)
+
+    def _is_visible_in_layers(self, connector: ConnectorItem) -> bool:
+        canvas = self.parent()
+        layer_manager = getattr(canvas, "layer_manager", None)
+        if not callable(layer_manager):
+            return True
+        manager = layer_manager()
+        return (
+            manager.layer_for_item(connector).visible
+            and manager.item_visible(connector)
+        )
+
+    def refresh_visibility(self) -> None:
+        for connector in self._connectors:
+            self._sync_visibility(connector)
 
     def _set_endpoint(
         self,
