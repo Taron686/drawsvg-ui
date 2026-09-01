@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **UI_drawsvg** (9815 symbols, 29286 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **UI_drawsvg** (12874 symbols, 37768 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -61,3 +61,12 @@ zu verwalten; dabei ist gültiges Obsidian Flavored Markdown zu verwenden.
 
 Die Obsidian-CLI darf für dieses Projekt nicht zum Lesen, Erstellen, Bearbeiten, Suchen
 oder Verwalten von Notizen verwendet werden.
+
+### Verbindliche Plan-Dokumentation
+
+Jeder ausgearbeitete oder ausgeführte Arbeitsplan muss spätestens am Ende des
+zugehörigen Arbeitslaufs im Vault als Markdown-Notiz dokumentiert werden. Eine
+passende bestehende Notiz ist zu aktualisieren, statt eine inhaltlich doppelte Notiz
+anzulegen. Die Dokumentation enthält mindestens Ziel, geplante Schritte, aktuellen
+Status beziehungsweise Ergebnisse und offene Punkte. Der Arbeitslauf gilt erst als
+abgeschlossen, wenn die Notiz gespeichert und ihr Pfad dem Nutzer genannt wurde.

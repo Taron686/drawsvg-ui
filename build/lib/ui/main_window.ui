@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1200</width>
+    <height>800</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>DrawSVG Canvas – PySide6</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="centralLayout">
+    <property name="spacing">
+     <number>0</number>
+    </property>
+    <item>
+     <widget class="QSplitter" name="mainSplitter">
+      <property name="orientation">
+       <enum>Qt::Horizontal</enum>
+      </property>
+      <widget class="QWidget" name="paletteContainer">
+       <layout class="QVBoxLayout" name="paletteLayout">
+        <property name="spacing">
+         <number>0</number>
+        </property>
+        <item>
+         <widget class="QListWidget" name="palettePlaceholder"/>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="canvasContainer">
+       <layout class="QVBoxLayout" name="canvasLayout">
+        <property name="spacing">
+         <number>0</number>
+        </property>
+        <item>
+         <widget class="QGraphicsView" name="canvasPlaceholder"/>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="propertiesContainer">
+       <layout class="QVBoxLayout" name="propertiesLayout">
+        <property name="spacing">
+         <number>0</number>
+        </property>
+        <item>
+         <widget class="QWidget" name="propertiesPlaceholder" native="true"/>
+        </item>
+       </layout>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>1200</width>
+     <height>22</height>
+    </rect>
+   </property>
+   <widget class="QMenu" name="menuFile">
+    <property name="title">
+     <string>&amp;File</string>
+    </property>
+    <addaction name="actionNew"/>
+    <addaction name="actionOpen_project"/>
+    <addaction name="actionSave_project"/>
+    <addaction name="actionSave_project_as"/>
+    <addaction name="separator"/>
+    <addaction name="actionLoad_drawsvg_py"/>
+    <addaction name="actionSave_drawsvg_py"/>
+    <addaction name="separator"/>
+    <addaction name="actionExport_svg"/>
+    <addaction name="actionExport_png"/>
+    <addaction name="actionExport_pdf"/>
+    <addaction name="separator"/>
+    <addaction name="actionQuit"/>
+   </widget>
+   <widget class="QMenu" name="menuEdit">
+    <property name="title">
+     <string>&amp;Edit</string>
+    </property>
+    <addaction name="actionUndo"/>
+    <addaction name="actionRedo"/>
+    <addaction name="separator"/>
+    <addaction name="actionClear_canvas"/>
+    <addaction name="actionShow_grid"/>
+   </widget>
+   <widget class="QMenu" name="menuAbout">
+    <property name="title">
+     <string>About</string>
+    </property>
+    <addaction name="actionInfo"/>
+   </widget>
+   <addaction name="menuFile"/>
+   <addaction name="menuEdit"/>
+   <addaction name="menuAbout"/>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+  <action name="actionNew">
+   <property name="text">
+    <string>New</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+N</string>
+   </property>
+  </action>
+  <action name="actionOpen_project">
+   <property name="text">
+    <string>Open Project…</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+O</string>
+   </property>
+  </action>
+  <action name="actionSave_project">
+   <property name="text">
+    <string>Save</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+S</string>
+   </property>
+  </action>
+  <action name="actionSave_project_as">
+   <property name="text">
+    <string>Save As…</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+Shift+S</string>
+   </property>
+  </action>
+  <action name="actionLoad_drawsvg_py">
+   <property name="text">
+    <string>Load drawsvg-.py</string>
+   </property>
+  </action>
+  <action name="actionSave_drawsvg_py">
+   <property name="text">
+    <string>Save drawsvg-.py</string>
+   </property>
+  </action>
+  <action name="actionExport_svg">
+   <property name="text">
+    <string>Export SVG…</string>
+   </property>
+  </action>
+  <action name="actionExport_png">
+   <property name="text">
+    <string>Export PNG…</string>
+   </property>
+  </action>
+  <action name="actionExport_pdf">
+   <property name="text">
+    <string>Export PDF…</string>
+   </property>
+  </action>
+  <action name="actionQuit">
+   <property name="text">
+    <string>Quit</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+Q</string>
+   </property>
+  </action>
+  <action name="actionUndo">
+   <property name="text">
+    <string>Undo</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+Z</string>
+   </property>
+  </action>
+  <action name="actionRedo">
+   <property name="text">
+    <string>Redo</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+Y</string>
+   </property>
+  </action>
+  <action name="actionClear_canvas">
+   <property name="text">
+    <string>Clear canvas</string>
+   </property>
+  </action>
+  <action name="actionShow_grid">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Show grid</string>
+   </property>
+  </action>
+  <action name="actionInfo">
+   <property name="text">
+    <string>Information</string>
+   </property>
+  </action>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

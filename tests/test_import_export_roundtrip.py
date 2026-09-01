@@ -20,7 +20,8 @@ import import_drawsvg
 from canvas_view import CanvasView, GroupItem
 from constants import SHAPES
 from layer_manager import DEFAULT_LAYER_ID
-from scene_codec import KEY_LAYER_ID
+from scene_codec import KEY_ITEM_ID, KEY_LAYER_ID, SceneCodec
+from shape_registry import SHAPE_REGISTRY
 from items.shapes.paths import FreePathItem
 
 
@@ -299,6 +300,25 @@ def test_clone_preserves_item_scale(shape: str) -> None:
 
     assert clone is not None
     assert clone.scale() == pytest.approx(1.75)
+
+
+@pytest.mark.parametrize("shape", ["Hexagon", "Bezier Path"])
+def test_clone_restores_registry_shapes_with_new_identity_and_layer(shape: str) -> None:
+    view = CanvasView()
+    item = view.add_shape(shape, QtCore.QPointF(10.0, 20.0), snap_to_grid=False)
+    assert item is not None
+    layer = view.layer_manager().add_layer("Clone source")
+    assert view.layer_manager().assign_item(item, layer.id)
+    item.setZValue(7.0)
+    source_id = SceneCodec._item_id(item)
+
+    clone = view._clone_item(item)
+
+    assert clone is not None
+    assert SHAPE_REGISTRY.serialize(clone) == SHAPE_REGISTRY.serialize(item)
+    assert clone.data(KEY_LAYER_ID) == layer.id
+    assert clone.zValue() == pytest.approx(7.0)
+    assert clone.data(KEY_ITEM_ID) != source_id
 
 
 def test_group_transform_is_flattened_without_moving_children(

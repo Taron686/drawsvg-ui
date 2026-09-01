@@ -7,7 +7,7 @@ from PySide6 import QtCore, QtWidgets
 
 from constants import SHAPES
 from export_drawsvg import export_drawsvg_py
-from palette import PaletteList
+from palette import PaletteList, _build_shape_icon
 from shape_registry import SHAPE_REGISTRY
 
 
@@ -91,6 +91,36 @@ def test_palette_uses_registry_order(application: QtWidgets.QApplication) -> Non
         ] == [definition.type_id for definition in SHAPE_REGISTRY.palette_definitions()]
     finally:
         palette.close()
+
+
+def test_new_palette_elements_have_distinct_shape_previews(
+    application: QtWidgets.QApplication,
+) -> None:
+    preview_types = (
+        "Hexagon",
+        "Parallelogram",
+        "Database",
+        "Document",
+        "Multiple Document",
+        "Cloud",
+        "Callout",
+        "Table",
+        "Swimlane",
+        "Free Polyline",
+        "Free Polygon",
+        "Bezier Path",
+    )
+    size = QtCore.QSize(56, 56)
+
+    def pixels(type_id: str) -> bytes:
+        image = _build_shape_icon(type_id, size).toImage()
+        return bytes(image.bits())
+
+    fallback = pixels("Unknown Shape")
+    previews = [pixels(type_id) for type_id in preview_types]
+
+    assert all(preview != fallback for preview in previews)
+    assert len(set(previews)) == len(preview_types)
 
 
 def test_python_export_dispatches_all_registered_adapters(
