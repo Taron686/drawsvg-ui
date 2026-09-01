@@ -111,6 +111,80 @@ def test_panel_exposes_only_the_new_explicit_multi_selection_api(application) ->
     panel.close()
 
 
+def test_half_width_limit_uses_half_panel_width_with_minimum(application) -> None:
+    panel = PropertiesPanel()
+    panel.setMinimumWidth(0)
+
+    panel.resize(200, 400)
+    assert panel._half_width_limit() == 100
+
+    panel.resize(60, 400)
+    assert panel._half_width_limit() == 40
+    panel.close()
+
+
+def test_clear_reenables_transform_controls_after_locked_multi_selection(application) -> None:
+    service = PropertyCommandService()
+    first = _item(10.0, 20.0)
+    second = _item(30.0, 40.0)
+    first.locked = True
+    second.locked = True
+    panel = PropertiesPanel()
+
+    panel.show_selected_item_properties([first, second], service)
+    assert not panel._spin_pos_x.isEnabled()
+
+    panel.clear()
+
+    assert all(
+        spin.isEnabledTo(panel._tab_widget)
+        for spin in (
+            panel._spin_pos_x,
+            panel._spin_pos_y,
+            panel._spin_rotation,
+            panel._spin_scale,
+            panel._spin_z_value,
+        )
+    )
+    panel.close()
+
+
+def test_single_selection_reenables_transform_controls_after_locked_multi_selection(
+    application,
+) -> None:
+    service = PropertyCommandService()
+    first = _item(10.0, 20.0)
+    second = _item(30.0, 40.0)
+    first.locked = True
+    second.locked = True
+    panel = PropertiesPanel()
+
+    panel.show_selected_item_properties([first, second], service)
+    assert not panel._spin_pos_x.isEnabled()
+
+    panel.update_snapshot(
+        {
+            "selection_type": "single",
+            "item": first,
+            "title": "Rectangle",
+            "object_data": {},
+            "text_data": {},
+        }
+    )
+
+    assert all(
+        spin.isEnabled()
+        for spin in (
+            panel._spin_pos_x,
+            panel._spin_pos_y,
+            panel._spin_rotation,
+            panel._spin_scale,
+            panel._spin_z_value,
+        )
+    )
+    panel.close()
+
+
 def test_service_creates_one_real_canvas_undo_step(canvas_view) -> None:
     first = canvas_view.add_shape("Rectangle", QtCore.QPointF(10.0, 10.0))
     second = canvas_view.add_shape("Ellipse", QtCore.QPointF(100.0, 10.0))

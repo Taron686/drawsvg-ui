@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 import pytest
-from PySide6 import QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 import main_window
 from document_controller import DocumentWindowRegistry
@@ -38,6 +38,40 @@ def _force_close(registry: DocumentWindowRegistry) -> None:
     for window in registry.windows():
         window._force_close = True
         window.close()
+
+
+def test_multiple_selected_items_enable_transform_properties(
+    application: QtWidgets.QApplication, tmp_path: Path
+) -> None:
+    window = _window(tmp_path)
+    first = window.canvas.add_shape("Rectangle", QtCore.QPointF(10, 10), snap_to_grid=False)
+    second = window.canvas.add_shape("Ellipse", QtCore.QPointF(50, 10), snap_to_grid=False)
+    assert first is not None and second is not None
+    first.setSelected(True)
+    second.setSelected(True)
+
+    window._handle_selection_snapshot(window.canvas._build_selection_snapshot())
+
+    assert window.properties_panel._spin_pos_x.isEnabled()
+    window.close()
+
+
+def test_locked_layer_disables_transform_properties_for_multi_selection(
+    application: QtWidgets.QApplication, tmp_path: Path
+) -> None:
+    window = _window(tmp_path)
+    first = window.canvas.add_shape("Rectangle", QtCore.QPointF(10, 10), snap_to_grid=False)
+    second = window.canvas.add_shape("Ellipse", QtCore.QPointF(50, 10), snap_to_grid=False)
+    assert first is not None and second is not None
+    manager = window.canvas.layer_manager()
+    assert manager.set_layer_locked(manager.layers()[0].id, True)
+
+    window.properties_panel.show_selected_item_properties(
+        [first, second], window._property_command_service
+    )
+
+    assert not window.properties_panel._spin_pos_x.isEnabled()
+    window.close()
 
 
 def test_file_menu_exposes_native_document_actions_and_shortcuts(
@@ -165,6 +199,25 @@ def test_failed_open_keeps_current_document_and_registry_unchanged(
         assert window.document_controller.path is None
         assert window.document_controller.dirty
         assert errors and "application log" in errors[0]
+    finally:
+        _force_close(registry)
+
+
+def test_restore_rejects_unknown_shape_without_clearing_current_scene(
+    application: QtWidgets.QApplication, tmp_path: Path
+) -> None:
+    window = _window(tmp_path)
+    registry = window._window_registry
+    try:
+        original = window.canvas.add_shape_at_view_center("Rectangle")
+        assert original is not None
+
+        with pytest.raises(ValueError, match="Unknown shape: Unknown Shape"):
+            window.canvas._restore_scene_state(
+                {"items": [{"shape": "Unknown Shape"}]}
+            )
+
+        assert original in window.canvas.scene().items()
     finally:
         _force_close(registry)
 

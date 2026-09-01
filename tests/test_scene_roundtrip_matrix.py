@@ -19,7 +19,7 @@ from items import (
     SplitRoundedRectItem,
     TextItem,
 )
-from scene_codec import KEY_ITEM_ID, KEY_TRANSIENT
+from scene_codec import KEY_ITEM_ID, KEY_LAYER_ID, KEY_TRANSIENT
 
 ROUNDTRIP_SHAPES = tuple(pytest.param(shape, id=shape) for shape in SHAPES)
 
@@ -239,6 +239,14 @@ def test_explicit_transient_marker_excludes_item(canvas_view: CanvasView) -> Non
     assert canvas_view._serialize_scene_state()["items"] == []
 
 
+def test_unregistered_normal_item_is_not_serialized(canvas_view: CanvasView) -> None:
+    item = QtWidgets.QGraphicsRectItem(0.0, 0.0, 10.0, 10.0)
+    item.setData(0, "Unregistered")
+    canvas_view.scene().addItem(item)
+
+    assert canvas_view._serialize_scene_state()["items"] == []
+
+
 def test_roundtrip_payload_has_explicit_stack_order(canvas_view: CanvasView) -> None:
     for shape in ("Rectangle", "Ellipse"):
         item = canvas_view.add_shape(shape, QtCore.QPointF(), snap_to_grid=False)
@@ -284,3 +292,32 @@ def test_scene_codec_payload_has_stable_metadata(canvas_view: CanvasView) -> Non
 
     restored = canvas_view._serialize_scene_state()["items"][0]
     assert restored["id"] == entry["id"]
+
+
+def test_registry_extension_clone_preserves_state_and_gets_a_new_uuid(
+    canvas_view: CanvasView,
+) -> None:
+    item = canvas_view.add_shape(
+        "Free Polyline",
+        QtCore.QPointF(10.0, 20.0),
+        snap_to_grid=False,
+    )
+    assert item is not None
+    item.setTransform(QtGui.QTransform(-1.0, 0.0, 0.5, 2.0, 10.0, 5.0))
+    item.setRotation(17.5)
+    item.setScale(1.25)
+    item.setZValue(4.5)
+    source_id = canvas_view._serialize_scene_state()["items"][0]["id"]
+
+    clone = canvas_view._clone_item(item)
+
+    assert clone is not None
+    assert clone.data(0) == "Free Polyline"
+    assert clone.pos() == item.pos()
+    assert clone.transform() == item.transform()
+    assert clone.rotation() == pytest.approx(item.rotation())
+    assert clone.scale() == pytest.approx(item.scale())
+    assert clone.zValue() == pytest.approx(item.zValue())
+    assert clone.data(KEY_LAYER_ID) == item.data(KEY_LAYER_ID)
+    assert clone.data(KEY_ITEM_ID) != source_id
+    assert str(UUID(clone.data(KEY_ITEM_ID))) == clone.data(KEY_ITEM_ID)
