@@ -13,14 +13,15 @@ sys.path.insert(0, str(SRC_ROOT))
 
 import pytest
 from PySide6 import QtCore, QtGui, QtWidgets
-from PySide6.QtTest import QSignalSpy
+from PySide6.QtTest import QSignalSpy, QTest
 
 import export_drawsvg
 import import_drawsvg
 from canvas_view import CanvasView, GroupItem
 from constants import SHAPES
 from layer_manager import DEFAULT_LAYER_ID
-from scene_codec import KEY_LAYER_ID
+from scene_codec import KEY_ITEM_ID, KEY_LAYER_ID, SceneCodec
+from shape_registry import SHAPE_REGISTRY
 from items.shapes.paths import FreePathItem
 
 
@@ -299,6 +300,68 @@ def test_clone_preserves_item_scale(shape: str) -> None:
 
     assert clone is not None
     assert clone.scale() == pytest.approx(1.75)
+
+
+@pytest.mark.parametrize("shape", ["Hexagon", "Bezier Path"])
+def test_clone_restores_registry_shapes_with_new_identity_and_layer(shape: str) -> None:
+    view = CanvasView()
+    item = view.add_shape(shape, QtCore.QPointF(10.0, 20.0), snap_to_grid=False)
+    assert item is not None
+    layer = view.layer_manager().add_layer("Clone source")
+    assert view.layer_manager().assign_item(item, layer.id)
+    item.setZValue(7.0)
+    source_id = SceneCodec._item_id(item)
+
+    clone = view._clone_item(item)
+
+    assert clone is not None
+    assert SHAPE_REGISTRY.serialize(clone) == SHAPE_REGISTRY.serialize(item)
+    assert clone.data(KEY_LAYER_ID) == layer.id
+    assert clone.zValue() == pytest.approx(7.0)
+    assert clone.data(KEY_ITEM_ID) != source_id
+
+
+def test_ctrl_drag_clones_registry_shape_through_viewport_events(
+    application: QtWidgets.QApplication,
+) -> None:
+    view = CanvasView()
+    view.resize(800, 600)
+    view.show()
+    application.processEvents()
+
+    source = view.add_shape_at_view_center("Hexagon")
+    assert source is not None
+    layer = view.layer_manager().add_layer("Ctrl-drag source")
+    assert view.layer_manager().assign_item(source, layer.id)
+    source_id = SceneCodec._item_id(source)
+    start = view.mapFromScene(source.sceneBoundingRect().center())
+    end = start + QtCore.QPoint(40, 30)
+
+    QTest.mousePress(
+        view.viewport(),
+        QtCore.Qt.MouseButton.LeftButton,
+        QtCore.Qt.KeyboardModifier.ControlModifier,
+        start,
+    )
+    QTest.mouseMove(view.viewport(), end, delay=20)
+    QTest.mouseRelease(
+        view.viewport(),
+        QtCore.Qt.MouseButton.LeftButton,
+        QtCore.Qt.KeyboardModifier.ControlModifier,
+        end,
+    )
+    application.processEvents()
+
+    hexagons = [item for item in view.scene().items() if item.data(0) == "Hexagon"]
+    assert len(hexagons) == 2
+    clone = next(item for item in hexagons if item.data(KEY_ITEM_ID) != source_id)
+    assert clone.data(KEY_LAYER_ID) == layer.id
+    assert SHAPE_REGISTRY.serialize(clone) == SHAPE_REGISTRY.serialize(source)
+    assert clone.pos().x() > source.pos().x()
+    assert clone.pos().y() > source.pos().y()
+    assert clone.isSelected()
+    assert not source.isSelected()
+    view.close()
 
 
 def test_group_transform_is_flattened_without_moving_children(

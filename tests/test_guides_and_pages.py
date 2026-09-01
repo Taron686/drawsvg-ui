@@ -255,8 +255,12 @@ def test_horizontal_ruler_creates_moves_and_deletes_a_vertical_guide(
     ruler.close()
 
 
-def test_view_action_toggles_visible_rulers_and_guides(application) -> None:
-    window = MainWindow()
+def test_view_action_toggles_visible_rulers_and_guides(application, tmp_path) -> None:
+    settings = QtCore.QSettings(
+        str(tmp_path / "settings.ini"),
+        QtCore.QSettings.Format.IniFormat,
+    )
+    window = MainWindow(settings=settings)
     window.show()
     application.processEvents()
 

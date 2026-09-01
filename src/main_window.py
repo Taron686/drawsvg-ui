@@ -232,12 +232,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.right_panel_tabs = QtWidgets.QTabWidget(properties_container)
         self.right_panel_tabs.addTab(self.properties_panel, "Properties")
         self.right_panel_tabs.addTab(self.layers_panel, "Layers")
-        properties_min_width = max(
-            260,
-            self.properties_panel.minimumWidth(),
-            self.properties_panel.minimumSizeHint().width(),
-            self.layers_panel.minimumSizeHint().width(),
-        )
+        properties_min_width = 260
         properties_container.setMinimumWidth(properties_min_width)
 
         self._replace_placeholder(palette_container, self.palettePlaceholder, self.palette)
@@ -250,7 +245,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setStretchFactor(2, 0)
         self.splitter.setCollapsible(2, True)
-        self.splitter.setSizes([self.palette.minimumWidth(), 900, properties_min_width + 40])
+        self.splitter.setSizes([self.palette.minimumWidth(), 900, properties_min_width])
 
     @staticmethod
     def _replace_placeholder(

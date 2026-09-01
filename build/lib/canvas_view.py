@@ -1,6 +1,5 @@
 import json
 import math
-from uuid import uuid4
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import contextmanager
 from functools import wraps
@@ -2117,7 +2116,12 @@ class CanvasView(QtWidgets.QGraphicsView):
         self.viewport().update()
 
     def _clone_item(self, item: QtWidgets.QGraphicsItem):
-        if isinstance(item, BitmapItem):
+        registry_data = SHAPE_REGISTRY.serialize(item)
+        if registry_data is not None:
+            clone = SHAPE_REGISTRY.restore(registry_data)
+            if clone is None:
+                return None
+        elif isinstance(item, BitmapItem):
             size = item.item_size()
             clone = BitmapItem(
                 self._bitmap_assets.ensure(item.asset),
@@ -2127,20 +2131,18 @@ class CanvasView(QtWidgets.QGraphicsView):
                 size.height(),
             )
         else:
-            serialized = SHAPE_REGISTRY.serialize(item)
-            if serialized is None:
-                return None
-            clone = SHAPE_REGISTRY.restore(serialized)
-            if clone is None:
-                return None
+            return None
+        if isinstance(item, ShapeLabelMixin) and isinstance(clone, ShapeLabelMixin):
+            clone.copy_label_from(item)
         clone.setPos(item.pos())
         clone.setTransform(item.transform())
         clone.setRotation(item.rotation())
         clone.setScale(item.scale())
         clone.setZValue(item.zValue())
         clone.setData(0, item.data(0))
-        clone.setData(KEY_LAYER_ID, item.data(KEY_LAYER_ID))
-        clone.setData(KEY_ITEM_ID, str(uuid4()))
+        clone.setData(KEY_LAYER_ID, self._layer_manager.layer_for_item(item).id)
+        SceneCodec._item_id(clone)
+        self._layer_manager.register_item(clone)
         return clone
 
     # --- Mouse wheel zooming and scrolling ---
