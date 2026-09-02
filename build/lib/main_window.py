@@ -455,6 +455,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self._update_connector_creation_prompt
         )
 
+        about_menu = self.menuBar().findChild(QtWidgets.QMenu, "menuAbout")
+        if about_menu is None:
+            raise RuntimeError("Missing About menu in UI file")
+        self.menuBar().removeAction(about_menu.menuAction())
+        self.menuBar().addAction(about_menu.menuAction())
+
         self.actionInfo.triggered.connect(self._show_about_dialog)
 
     def _handle_undo(self) -> None:

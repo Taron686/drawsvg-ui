@@ -21,6 +21,21 @@ def _window(tmp_path, registry, settings):
     )
 
 
+def test_about_menu_is_last_in_menu_bar(application, tmp_path) -> None:
+    registry = DocumentWindowRegistry()
+    settings = QtCore.QSettings(
+        str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat
+    )
+    window = _window(tmp_path, registry, settings)
+    try:
+        about_menu = window.menuBar().findChild(QtWidgets.QMenu, "menuAbout")
+        assert about_menu is not None
+        assert window.menuBar().actions()[-1].menu() is about_menu
+    finally:
+        window._force_close = True
+        window.close()
+
+
 def test_template_opens_an_unsaved_document(application, tmp_path) -> None:
     registry = DocumentWindowRegistry()
     settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
