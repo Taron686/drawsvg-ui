@@ -37,6 +37,8 @@ def _build_shape_icon(
     size: QtCore.QSize,
     *,
     device_pixel_ratio: float = 1.0,
+    foreground: QtGui.QColor | None = None,
+    fill: QtGui.QColor | None = None,
 ) -> QtGui.QPixmap:
     device_pixel_ratio = max(1.0, float(device_pixel_ratio))
     pixel_size = QtCore.QSize(
@@ -49,8 +51,14 @@ def _build_shape_icon(
 
     painter = QtGui.QPainter(pixmap)
     painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
-    painter.setPen(PEN_NORMAL)
-    painter.setBrush(DEFAULT_FILL)
+    normal_pen = QtGui.QPen(PEN_NORMAL)
+    if foreground is not None:
+        normal_pen.setColor(foreground)
+    default_fill = QtGui.QBrush(DEFAULT_FILL)
+    if fill is not None:
+        default_fill.setColor(fill)
+    painter.setPen(normal_pen)
+    painter.setBrush(default_fill)
 
     padding = 4 * device_pixel_ratio
     rect = QtCore.QRectF(
@@ -83,7 +91,7 @@ def _build_shape_icon(
 
         base_path = QtGui.QPainterPath()
         base_path.addRoundedRect(draw_rect, radius, radius)
-        painter.fillPath(base_path, DEFAULT_FILL)
+        painter.fillPath(base_path, default_fill)
 
         header_height = draw_rect.height() / 3.0
         top_clip = QtGui.QPainterPath()
@@ -97,12 +105,12 @@ def _build_shape_icon(
         painter.fillPath(base_path.intersected(top_clip), header_color)
 
         painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-        painter.setPen(PEN_NORMAL)
+        painter.setPen(normal_pen)
         painter.drawRoundedRect(draw_rect, radius, radius)
 
         line_y = draw_rect.top() + header_height
         divider_pen = QtGui.QPen(QtGui.QColor("#777"))
-        divider_pen.setWidthF(max(1.0, PEN_NORMAL.widthF() * device_pixel_ratio * 0.9))
+        divider_pen.setWidthF(max(1.0, normal_pen.widthF() * device_pixel_ratio * 0.9))
         painter.setPen(divider_pen)
         painter.drawLine(draw_rect.left(), line_y, draw_rect.right(), line_y)
 
@@ -111,8 +119,8 @@ def _build_shape_icon(
         painter.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
         painter.drawEllipse(QtCore.QPointF(draw_rect.center().x(), line_y), handle_radius, handle_radius)
 
-        painter.setPen(PEN_NORMAL)
-        painter.setBrush(DEFAULT_FILL)
+        painter.setPen(normal_pen)
+        painter.setBrush(default_fill)
     elif lower_name == "ellipse":
         dims = DEFAULTS.get(name)
         ellipse_rect = rect
@@ -158,7 +166,7 @@ def _build_shape_icon(
         painter.drawLine(rect.left(), center_y, shaft_end_x, center_y)
 
         arrow_height = rect.height() * 0.4
-        painter.setBrush(DEFAULT_FILL)
+        painter.setBrush(default_fill)
         arrow_head = QtGui.QPolygonF(
             [
                 QtCore.QPointF(rect.right(), center_y),
@@ -204,13 +212,13 @@ def _build_shape_icon(
         painter.drawEllipse(
             QtCore.QPointF(tail_mid_x, shaft_bottom), handle_radius, handle_radius
         )
-        painter.setBrush(DEFAULT_FILL)
-        painter.setPen(PEN_NORMAL)
+        painter.setBrush(default_fill)
+        painter.setPen(normal_pen)
     elif lower_name == "folder tree":
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
 
         branch_pen = QtGui.QPen(QtGui.QColor("#7a7a7a"))
-        branch_pen.setWidthF(max(1.0, PEN_NORMAL.widthF() * device_pixel_ratio * 0.7))
+        branch_pen.setWidthF(max(1.0, normal_pen.widthF() * device_pixel_ratio * 0.7))
         branch_pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
         painter.setPen(branch_pen)
         painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
@@ -253,7 +261,7 @@ def _build_shape_icon(
 
         painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
         label_pen = QtGui.QPen(QtGui.QColor("#d7d7d7"))
-        label_pen.setWidthF(max(1.0, PEN_NORMAL.widthF() * device_pixel_ratio * 0.6))
+        label_pen.setWidthF(max(1.0, normal_pen.widthF() * device_pixel_ratio * 0.6))
         painter.setPen(label_pen)
 
         label_len = rect.width() * 0.32
@@ -265,8 +273,8 @@ def _build_shape_icon(
         for tx, ty in text_offsets:
             painter.drawLine(QtCore.QPointF(tx, ty), QtCore.QPointF(tx + label_len, ty))
 
-        painter.setPen(PEN_NORMAL)
-        painter.setBrush(DEFAULT_FILL)
+        painter.setPen(normal_pen)
+        painter.setBrush(default_fill)
     elif lower_name == "curvy right bracket":
         dims = DEFAULTS.get(name)
         draw_rect = rect
@@ -280,7 +288,7 @@ def _build_shape_icon(
         path.translate(draw_rect.left(), draw_rect.top())
         painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
         painter.drawPath(path)
-        painter.setBrush(DEFAULT_FILL)
+        painter.setBrush(default_fill)
     elif lower_name == "text":
         radius = 6 * device_pixel_ratio
         painter.drawRoundedRect(rect, radius, radius)
@@ -440,7 +448,7 @@ def _build_shape_icon(
                 QtCore.QPointF(rect.right() - rect.width() * 0.08, rect.top() + rect.height() * 0.32),
                 QtCore.QPointF(rect.right() - rect.width() * 0.2, rect.bottom() - rect.height() * 0.08),
             ]
-            painter.setBrush(DEFAULT_FILL)
+            painter.setBrush(default_fill)
             painter.drawPolygon(QtGui.QPolygonF(points))
         else:
             start = QtCore.QPointF(rect.left(), rect.bottom() - rect.height() * 0.16)
@@ -453,7 +461,7 @@ def _build_shape_icon(
             painter.drawLine(control2, end)
             curve = QtGui.QPainterPath(start)
             curve.cubicTo(control1, control2, end)
-            painter.setPen(PEN_NORMAL)
+            painter.setPen(normal_pen)
             painter.drawPath(curve)
             points = [start, control1, control2, end]
         painter.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
@@ -507,7 +515,10 @@ class PaletteList(QtWidgets.QListWidget):
         self._refresh_icons()
 
     def event(self, event: QtCore.QEvent) -> bool:
-        if event.type() in (
+        event_type = event.type()
+        if event_type == QtCore.QEvent.Type.PaletteChange:
+            self._refresh_icons(force=True)
+        elif event_type in (
             QtCore.QEvent.Type.DevicePixelRatioChange,
             QtCore.QEvent.Type.ScreenChangeInternal,
         ):
@@ -555,6 +566,9 @@ class PaletteList(QtWidgets.QListWidget):
         self._last_device_pixel_ratio = dpr
         self._update_metrics()
         icon_size = self.iconSize()
+        palette = self.palette()
+        foreground = palette.color(QtGui.QPalette.ColorRole.WindowText)
+        fill = palette.color(QtGui.QPalette.ColorRole.Base)
         for index in range(self.count()):
             item = self.item(index)
             shape = self._shape_from_item(item)
@@ -564,6 +578,8 @@ class PaletteList(QtWidgets.QListWidget):
                 shape,
                 icon_size,
                 device_pixel_ratio=dpr,
+                foreground=foreground,
+                fill=fill,
             )
             item.setIcon(QtGui.QIcon(pixmap))
 

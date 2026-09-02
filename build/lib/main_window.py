@@ -30,6 +30,114 @@ _EXPORT_FORMATS = {
     "png": ("PNG image (*.png)", ".png", "export_png"),
     "pdf": ("PDF document (*.pdf)", ".pdf", "export_pdf"),
 }
+_DARK_THEME_STYLESHEET = """
+QMainWindow,
+QMainWindow QWidget {
+    background-color: #252526;
+    color: #f0f0f0;
+}
+QLineEdit,
+QTextEdit,
+QPlainTextEdit,
+QAbstractItemView {
+    background-color: #1e1e1e;
+    color: #f0f0f0;
+    selection-background-color: #007acc;
+    selection-color: #ffffff;
+}
+QPushButton,
+QToolButton,
+QComboBox,
+QSpinBox,
+QDoubleSpinBox {
+    background-color: #333337;
+    border: 1px solid #5a5a5f;
+    color: #f0f0f0;
+    padding: 2px 5px;
+}
+QPushButton:hover,
+QToolButton:hover,
+QComboBox:hover,
+QSpinBox:hover,
+QDoubleSpinBox:hover {
+    background-color: #3e3e42;
+}
+QPushButton:disabled,
+QToolButton:disabled,
+QComboBox:disabled,
+QSpinBox:disabled,
+QDoubleSpinBox:disabled {
+    color: #858585;
+}
+QMenuBar,
+QMenu,
+QStatusBar,
+QTabWidget::pane,
+QHeaderView::section {
+    background-color: #252526;
+    color: #f0f0f0;
+}
+QMenuBar::item {
+    background-color: transparent;
+    color: #f0f0f0;
+}
+QMenuBar::item:selected,
+QMenu::item:selected,
+QTabBar::tab:hover {
+    background-color: #3e3e42;
+}
+QMenu::separator {
+    background-color: #4b4b50;
+    height: 1px;
+    margin: 4px 8px;
+}
+QTabBar::tab {
+    background-color: #2d2d30;
+    border: 1px solid #3f3f46;
+    color: #d4d4d4;
+    padding: 5px 10px;
+}
+QTabBar::tab:selected {
+    background-color: #252526;
+    color: #ffffff;
+}
+QSplitter::handle {
+    background-color: #3f3f46;
+}
+QScrollBar:vertical {
+    background-color: #252526;
+    margin: 0;
+    width: 14px;
+}
+QScrollBar:horizontal {
+    background-color: #252526;
+    height: 14px;
+    margin: 0;
+}
+QScrollBar::handle {
+    background-color: #5a5a5f;
+    border-radius: 3px;
+    min-height: 24px;
+    min-width: 24px;
+}
+QScrollBar::handle:hover {
+    background-color: #77777c;
+}
+QScrollBar::add-line,
+QScrollBar::sub-line {
+    height: 0;
+    width: 0;
+}
+QScrollBar::add-page,
+QScrollBar::sub-page {
+    background-color: transparent;
+}
+QToolTip {
+    background-color: #333337;
+    border: 1px solid #5a5a5f;
+    color: #f0f0f0;
+}
+""".strip()
 _TEMPLATES = {
     "Blank": (),
     "Flowchart": (("Rounded Rectangle", 80.0, 80.0), ("Diamond", 320.0, 80.0), ("Arrow", 190.0, 130.0)),
@@ -474,7 +582,46 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _set_theme(self, theme: str, *, persist: bool = True) -> None:
         dark = theme == "dark"
-        self.setStyleSheet("QMainWindow { background: #252526; color: #f0f0f0; }" if dark else "")
+        self.setStyleSheet("")
+        palette = self.style().standardPalette()
+        if dark:
+            colors = {
+                QtGui.QPalette.ColorRole.Window: "#252526",
+                QtGui.QPalette.ColorRole.WindowText: "#f0f0f0",
+                QtGui.QPalette.ColorRole.Base: "#1e1e1e",
+                QtGui.QPalette.ColorRole.AlternateBase: "#2d2d30",
+                QtGui.QPalette.ColorRole.ToolTipBase: "#333337",
+                QtGui.QPalette.ColorRole.ToolTipText: "#f0f0f0",
+                QtGui.QPalette.ColorRole.Text: "#f0f0f0",
+                QtGui.QPalette.ColorRole.Button: "#333337",
+                QtGui.QPalette.ColorRole.ButtonText: "#f0f0f0",
+                QtGui.QPalette.ColorRole.BrightText: "#ffffff",
+                QtGui.QPalette.ColorRole.Link: "#4ea1ff",
+                QtGui.QPalette.ColorRole.LinkVisited: "#c586c0",
+                QtGui.QPalette.ColorRole.Light: "#4b4b50",
+                QtGui.QPalette.ColorRole.Midlight: "#3f3f46",
+                QtGui.QPalette.ColorRole.Mid: "#3a3a3f",
+                QtGui.QPalette.ColorRole.Dark: "#1b1b1d",
+                QtGui.QPalette.ColorRole.Shadow: "#111111",
+                QtGui.QPalette.ColorRole.Highlight: "#007acc",
+                QtGui.QPalette.ColorRole.HighlightedText: "#ffffff",
+                QtGui.QPalette.ColorRole.PlaceholderText: "#9d9d9d",
+            }
+            for role, color in colors.items():
+                palette.setColor(role, QtGui.QColor(color))
+            for role in (
+                QtGui.QPalette.ColorRole.WindowText,
+                QtGui.QPalette.ColorRole.Text,
+                QtGui.QPalette.ColorRole.ButtonText,
+            ):
+                palette.setColor(
+                    QtGui.QPalette.ColorGroup.Disabled,
+                    role,
+                    QtGui.QColor("#858585"),
+                )
+        self.setPalette(palette)
+        self.setStyleSheet(_DARK_THEME_STYLESHEET if dark else "")
+        self.canvas.setBackgroundBrush(QtGui.QColor("#2d2d30" if dark else "#f0f0f0"))
         for action in self._theme_actions.actions():
             action.setChecked(str(action.data()) == ("dark" if dark else "light"))
         if persist:
