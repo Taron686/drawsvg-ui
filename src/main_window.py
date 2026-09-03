@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -16,6 +17,7 @@ from export_renderer import ExportRenderer, ExportRequest
 from import_drawsvg import import_drawsvg_py
 from layers_panel import LayersPanel
 from palette import PaletteList
+from png_export_dialog import PngExportDialog
 from properties_panel import PropertiesPanel
 from property_command_service import PropertyCommandService
 from recovery import RecoveryCandidate, RecoveryStore
@@ -844,6 +846,9 @@ class MainWindow(QtWidgets.QMainWindow):
         export_drawsvg_py(self.canvas.scene(), self)
 
     def _export_scene(self, export_format: str) -> None:
+        if export_format == "png":
+            self._export_png()
+            return
         file_filter, extension, method_name = _EXPORT_FORMATS[export_format]
         selected_path, _selected_filter = QtWidgets.QFileDialog.getSaveFileName(
             self,
@@ -875,6 +880,31 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusBar().showMessage(
             f"Exported {export_format.upper()} to {output_path}", 5000
         )
+
+    def _export_png(self) -> None:
+        renderer = ExportRenderer(self.canvas.scene())
+        request = ExportRequest(hidden_items=tuple(self.canvas._pages.values()))
+        initial_path = self.document_controller.path
+        if initial_path is None:
+            folder = QtCore.QStandardPaths.writableLocation(
+                QtCore.QStandardPaths.StandardLocation.DocumentsLocation
+            )
+            initial_path = Path(folder or Path.home()) / "Untitled.png"
+        else:
+            initial_path = initial_path.with_suffix(".png")
+        try:
+            content_rect = renderer._source_rects(request)[0]
+            dialog = PngExportDialog(content_rect, initial_path, self)
+            if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+                return
+            output_path = dialog.output_path()
+            renderer.export_png(output_path, replace(
+                request, scale=dialog.scale(), background=dialog.background_color()
+            ))
+        except (OSError, RuntimeError, ValueError) as error:
+            QtWidgets.QMessageBox.critical(self, "Export PNG failed", str(error))
+            return
+        self.statusBar().showMessage(f"Exported PNG to {output_path}", 5000)
 
     def load_drawsvg_py(self) -> None:
         self._open_python_document()

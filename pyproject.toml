@@ -50,6 +50,7 @@ py-modules = [
   "main",
   "main_window",
   "palette",
+  "png_export_dialog",
   "properties_panel",
   "property_command_service",
   "recovery",

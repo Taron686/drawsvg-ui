@@ -8,6 +8,15 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from items import RectItem
 from main_window import MainWindow
+from png_export_dialog import PngExportDialog
+
+
+def _accept_png(dialog, path):
+    dialog.folder.setText(str(path.parent))
+    dialog.filename.setText(path.name)
+    dialog.dpi.setValue(96)
+    dialog.accept()
+    return dialog.result()
 
 
 def test_file_menu_exposes_all_shared_renderer_exports(
@@ -54,6 +63,7 @@ def test_file_menu_export_writes_format_without_mutating_scene_or_history(
     visibility_before = tuple((scene_item, scene_item.isVisible()) for scene_item in scene.items())
 
     selected_path = tmp_path / f"review-{export_format}"
+    monkeypatch.setattr(PngExportDialog, "exec", lambda dialog: _accept_png(dialog, selected_path))
     monkeypatch.setattr(
         QtWidgets.QFileDialog,
         "getSaveFileName",
@@ -90,6 +100,7 @@ def test_file_menu_png_export_crops_to_content_instead_of_page(
     window.canvas.scene().addItem(item)
     item.setSelected(True)
     output_path = tmp_path / "content.png"
+    monkeypatch.setattr(PngExportDialog, "exec", lambda dialog: _accept_png(dialog, output_path))
     monkeypatch.setattr(
         QtWidgets.QFileDialog,
         "getSaveFileName",

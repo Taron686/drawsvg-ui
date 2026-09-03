@@ -20,6 +20,7 @@ from xml.etree import ElementTree
 
 from PySide6 import QtCore, QtGui, QtSvg, QtWidgets
 
+PNG_BASE_DPI = 96  # Scene units per inch, matching the editor's page geometry.
 
 class ExportArea(str, Enum):
     """The scene region to render."""
@@ -166,6 +167,9 @@ class ExportRenderer:
                     self._pixel_size(source_rect, request.scale),
                     QtGui.QImage.Format.Format_ARGB32_Premultiplied,
                 )
+                dots_per_meter = round(PNG_BASE_DPI * request.scale / 0.0254)
+                image.setDotsPerMeterX(dots_per_meter)
+                image.setDotsPerMeterY(dots_per_meter)
                 image.fill(QtCore.Qt.GlobalColor.transparent)
                 painter = QtGui.QPainter(image)
                 try:
@@ -179,8 +183,21 @@ class ExportRenderer:
                     )
                 finally:
                     painter.end()
-                if not image.save(str(output_path), "PNG"):
-                    raise RuntimeError(f"Could not write PNG output: {output_path}")
+                writer = QtGui.QImageWriter(str(output_path), b"PNG")
+                if not writer.write(image):
+                    message = f"Could not save PNG:\n{output_path}"
+                    if not output_path.parent.is_dir():
+                        message += "\n\nThe save folder does not exist. Choose an existing folder."
+                    elif writer.error() == QtGui.QImageWriter.ImageWriterError.DeviceError:
+                        message += (
+                            "\n\nWriting to this location failed. Check that the application has "
+                            "permission to write to the folder and replace the file."
+                            "\nWindows Controlled folder access may be blocking the application. "
+                            "Choose a permitted folder or explicitly allow the application "
+                            "in Windows Security."
+                        )
+                    message += f"\n\nSystem details: {writer.errorString()}"
+                    raise RuntimeError(message)
         return output_paths
 
     def export_pdf(self, path: str | Path, request: ExportRequest) -> Path:
