@@ -72,3 +72,19 @@ def test_legacy_python_fixture_imports_into_the_current_canvas(
     items = [item for item in scene.items() if item.data(0) == "Rectangle"]
     assert loaded_path == (FIXTURE_DIRECTORY / "python-v1-basic.py").resolve()
     assert len(items) == 1
+
+
+def test_app_logging_uses_python_310_compatible_utc() -> None:
+    import ast
+
+    source = Path(__file__).parents[1] / "src" / "app_logging.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    datetime_imports = {
+        alias.name
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom) and node.module == "datetime"
+        for alias in node.names
+    }
+
+    assert "timezone" in datetime_imports
+    assert "UTC" not in datetime_imports

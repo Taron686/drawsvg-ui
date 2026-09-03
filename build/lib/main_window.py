@@ -861,7 +861,10 @@ class MainWindow(QtWidgets.QMainWindow):
         renderer = ExportRenderer(self.canvas.scene())
         export_method = getattr(renderer, method_name)
         try:
-            export_method(output_path, ExportRequest())
+            export_method(
+                output_path,
+                ExportRequest(hidden_items=tuple(self.canvas._pages.values())),
+            )
         except (OSError, RuntimeError, ValueError) as error:
             QtWidgets.QMessageBox.critical(
                 self,

@@ -235,7 +235,12 @@ class ExportRenderer:
                 raise ValueError("All-pages export requires at least one page rectangle")
             return tuple(self._valid_rect(rect) for rect in request.pages)
 
-        return (self._valid_rect(self._scene.itemsBoundingRect()),)
+        with self._temporary_export_state(request.hidden_items):
+            rect = QtCore.QRectF()
+            for item in self._scene.items():
+                if item.isVisible():
+                    rect = rect.united(item.sceneBoundingRect())
+        return (self._valid_rect(rect),)
 
     @staticmethod
     def _valid_rect(rect: QtCore.QRectF) -> QtCore.QRectF:

@@ -19,7 +19,7 @@ import threading
 import traceback
 import uuid
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -80,7 +80,7 @@ def _safe_fields(fields: dict[str, Any]) -> dict[str, Any]:
 class _JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload = {
-            "timestamp": datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            "timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             "level": record.levelname,
             "event": getattr(record, "event", "internal.invariant"),
             "message": _redact(record.getMessage()),

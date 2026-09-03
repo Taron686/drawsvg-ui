@@ -4,7 +4,7 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 import pytest
-from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtPdf, QtWidgets
 
 from export_renderer import (
     ExportArea,
@@ -236,3 +236,25 @@ def test_page_budget_and_request_positional_arguments_are_preserved(
     scene.addItem(_rectangle(0.0, 0.0, 1.0, 1.0, "#d94f4f"))
     with pytest.raises(ValueError, match="64 megapixel"):
         ExportRenderer(scene).export_png(tmp_path / "too-large.png", request)
+
+
+def test_all_formats_crop_canvas_to_content_excluding_hidden_editor_items(
+    application: QtWidgets.QApplication, tmp_path: Path
+) -> None:
+    scene = QtWidgets.QGraphicsScene()
+    page = QtWidgets.QGraphicsRectItem(0.0, 0.0, 800.0, 1100.0)
+    scene.addItem(page)
+    scene.addItem(_rectangle(100.0, 120.0, 40.0, 30.0, "#d94f4f"))
+    request = ExportRequest(hidden_items=(page,), background=None)
+    renderer = ExportRenderer(scene)
+
+    svg = renderer.export_svg(tmp_path / "content.svg", request)[0]
+    png = renderer.export_png(tmp_path / "content.png", request)[0]
+    pdf = renderer.export_pdf(tmp_path / "content.pdf", request)
+
+    svg_root = ElementTree.parse(svg).getroot()
+    assert svg_root.attrib["viewBox"].split()[2:] == ["40", "30"]
+    assert QtGui.QImage(str(png)).size() == QtCore.QSize(40, 30)
+    pdf_document = QtPdf.QPdfDocument()
+    assert pdf_document.load(str(pdf)) == QtPdf.QPdfDocument.Error.None_
+    assert pdf_document.pagePointSize(0) == QtCore.QSizeF(40.0, 30.0)

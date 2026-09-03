@@ -78,3 +78,26 @@ def test_file_menu_export_writes_format_without_mutating_scene_or_history(
     assert tuple((scene_item, scene_item.isVisible()) for scene_item in scene.items()) == visibility_before
 
     window.close()
+
+
+def test_file_menu_png_export_crops_to_content_instead_of_page(
+    application: QtWidgets.QApplication,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    window = MainWindow(recent_files_path=tmp_path / "recent.json")
+    item = RectItem(100.0, 120.0, 40.0, 30.0)
+    window.canvas.scene().addItem(item)
+    item.setSelected(True)
+    output_path = tmp_path / "content.png"
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
+        lambda *_args, **_kwargs: (str(output_path), ""),
+    )
+
+    window.actionExport_png.trigger()
+
+    expected_size = item.sceneBoundingRect().size().toSize()
+    assert QtGui.QImage(str(output_path)).size() == expected_size
+    window.close()
