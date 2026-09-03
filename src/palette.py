@@ -295,7 +295,7 @@ def _build_shape_icon(
             path = transform.map(path)
         painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
         bracket_pen = QtGui.QPen(normal_pen)
-        bracket_pen.setWidthF(6.0 * device_pixel_ratio)
+        bracket_pen.setWidthF(2.0 * device_pixel_ratio)
         bracket_pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
         bracket_pen.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin)
         painter.setPen(bracket_pen)

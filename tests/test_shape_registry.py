@@ -154,6 +154,22 @@ def test_curvy_bracket_palette_icons_show_both_orientations(
     assert max(channel_differences) <= 2
 
 
+def test_curvy_bracket_palette_icon_uses_two_pixel_stroke(
+    application: QtWidgets.QApplication,
+) -> None:
+    image = _build_shape_icon(
+        "Curvy Right Bracket",
+        QtCore.QSize(56, 56),
+        foreground=QtGui.QColor("white"),
+    ).toImage()
+
+    opaque_pixels = sum(
+        image.pixelColor(x, 18).alpha() > 127 for x in range(image.width())
+    )
+
+    assert opaque_pixels == 2
+
+
 def test_curvy_bracket_python_export_keeps_rounded_stroke(
     application: QtWidgets.QApplication,
     monkeypatch,
