@@ -425,10 +425,21 @@ def _serialize_bracket(item: QtWidgets.QGraphicsItem) -> dict[str, Any]:
     }
 
 
-def _restore_bracket(data: Mapping[str, Any]) -> CurvyBracketItem:
+def _create_bracket(
+    x: float, y: float, width: float, height: float, rotation: float = 0.0
+) -> CurvyBracketItem:
+    item = CurvyBracketItem(x, y, width, height)
+    item.setRotation(rotation)
+    return item
+
+
+def _restore_bracket(
+    data: Mapping[str, Any], rotation: float = 0.0
+) -> CurvyBracketItem:
     width, height = _size(data, DEFAULTS["Curvy Right Bracket"])
     hook = float(data.get("hook_ratio", CurvyBracketItem.DEFAULT_HOOK_RATIO))
     item = CurvyBracketItem(0.0, 0.0, width, height, hook)
+    item.setRotation(rotation)
     item.setPen(
         _pen_from_data(
             data.get("pen") if isinstance(data.get("pen"), Mapping) else None
@@ -743,9 +754,18 @@ _DEFINITIONS = (
         "Curvy Right Bracket",
         "Curvy Right Bracket",
         DEFAULTS["Curvy Right Bracket"],
-        lambda x, y, w, h: CurvyBracketItem(x, y, w, h),
+        _create_bracket,
         _serialize_bracket,
         _restore_bracket,
+        "curvy_right_bracket",
+    ),
+    ShapeDefinition(
+        "Curvy Left Bracket",
+        "Curvy Left Bracket",
+        DEFAULTS["Curvy Left Bracket"],
+        lambda x, y, w, h: _create_bracket(x, y, w, h, 180.0),
+        _serialize_bracket,
+        lambda data: _restore_bracket(data, 180.0),
         "curvy_right_bracket",
     ),
     ShapeDefinition(
@@ -785,7 +805,17 @@ _EXTENSION_DEFINITIONS = (
         "Free Polyline",
         "Free Polyline",
         (150.0, 100.0),
-        lambda x, y, w, h: FreePathItem(x, y, w, h, path_kind="polyline"),
+        lambda x, y, w, h: FreePathItem(
+            x,
+            y,
+            start=[0.0, h * 0.82],
+            segments=[
+                {"kind": "line", "end": [w * 0.3, h * 0.2]},
+                {"kind": "line", "end": [w * 0.62, h * 0.72]},
+                {"kind": "line", "end": [w, h * 0.12]},
+            ],
+            path_kind="polyline",
+        ),
         _serialize_free_path,
         lambda data: _restore_free_path("Free Polyline", data),
         "free_path",
@@ -794,7 +824,18 @@ _EXTENSION_DEFINITIONS = (
         "Free Polygon",
         "Free Polygon",
         (150.0, 100.0),
-        lambda x, y, w, h: FreePathItem(x, y, w, h, closed=True, path_kind="polygon"),
+        lambda x, y, w, h: FreePathItem(
+            x,
+            y,
+            closed=True,
+            start=[w * 0.12, h * 0.88],
+            segments=[
+                {"kind": "line", "end": [w * 0.28, h * 0.12]},
+                {"kind": "line", "end": [w * 0.92, h * 0.32]},
+                {"kind": "line", "end": [w * 0.8, h * 0.92]},
+            ],
+            path_kind="polygon",
+        ),
         _serialize_free_path,
         lambda data: _restore_free_path("Free Polygon", data),
         "free_path",

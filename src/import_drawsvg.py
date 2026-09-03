@@ -62,7 +62,7 @@ def _parse_call(line: str) -> tuple[list[Any], dict[str, Any]]:
 
 
 def _apply_style(item: QtWidgets.QGraphicsItem, kwargs: dict[str, Any]) -> None:
-    if isinstance(item, (QtWidgets.QGraphicsRectItem, QtWidgets.QGraphicsEllipseItem, LineItem, FreePathItem, TriangleItem, DiamondItem, BlockArrowItem, DiagramItem)):
+    if isinstance(item, (QtWidgets.QGraphicsRectItem, QtWidgets.QGraphicsEllipseItem, LineItem, FreePathItem, TriangleItem, DiamondItem, BlockArrowItem, CurvyBracketItem, DiagramItem)):
         if kwargs.get("fill") == "none":
             item.setBrush(QtCore.Qt.BrushStyle.NoBrush)
         elif "fill" in kwargs:
@@ -638,7 +638,12 @@ def import_drawsvg_py(
                     _apply_style(item, kwargs)
                     if "transform" in kwargs:
                         _apply_transform(item, kwargs["transform"])
-                    item.setData(0, "Curvy Right Bracket")
+                    bracket_type = (
+                        "Curvy Left Bracket"
+                        if pending_bracket.get("side") == "left"
+                        else "Curvy Right Bracket"
+                    )
+                    item.setData(0, bracket_type)
                     parsed_scene.addItem(item)
                     pending_bracket = None
                     continue

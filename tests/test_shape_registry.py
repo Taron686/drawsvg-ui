@@ -3,10 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from constants import SHAPES
 from export_drawsvg import export_drawsvg_py
+from items import build_curvy_bracket_path
 from palette import PaletteList, _build_shape_icon
 from shape_registry import SHAPE_REGISTRY
 
@@ -80,6 +81,90 @@ def test_registry_factory_preserves_default_line_geometry(
     assert arrow.pos() == QtCore.QPointF(5.0, 7.0)
     assert not line.arrow_end  # type: ignore[attr-defined]
     assert arrow.arrow_end  # type: ignore[attr-defined]
+
+
+def test_curvy_bracket_has_long_stems_and_a_compact_center_notch() -> None:
+    path = build_curvy_bracket_path(80.0, 160.0, 48.0)
+    elements = [path.elementAt(index) for index in range(path.elementCount())]
+    line_ends = [
+        element
+        for element in elements
+        if element.type == QtGui.QPainterPath.ElementType.LineToElement
+    ]
+
+    assert elements[0].x > 60.0
+    assert elements[-1].x > 60.0
+    assert min(element.x for element in elements) < 16.0
+    assert len(line_ends) == 2
+    assert line_ends[0].y < 70.0
+    assert line_ends[1].y > 90.0
+
+
+def test_curvy_bracket_uses_rounded_stroke_ends(
+    application: QtWidgets.QApplication,
+) -> None:
+    item = SHAPE_REGISTRY.create("Curvy Right Bracket", 0.0, 0.0)
+
+    assert item is not None
+    assert item.pen().capStyle() == QtCore.Qt.PenCapStyle.RoundCap
+    assert item.pen().joinStyle() == QtCore.Qt.PenJoinStyle.RoundJoin
+
+
+def test_curvy_left_bracket_stays_rotated_through_registry_roundtrip(
+    application: QtWidgets.QApplication,
+) -> None:
+    item = SHAPE_REGISTRY.create("Curvy Left Bracket", 0.0, 0.0)
+
+    assert item is not None
+    assert item.rotation() == pytest.approx(180.0)
+
+    restored = SHAPE_REGISTRY.restore(SHAPE_REGISTRY.serialize(item) or {})
+
+    assert restored is not None
+    assert restored.data(0) == "Curvy Left Bracket"
+    assert restored.rotation() == pytest.approx(180.0)
+
+
+def test_curvy_bracket_palette_icons_show_both_orientations(
+    application: QtWidgets.QApplication,
+) -> None:
+    size = QtCore.QSize(56, 56)
+    right = _build_shape_icon("Curvy Right Bracket", size).toImage()
+    left = _build_shape_icon("Curvy Left Bracket", size).toImage()
+    rotated_right = right.flipped(
+        QtCore.Qt.Orientation.Horizontal | QtCore.Qt.Orientation.Vertical
+    )
+    channel_differences = [
+        abs(left_channel - right_channel)
+        for left_channel, right_channel in zip(
+            bytes(left.bits()), bytes(rotated_right.bits())
+        )
+    ]
+
+    assert max(channel_differences) <= 2
+
+
+def test_curvy_bracket_python_export_keeps_rounded_stroke(
+    application: QtWidgets.QApplication,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    scene = QtWidgets.QGraphicsScene()
+    item = SHAPE_REGISTRY.create("Curvy Right Bracket", 0.0, 0.0)
+    assert item is not None
+    scene.addItem(item)
+    output = tmp_path / "curvy_bracket.py"
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getSaveFileName",
+        lambda *args, **kwargs: (str(output), "Python (*.py)"),
+    )
+
+    export_drawsvg_py(scene)
+
+    code = output.read_text(encoding="utf-8")
+    assert "stroke_linecap='round'" in code
+    assert "stroke_linejoin='round'" in code
 
 
 def test_palette_uses_registry_order(application: QtWidgets.QApplication) -> None:

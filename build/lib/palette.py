@@ -275,7 +275,7 @@ def _build_shape_icon(
 
         painter.setPen(normal_pen)
         painter.setBrush(default_fill)
-    elif lower_name == "curvy right bracket":
+    elif lower_name in ("curvy right bracket", "curvy left bracket"):
         dims = DEFAULTS.get(name)
         draw_rect = rect
         if dims and dims[1]:
@@ -286,8 +286,21 @@ def _build_shape_icon(
             draw_rect.height() * CurvyBracketItem.DEFAULT_HOOK_RATIO,
         )
         path.translate(draw_rect.left(), draw_rect.top())
+        if lower_name == "curvy left bracket":
+            center = draw_rect.center()
+            transform = QtGui.QTransform()
+            transform.translate(center.x(), center.y())
+            transform.rotate(180.0)
+            transform.translate(-center.x(), -center.y())
+            path = transform.map(path)
         painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+        bracket_pen = QtGui.QPen(normal_pen)
+        bracket_pen.setWidthF(6.0 * device_pixel_ratio)
+        bracket_pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
+        bracket_pen.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(bracket_pen)
         painter.drawPath(path)
+        painter.setPen(normal_pen)
         painter.setBrush(default_fill)
     elif lower_name == "text":
         radius = 6 * device_pixel_ratio

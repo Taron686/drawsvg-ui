@@ -32,6 +32,7 @@ class DiagramItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsPathItem):
         self.setPen(PEN_NORMAL)
         self.setBrush(DEFAULT_FILL)
         self._update_path()
+        self.setTransformOriginPoint(self._w / 2.0, self._h / 2.0)
 
     def _label_base_rect(self) -> QtCore.QRectF:
         return QtCore.QRectF(0.0, 0.0, self._w, self._h)
@@ -136,7 +137,7 @@ class DiagramItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsPathItem):
             path.moveTo(w, ellipse_h / 2.0)
             path.lineTo(w, h - ellipse_h / 2.0)
             path.arcMoveTo(bottom, 180.0)
-            path.arcTo(bottom, 180.0, -180.0)
+            path.arcTo(bottom, 180.0, 180.0)
         else:
             path.addRect(0.0, 0.0, w, h)
             if self.kind == "table":
@@ -157,7 +158,6 @@ class DiagramItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsPathItem):
                     path.moveTo(x, header)
                     path.lineTo(x, h)
         self.setPath(path)
-        self.setTransformOriginPoint(w / 2.0, h / 2.0)
         if hasattr(self, "_label"):
             self._update_label_geometry()
 

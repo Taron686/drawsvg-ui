@@ -75,6 +75,31 @@ def test_diagram_shapes_are_palette_extensions_with_independent_parameters() -> 
     assert swimlane.parameters() == {"lanes": 5}
 
 
+def test_database_shape_draws_a_lower_ellipse_edge(canvas_view: CanvasView) -> None:
+    item = canvas_view.add_shape(
+        "Database", QtCore.QPointF(), snap_to_grid=False
+    )
+
+    assert isinstance(item, DiagramItem)
+    item.set_size(140.0, 90.0)
+
+    assert item.shape().contains(QtCore.QPointF(70.0, 90.0))
+
+
+def test_rotated_diagram_resize_defers_transform_origin_adjustment(application) -> None:
+    item = DiagramItem(25.0, 40.0, 160.0, 100.0, "hexagon")
+    item.setRotation(35.0)
+    before_origin = QtCore.QPointF(item.transformOriginPoint())
+    before_left_anchor = item.mapToScene(QtCore.QPointF(0.0, 50.0))
+
+    assert before_origin == QtCore.QPointF(80.0, 50.0)
+
+    item.set_size(200.0, 100.0, adjust_origin=False)
+
+    assert item.transformOriginPoint() == before_origin
+    assert item.mapToScene(QtCore.QPointF(0.0, 50.0)) == before_left_anchor
+
+
 def test_diagram_shapes_roundtrip_through_drawsvg_python(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -88,7 +88,11 @@ class CurvyBracketItem(ResizableItem, QtWidgets.QGraphicsPathItem):
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
             | QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
         )
-        self.setPen(PEN_NORMAL)
+        pen = QtGui.QPen(PEN_NORMAL)
+        pen.setWidthF(6.0)
+        pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin)
+        self.setPen(pen)
         self.setBrush(QtCore.Qt.BrushStyle.NoBrush)
 
     def width(self) -> float:
@@ -96,6 +100,9 @@ class CurvyBracketItem(ResizableItem, QtWidgets.QGraphicsPathItem):
 
     def height(self) -> float:
         return self._h
+
+    def _handle_rect(self) -> QtCore.QRectF:
+        return QtCore.QRectF(0.0, 0.0, self._w, self._h)
 
     def hook_ratio(self) -> float:
         return self._hook_ratio
@@ -122,7 +129,6 @@ class CurvyBracketItem(ResizableItem, QtWidgets.QGraphicsPathItem):
         hook = self._hook_ratio * self._h
         path = build_curvy_bracket_path(self._w, self._h, hook)
         self.setPath(path)
-        self.setTransformOriginPoint(self._w / 2.0, self._h / 2.0)
 
     def paint(self, painter, option, widget=None):
         opt = QtWidgets.QStyleOptionGraphicsItem(option)

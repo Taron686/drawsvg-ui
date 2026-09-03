@@ -1147,11 +1147,21 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
                 continue
 
-            attr_str = _format_item_attributes(it)
+            attr_str = _format_item_attributes(
+                it,
+                extra_attrs=(
+                    "stroke_linecap='round'",
+                    "stroke_linejoin='round'",
+                ),
+            )
+
+            bracket_side = (
+                "left" if it.data(0) == "Curvy Left Bracket" else "right"
+            )
 
             lines.append(
 
-                f"    # CurvyBracket x={x:.2f} y={y:.2f} w={w:.2f} h={h:.2f} hook_ratio={it.hook_ratio():.6f}"
+                f"    # CurvyBracket x={x:.2f} y={y:.2f} w={w:.2f} h={h:.2f} hook_ratio={it.hook_ratio():.6f} side={bracket_side}"
 
             )
 

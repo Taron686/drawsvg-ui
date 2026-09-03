@@ -7,8 +7,14 @@ from typing import Any
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from constants import PEN_NORMAL
-from ..base import HANDLE_COLOR, HANDLE_SIZE, HandleAwareItemMixin, snap_to_grid
+from constants import PEN_NORMAL, PEN_SELECTED
+from ..base import (
+    HANDLE_COLOR,
+    HANDLE_SIZE,
+    HandleAwareItemMixin,
+    _should_draw_selection,
+    snap_to_grid,
+)
 
 
 def _point(value: Sequence[float] | QtCore.QPointF) -> QtCore.QPointF:
@@ -187,6 +193,17 @@ class FreePathItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
     def hide_handles(self) -> None:
         for handle in self._handles:
             handle.hide()
+
+    def paint(self, painter, option, widget=None):  # type: ignore[override]
+        opt = QtWidgets.QStyleOptionGraphicsItem(option)
+        opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
+        super().paint(painter, opt, widget)
+        if _should_draw_selection(self):
+            painter.save()
+            painter.setPen(PEN_SELECTED)
+            painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+            painter.drawRect(self.boundingRect())
+            painter.restore()
 
     def shape(self) -> QtGui.QPainterPath:  # type: ignore[override]
         path = QtGui.QPainterPath(self.path())

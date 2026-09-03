@@ -371,7 +371,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._group_text_content = self._require_widget(QtWidgets.QGroupBox, "groupTextContent")
         self._group_text_format = self._require_widget(QtWidgets.QGroupBox, "groupTextFormat")
 
-        self._line_label_text = self._require_widget(QtWidgets.QLineEdit, "lineLabelText")
+        self._plain_label_text = self._require_widget(PlainTextEditor, "plainLabelText")
         self._combo_label_font = self._require_widget(QtWidgets.QFontComboBox, "comboLabelFont")
         self._spin_label_font_size = self._require_widget(QtWidgets.QDoubleSpinBox, "spinLabelFontSize")
         self._color_label_font = self._require_widget(ColorButton, "colorLabelFont")
@@ -418,7 +418,6 @@ class PropertiesPanel(QtWidgets.QWidget):
 
     def _initialize_half_width_tracking(self) -> None:
         widgets = [
-            self._line_label_text,
             self._combo_label_font,
             self._combo_label_horizontal,
             self._combo_label_vertical,
@@ -1036,8 +1035,8 @@ class PropertiesPanel(QtWidgets.QWidget):
 
     def _build_label_section(self, item: ShapeLabelMixin) -> None:
         self._group_label.show()
-        self._bind_line_edit(
-            self._line_label_text,
+        self._bind_plain_text(
+            self._plain_label_text,
             item.label_text,
             lambda value: self._set_label_text(item, value),
             group="text",

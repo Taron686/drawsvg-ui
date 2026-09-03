@@ -8,6 +8,7 @@ import pytest
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from clipboard_service import ClipboardService
+from constants import SELECTED_COLOR
 from export_drawsvg import export_drawsvg_py
 from items.shapes.paths import BezierPathItem, FreePathItem
 from shape_registry import SHAPE_REGISTRY
@@ -69,6 +70,39 @@ def test_free_polygon_closes_its_painter_path(application: QtWidgets.QApplicatio
     )
 
     assert item.path().contains(QtCore.QPointF(50.0, 20.0))
+
+
+def test_free_path_types_start_with_distinct_editable_geometry(
+    application: QtWidgets.QApplication,
+) -> None:
+    polyline = SHAPE_REGISTRY.create("Free Polyline", 0.0, 0.0)
+    polygon = SHAPE_REGISTRY.create("Free Polygon", 0.0, 0.0)
+
+    assert isinstance(polyline, FreePathItem)
+    assert isinstance(polygon, FreePathItem)
+    assert len(polyline.path_payload()["segments"]) == 3
+    assert polygon.path_payload()["closed"]
+    assert polyline.path_payload()["start"] != polygon.path_payload()["start"]
+
+
+def test_selected_free_path_draws_the_standard_blue_selection_outline(
+    application: QtWidgets.QApplication,
+) -> None:
+    item = FreePathItem(0.0, 0.0)
+    item.setSelected(True)
+    image = QtGui.QImage(200, 150, QtGui.QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(QtCore.Qt.GlobalColor.transparent)
+    painter = QtGui.QPainter(image)
+    option = QtWidgets.QStyleOptionGraphicsItem()
+    option.state |= QtWidgets.QStyle.StateFlag.State_Selected
+    item.paint(painter, option)
+    painter.end()
+
+    assert any(
+        image.pixelColor(x, y) == SELECTED_COLOR
+        for x in range(image.width())
+        for y in range(image.height())
+    )
 
 
 def test_free_path_scene_roundtrip_and_clipboard_remap(canvas_view) -> None:

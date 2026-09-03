@@ -93,6 +93,27 @@ def test_all_palette_shapes_roundtrip(
     assert set(_shape_items(restored)) == set(SHAPES)
 
 
+def test_curvy_bracket_style_roundtrips_through_exported_python(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = CanvasView()
+    item = source.add_shape(
+        "Curvy Left Bracket", QtCore.QPointF(25.0, 40.0), snap_to_grid=False
+    )
+    assert item is not None
+    pen = item.pen()
+    pen.setColor(QtGui.QColor("#234567"))
+    pen.setWidthF(9.0)
+    item.setPen(pen)
+
+    restored = _roundtrip(monkeypatch, tmp_path, source)
+    restored_item = _shape_items(restored)["Curvy Left Bracket"]
+
+    assert restored_item.pen().color() == QtGui.QColor("#234567")
+    assert restored_item.pen().widthF() == pytest.approx(9.0)
+
+
 @pytest.mark.parametrize("shape", ["Free Polyline", "Free Polygon", "Bezier Path"])
 def test_free_paths_roundtrip_through_exported_python(
     monkeypatch: pytest.MonkeyPatch,
@@ -364,6 +385,42 @@ def test_ctrl_drag_clones_registry_shape_through_viewport_events(
     view.close()
 
 
+def test_new_shape_replaces_existing_selection(canvas_view: CanvasView) -> None:
+    first = canvas_view.add_shape(
+        "Rectangle", QtCore.QPointF(10.0, 20.0), snap_to_grid=False
+    )
+    second = canvas_view.add_shape(
+        "Ellipse", QtCore.QPointF(200.0, 20.0), snap_to_grid=False
+    )
+
+    assert first is not None
+    assert second is not None
+    assert canvas_view.scene().selectedItems() == [second]
+
+
+def test_center_insert_offsets_shape_that_overlaps_existing_item(
+    canvas_view: CanvasView,
+) -> None:
+    first = canvas_view.add_shape_at_view_center("Rectangle")
+    second = canvas_view.add_shape_at_view_center("Rectangle")
+
+    assert first is not None
+    assert second is not None
+    assert not first.sceneBoundingRect().intersects(second.sceneBoundingRect())
+
+
+@pytest.mark.parametrize("shape", ("Line", "Arrow"))
+def test_center_insert_offsets_overlapping_line_shape(
+    canvas_view: CanvasView, shape: str
+) -> None:
+    first = canvas_view.add_shape_at_view_center(shape)
+    second = canvas_view.add_shape_at_view_center(shape)
+
+    assert first is not None
+    assert second is not None
+    assert not first.sceneBoundingRect().intersects(second.sceneBoundingRect())
+
+
 def test_group_transform_is_flattened_without_moving_children(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -376,6 +433,7 @@ def test_group_transform_is_flattened_without_moving_children(
             snap_to_grid=False,
         )
         assert item is not None
+    for item in _shape_items(source).values():
         item.setSelected(True)
     source._group_selected_items()
 

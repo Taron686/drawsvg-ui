@@ -1816,6 +1816,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         if item is None:
             return None
 
+        self.scene().clearSelection()
         self.scene().addItem(item)
         self._layer_manager.register_item(item)
         item.setSelected(True)
@@ -1860,6 +1861,16 @@ class CanvasView(QtWidgets.QGraphicsView):
             pos = QtCore.QPointF(center.x() - w / 2.0, center.y())
         else:
             pos = QtCore.QPointF(center.x() - w / 2.0, center.y() - h / 2.0)
+        preview = SHAPE_REGISTRY.create(normalized, pos.x(), pos.y(), w, h)
+        assert preview is not None
+        candidate = preview.sceneBoundingRect()
+        while any(
+            self._is_serializable_item(item)
+            and item.sceneBoundingRect().intersects(candidate)
+            for item in self.scene().items()
+        ):
+            pos += QtCore.QPointF(self._grid_size, self._grid_size)
+            candidate.translate(self._grid_size, self._grid_size)
         return self.add_shape(normalized, pos, snap_to_grid=False)
 
     # --- Drag and drop from the palette ---

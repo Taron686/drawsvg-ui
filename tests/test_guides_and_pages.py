@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from items import BlockArrowItem, RectItem
+from items import BlockArrowItem, CurvyBracketItem, RectItem
 from main_window import MainWindow
 from ruler_widget import RulerWidget
 
@@ -138,6 +138,7 @@ def _send_viewport_mouse_event(
     point: QtCore.QPoint,
     button: QtCore.Qt.MouseButton,
     buttons: QtCore.Qt.MouseButton,
+    modifiers: QtCore.Qt.KeyboardModifier = QtCore.Qt.KeyboardModifier.NoModifier,
 ) -> None:
     global_point = view.viewport().mapToGlobal(point)
     event = QtGui.QMouseEvent(
@@ -147,7 +148,7 @@ def _send_viewport_mouse_event(
         QtCore.QPointF(global_point),
         button,
         buttons,
-        QtCore.Qt.KeyboardModifier.NoModifier,
+        modifiers,
     )
     QtWidgets.QApplication.sendEvent(view.viewport(), event)
 
@@ -202,6 +203,65 @@ def test_corner_resize_does_not_snap_the_selected_arrow_to_a_guide(
     assert arrow._head_handle.isVisible()
     assert arrow._body_handle.isVisible()
     assert canvas_view._active_snap_guides == {}
+
+
+@pytest.mark.parametrize("rotation", (0.0, 35.0))
+def test_right_handle_resizes_curvy_bracket_from_its_logical_width(
+    canvas_view, application, rotation: float
+) -> None:
+    canvas_view.resize(800, 600)
+    canvas_view.show()
+    bracket = CurvyBracketItem(200.0, 200.0, 80.0, 160.0)
+    canvas_view.scene().addItem(bracket)
+    bracket.setRotation(rotation)
+    bracket.setSelected(True)
+    application.processEvents()
+
+    before_position = QtCore.QPointF(bracket.pos())
+    before_left_anchor = bracket.mapToScene(QtCore.QPointF(0.0, 80.0))
+    resize_handle = next(
+        handle for handle in bracket._handles if handle._direction == "right"
+    )
+    start = canvas_view.mapFromScene(resize_handle.scenePos())
+    end = start + QtCore.QPoint(30, 0)
+    start_local = bracket.mapFromScene(canvas_view.mapToScene(start))
+    end_local = bracket.mapFromScene(canvas_view.mapToScene(end))
+    expected_width = 80.0 + end_local.x() - start_local.x()
+
+    _send_viewport_mouse_event(
+        canvas_view,
+        QtCore.QEvent.Type.MouseButtonPress,
+        start,
+        QtCore.Qt.MouseButton.LeftButton,
+        QtCore.Qt.MouseButton.LeftButton,
+        QtCore.Qt.KeyboardModifier.AltModifier,
+    )
+    _send_viewport_mouse_event(
+        canvas_view,
+        QtCore.QEvent.Type.MouseMove,
+        end,
+        QtCore.Qt.MouseButton.NoButton,
+        QtCore.Qt.MouseButton.LeftButton,
+        QtCore.Qt.KeyboardModifier.AltModifier,
+    )
+    _send_viewport_mouse_event(
+        canvas_view,
+        QtCore.QEvent.Type.MouseButtonRelease,
+        end,
+        QtCore.Qt.MouseButton.LeftButton,
+        QtCore.Qt.MouseButton.NoButton,
+        QtCore.Qt.KeyboardModifier.AltModifier,
+    )
+
+    if rotation == 0.0:
+        assert bracket.pos() == before_position
+    assert bracket.width() == pytest.approx(expected_width)
+    assert bracket.transformOriginPoint() == QtCore.QPointF(
+        expected_width / 2.0, 80.0
+    )
+    after_left_anchor = bracket.mapToScene(QtCore.QPointF(0.0, 80.0))
+    assert after_left_anchor.x() == pytest.approx(before_left_anchor.x())
+    assert after_left_anchor.y() == pytest.approx(before_left_anchor.y())
 
 
 def test_horizontal_ruler_creates_moves_and_deletes_a_vertical_guide(

@@ -13,6 +13,7 @@ SHAPES = (
     "Arrow",
     "Block Arrow",
     "Curvy Right Bracket",
+    "Curvy Left Bracket",
     "Text",
     "Folder Tree",
 )
@@ -29,6 +30,7 @@ DEFAULTS = {
     "Arrow":     (150.0, 0.0),     # length, (unused)
     "Block Arrow": (200.0, 120.0), # w, h
     "Curvy Right Bracket": (80.0, 160.0),  # w, h
+    "Curvy Left Bracket": (80.0, 160.0),  # w, h
     "Text":      (100.0, 50.0),    # placeholder bbox
     "Folder Tree": (240.0, 200.0), # auto-sized, reference bbox
     "Hexagon": (160.0, 100.0),
