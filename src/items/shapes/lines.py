@@ -98,7 +98,6 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
             self._arrow_head_width = default_arrow_size
         else:
             self._arrow_head_width = max(0.1, float(arrow_head_width))
-        self._selection_padding = 10.0
         if points is not None:
             self._points = [QtCore.QPointF(p) for p in points]
         else:
@@ -235,68 +234,27 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         self.update()
 
     def boundingRect(self):  # type: ignore[override]
-        rect = super().boundingRect()
-        padding = self._selection_padding
-        if self.arrow_start or self.arrow_end:
-            arrow_padding = max(self._arrow_head_length, self._arrow_head_width / 2.0)
-            padding += arrow_padding
-        if padding <= 0.0:
-            return rect
-        return rect.adjusted(-padding, -padding, padding, padding)
+        return self.shape().boundingRect()
 
     def shape(self) -> QtGui.QPainterPath:  # type: ignore[override]
+        stroker = QtGui.QPainterPathStroker()
+        stroker.setWidth(max(8.0, self.pen().widthF() + 6.0))
+        selection_path = stroker.createStroke(self.path())
         points = self._points
-
-        pen = self.pen()
-        pen_width = max(pen.widthF(), 0.1)
-        half_width = pen_width / 2.0 + self._selection_padding
-
-        base_path = QtGui.QPainterPath(self.path())
-
-        selection_path = QtGui.QPainterPath()
-        selection_path.setFillRule(QtCore.Qt.FillRule.WindingFill)
-
-        if half_width > 0.0 and len(points) >= 2:
-            for start_point, end_point in zip(points, points[1:]):
-                direction = end_point - start_point
-                length = math.hypot(direction.x(), direction.y())
-                if length <= 1e-6:
-                    continue
-
-                unit_dir = QtCore.QPointF(direction.x() / length, direction.y() / length)
-                perp = QtCore.QPointF(-unit_dir.y(), unit_dir.x())
-
-                extension = QtCore.QPointF(unit_dir.x() * half_width, unit_dir.y() * half_width)
-                offset = QtCore.QPointF(perp.x() * half_width, perp.y() * half_width)
-
-                rect_path = QtGui.QPainterPath()
-                rect_path.moveTo(start_point - extension + offset)
-                rect_path.lineTo(start_point - extension - offset)
-                rect_path.lineTo(end_point + extension - offset)
-                rect_path.lineTo(end_point + extension + offset)
-                rect_path.closeSubpath()
-                selection_path.addPath(rect_path)
-
-        if self.arrow_start or self.arrow_end:
-            if len(points) >= 2:
-                arrow_path = QtGui.QPainterPath()
-                if self.arrow_start:
-                    start_poly, _ = self._arrow_head_geometry(points[1], points[0])
-                    arrow_path.addPolygon(start_poly)
-                if self.arrow_end:
-                    end_poly, _ = self._arrow_head_geometry(points[-2], points[-1])
-                    arrow_path.addPolygon(end_poly)
-
-                if not arrow_path.isEmpty():
-                    selection_path.addPath(arrow_path)
-                    if self._selection_padding > 0.0:
-                        arrow_stroke = QtGui.QPainterPathStroker()
-                        arrow_stroke.setCapStyle(QtCore.Qt.PenCapStyle.SquareCap)
-                        arrow_stroke.setJoinStyle(QtCore.Qt.PenJoinStyle.MiterJoin)
-                        arrow_stroke.setMiterLimit(4.0)
-                        arrow_stroke.setWidth(self._selection_padding * 2.0)
-                        selection_path.addPath(arrow_stroke.createStroke(arrow_path))
-
+        if len(points) >= 2:
+            arrow_path = QtGui.QPainterPath()
+            if self.arrow_start:
+                polygon, _ = self._arrow_head_geometry(points[1], points[0])
+                arrow_path.addPolygon(polygon)
+                arrow_path.closeSubpath()
+            if self.arrow_end:
+                polygon, _ = self._arrow_head_geometry(points[-2], points[-1])
+                arrow_path.addPolygon(polygon)
+                arrow_path.closeSubpath()
+            if not arrow_path.isEmpty():
+                stroker.setJoinStyle(QtCore.Qt.PenJoinStyle.MiterJoin)
+                selection_path = selection_path.united(arrow_path)
+                selection_path = selection_path.united(stroker.createStroke(arrow_path))
         return selection_path
 
     def update_handles(self) -> None:
@@ -412,28 +370,12 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
             painter.restore()
 
         if _should_draw_selection(self):
-            highlight_path = self.shape()
-            if not highlight_path.isEmpty():
-                painter.save()
-                highlight_color = QtGui.QColor(255, 235, 59)
-                highlight_color.setAlpha(80)
-                painter.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
-                painter.setBrush(highlight_color)
-                painter.drawPath(highlight_path)
-                painter.restore()
-
             painter.save()
-            selection_pen = QtGui.QPen(PEN_SELECTED)
-            selection_pen.setCapStyle(self.pen().capStyle())
-            selection_pen.setJoinStyle(self.pen().joinStyle())
-            selection_pen.setWidthF(max(selection_pen.widthF(), self.pen().widthF()))
-            selection_pen.setCosmetic(True)
-            painter.setPen(selection_pen)
+            painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-            painter.drawPath(shaft_path)
-            for polygon in arrow_polygons:
-                painter.drawPolygon(polygon)
+            painter.drawRect(self.boundingRect())
             painter.restore()
+
 
 
 __all__ = ["LineHandle", "LineItem"]

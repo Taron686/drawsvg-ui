@@ -2035,7 +2035,21 @@ class CanvasView(QtWidgets.QGraphicsView):
                 it.setPos(start + delta)
             event.accept()
             return
-        super().mouseMoveEvent(event)
+        grabber = self.scene().mouseGrabberItem()
+        moving_selection = (
+            event.buttons() & QtCore.Qt.MouseButton.LeftButton
+            and grabber is not None
+            and not grabber.__class__.__name__.endswith("Handle")
+            and len(self.scene().selectedItems()) > 1
+        )
+        original_spacing = self._grid_size_min
+        if moving_selection:
+            # Qt moves each item separately; snap the selection only as a whole.
+            self._grid_size_min = 0
+        try:
+            super().mouseMoveEvent(event)
+        finally:
+            self._grid_size_min = original_spacing
         if event.modifiers() & QtCore.Qt.KeyboardModifier.AltModifier:
             self._active_snap_guides.clear()
             self.viewport().update()

@@ -152,9 +152,6 @@ def _serialize_label(item: ShapeLabelMixin) -> dict[str, Any] | None:
 def _apply_label(item: ShapeLabelMixin, data: Mapping[str, Any] | None) -> None:
     if not data:
         return
-    text = data.get("text")
-    if isinstance(text, str):
-        item.set_label_text(text)
     font_value = data.get("font")
     if isinstance(font_value, str):
         font = QtGui.QFont()
@@ -168,6 +165,10 @@ def _apply_label(item: ShapeLabelMixin, data: Mapping[str, Any] | None) -> None:
         item.set_label_alignment(
             horizontal=str(alignment[0]), vertical=str(alignment[1])
         )
+    # Lay out the label with its restored font, even when alignment is unchanged.
+    text = data.get("text")
+    if isinstance(text, str):
+        item.set_label_text(text)
 
 
 def _size(
