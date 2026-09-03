@@ -99,6 +99,7 @@ def test_dark_and_light_themes_update_the_complete_window_chrome(
             assert palette.color(QtGui.QPalette.ColorRole.Window).name() == "#252526"
             assert palette.color(QtGui.QPalette.ColorRole.WindowText).name() == "#f0f0f0"
         assert "background-color: #1e1e1e" in window.styleSheet()
+        assert "alternate-background-color: #2d2d30" in window.styleSheet()
         assert window.canvas.backgroundBrush().color() == QtGui.QColor("#2d2d30")
         assert window.canvas._page_item.brush().color() == QtGui.QColor("white")
         line_item = next(

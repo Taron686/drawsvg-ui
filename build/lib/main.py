@@ -6,13 +6,18 @@ from PySide6 import QtCore, QtWidgets
 from app_logging import install_excepthook, shutdown_logging, start_session
 from main_window import MainWindow
 
+RECOVERY_ENABLED = False
+
 
 def main():
     restore_hook = install_excepthook()
     start_session()
     try:
         app = QtWidgets.QApplication(sys.argv)
-        win = MainWindow(check_startup_recovery=True)
+        win = MainWindow(
+            recovery_enabled=RECOVERY_ENABLED,
+            check_startup_recovery=RECOVERY_ENABLED,
+        )
         win.show()
         return app.exec()
     finally:

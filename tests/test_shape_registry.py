@@ -100,6 +100,16 @@ def test_curvy_bracket_has_long_stems_and_a_compact_center_notch() -> None:
     assert line_ends[1].y > 90.0
 
 
+def test_hook_depth_moves_the_center_notch_horizontally() -> None:
+    shallow = build_curvy_bracket_path(80.0, 160.0, 160.0 * 0.08)
+    deep = build_curvy_bracket_path(80.0, 160.0, 160.0 * 0.45)
+
+    shallow_notch_x = shallow.elementAt(7).x
+    deep_notch_x = deep.elementAt(7).x
+
+    assert shallow_notch_x - deep_notch_x > 15.0
+
+
 def test_curvy_bracket_uses_rounded_stroke_ends(
     application: QtWidgets.QApplication,
 ) -> None:

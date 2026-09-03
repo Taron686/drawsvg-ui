@@ -137,7 +137,10 @@ def build_curvy_bracket_path(w: float, h: float, hook: float) -> QtGui.QPainterP
     mid = rect.center().y()
     end_x = rect.left() + w * 0.84
     spine_x = rect.left() + w * 0.34
-    notch_x = rect.left() + w * 0.08
+    hook_ratio = hook / h
+    notch_depth = w * (0.08 + (hook_ratio - 0.08) / 0.37 * 0.26)
+    notch_x = spine_x - notch_depth
+    notch_control_x = spine_x - notch_depth * 0.55
     shoulder = min(h * 0.28, max(h * 0.12, hook * 0.55))
     notch_half_height = min(h * 0.14, max(h * 0.06, hook * 0.3))
 
@@ -155,13 +158,13 @@ def build_curvy_bracket_path(w: float, h: float, hook: float) -> QtGui.QPainterP
     path.cubicTo(
         spine_x,
         mid - notch_half_height * 0.45,
-        rect.left() + w * 0.2,
+        notch_control_x,
         mid - notch_half_height * 0.08,
         notch_x,
         mid,
     )
     path.cubicTo(
-        rect.left() + w * 0.2,
+        notch_control_x,
         mid + notch_half_height * 0.08,
         spine_x,
         mid + notch_half_height * 0.45,

@@ -73,11 +73,13 @@ class DocumentController(QtCore.QObject):
         *,
         recovery_store: RecoveryStore | None = None,
         recovery_interval_ms: int = 30_000,
+        recovery_enabled: bool = True,
         parent: QtCore.QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._canvas = canvas
         self._recovery_store = recovery_store or RecoveryStore()
+        self._recovery_enabled = recovery_enabled
         self._document_id = str(uuid4())
         self._path: Path | None = None
         self._dirty = False
@@ -100,7 +102,8 @@ class DocumentController(QtCore.QObject):
         self._recovery_timer = QtCore.QTimer(self)
         self._recovery_timer.setInterval(max(1, int(recovery_interval_ms)))
         self._recovery_timer.timeout.connect(self.write_recovery_if_needed)
-        self._recovery_timer.start()
+        if self._recovery_enabled:
+            self._recovery_timer.start()
 
     @property
     def document_id(self) -> str:
@@ -228,6 +231,8 @@ class DocumentController(QtCore.QObject):
             self._refreshing = False
 
     def write_recovery_if_needed(self) -> bool:
+        if not self._recovery_enabled:
+            return False
         self.refresh_dirty_state()
         fingerprint = self._last_observed_fingerprint
         if not self._dirty or fingerprint == self._last_recovery_fingerprint:

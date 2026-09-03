@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import pytest
 from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6.QtTest import QTest
 
+from canvas_view import CanvasView
 from items import BlockArrowItem, CurvyBracketItem, RectItem
 from main_window import MainWindow
 from ruler_widget import RulerWidget
@@ -64,6 +66,37 @@ def test_dragging_selected_item_uses_manual_guide_before_grid(canvas_view) -> No
 
     assert item.sceneBoundingRect().left() == pytest.approx(103.0)
     assert canvas_view._active_snap_guides["vertical"] == pytest.approx(103.0)
+
+
+def test_rubber_band_selection_preserves_off_grid_item_positions(
+    application: QtWidgets.QApplication,
+) -> None:
+    view = CanvasView()
+    view.resize(800, 600)
+    view.show()
+    application.processEvents()
+    text = view.add_shape(
+        "Text", QtCore.QPointF(-43.7, -26.4), snap_to_grid=False
+    )
+    rectangle = view.add_shape(
+        "Rectangle", QtCore.QPointF(38.6, 31.3), snap_to_grid=False
+    )
+    assert text is not None and rectangle is not None
+    view.scene().clearSelection()
+    before = (QtCore.QPointF(text.pos()), QtCore.QPointF(rectangle.pos()))
+    bounds = text.sceneBoundingRect().united(rectangle.sceneBoundingRect())
+    start = view.mapFromScene(bounds.topLeft() - QtCore.QPointF(20.0, 20.0))
+    end = view.mapFromScene(bounds.bottomRight() + QtCore.QPointF(20.0, 20.0))
+
+    QTest.mousePress(view.viewport(), QtCore.Qt.MouseButton.LeftButton, pos=start)
+    QTest.mouseMove(view.viewport(), end, delay=20)
+    QTest.mouseRelease(view.viewport(), QtCore.Qt.MouseButton.LeftButton, pos=end)
+    application.processEvents()
+
+    assert text.isSelected() and rectangle.isSelected()
+    assert text.pos() == before[0]
+    assert rectangle.pos() == before[1]
+    view.close()
 
 
 def test_owner_page_is_deterministic_and_oversized_item_creates_every_touched_page(

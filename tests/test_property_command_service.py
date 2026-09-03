@@ -123,6 +123,17 @@ def test_half_width_limit_uses_half_panel_width_with_minimum(application) -> Non
     panel.close()
 
 
+def test_position_values_are_read_only_displays(application) -> None:
+    panel = PropertiesPanel()
+
+    for spin in (panel._spin_pos_x, panel._spin_pos_y):
+        assert spin.isReadOnly()
+        assert spin.buttonSymbols() == QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons
+        assert spin.focusPolicy() == QtCore.Qt.FocusPolicy.NoFocus
+
+    panel.close()
+
+
 def test_clear_reenables_transform_controls_after_locked_multi_selection(application) -> None:
     service = PropertyCommandService()
     first = _item(10.0, 20.0)

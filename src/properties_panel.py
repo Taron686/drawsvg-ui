@@ -287,6 +287,10 @@ class PropertiesPanel(QtWidgets.QWidget):
 
         self._spin_pos_x = self._require_widget(QtWidgets.QDoubleSpinBox, "spinPosX")
         self._spin_pos_y = self._require_widget(QtWidgets.QDoubleSpinBox, "spinPosY")
+        for spin in (self._spin_pos_x, self._spin_pos_y):
+            spin.setReadOnly(True)
+            spin.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
+            spin.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
         self._spin_rotation = self._require_widget(QtWidgets.QDoubleSpinBox, "spinRotation")
         self._spin_scale = self._require_widget(QtWidgets.QDoubleSpinBox, "spinScale")
         self._spin_z_value = self._require_widget(QtWidgets.QDoubleSpinBox, "spinZValue")
@@ -302,6 +306,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._color_fill = self._require_widget(ColorButton, "colorFill")
         self._spin_head_ratio = self._require_widget(QtWidgets.QDoubleSpinBox, "spinHeadRatio")
         self._spin_shaft_ratio = self._require_widget(QtWidgets.QDoubleSpinBox, "spinShaftRatio")
+        self._slider_hook_depth = self._require_widget(QtWidgets.QSlider, "sliderHookDepth")
         self._spin_hook_depth = self._require_widget(QtWidgets.QDoubleSpinBox, "spinHookDepth")
         self._check_arrow_start = self._require_widget(QtWidgets.QCheckBox, "checkArrowStart")
         self._check_arrow_end = self._require_widget(QtWidgets.QCheckBox, "checkArrowEnd")
@@ -726,6 +731,30 @@ class PropertiesPanel(QtWidgets.QWidget):
         binding.refresh()
         self._bindings_for(group).append(binding)
 
+    def _bind_ratio_slider(
+        self,
+        slider: QtWidgets.QSlider,
+        display: QtWidgets.QDoubleSpinBox,
+        getter: Callable[[], Number],
+        setter: Callable[[Number], bool | None],
+    ) -> None:
+        def write_value(widget: QtWidgets.QSlider, value: Any) -> None:
+            ratio = float(value)
+            widget.setValue(round(ratio * 100.0))
+            self._set_double_spin_value(display, ratio)
+
+        binding = PropertyBinding(
+            slider,
+            getter,
+            setter,
+            slider.valueChanged,
+            lambda widget: float(widget.value()) / 100.0,
+            write_value,
+            self._after_property_change,
+        )
+        binding.refresh()
+        self._bindings_for("object").append(binding)
+
     def _bind_checkbox(
         self,
         box: QtWidgets.QCheckBox,
@@ -994,7 +1023,8 @@ class PropertiesPanel(QtWidgets.QWidget):
 
         if isinstance(item, CurvyBracketItem):
             self._group_bracket.show()
-            self._bind_double_spin(
+            self._bind_ratio_slider(
+                self._slider_hook_depth,
                 self._spin_hook_depth,
                 item.hook_ratio,
                 lambda value: self._set_bracket_hook_ratio(item, value),

@@ -20,11 +20,15 @@ def _window(
     *,
     registry: DocumentWindowRegistry | None = None,
     store: RecoveryStore | None = None,
+    recovery_enabled: bool = True,
+    check_startup_recovery: bool = False,
 ) -> MainWindow:
     return MainWindow(
         recent_files_path=tmp_path / "recent.json",
         window_registry=registry,
         recovery_store=store,
+        recovery_enabled=recovery_enabled,
+        check_startup_recovery=check_startup_recovery,
     )
 
 
@@ -269,6 +273,33 @@ def test_recovery_is_uuid_scoped_and_skips_duplicate_snapshots(
         }
         assert len(tuple((tmp_path / "recovery").glob("*.drawsvg"))) == 2
         assert all(store.load(candidate).document_id == candidate.document_id for candidate in candidates)
+    finally:
+        _force_close(registry)
+
+
+def test_disabled_recovery_neither_runs_nor_writes_in_new_windows(
+    application: QtWidgets.QApplication, tmp_path: Path
+) -> None:
+    registry = DocumentWindowRegistry()
+    store = RecoveryStore(tmp_path / "recovery")
+    first = _window(
+        tmp_path,
+        registry=registry,
+        store=store,
+        recovery_enabled=False,
+        check_startup_recovery=True,
+    )
+    second = first.new_document_window()
+    try:
+        _dirty(first)
+        _dirty(second)
+
+        assert not first.document_controller._recovery_timer.isActive()
+        assert not second.document_controller._recovery_timer.isActive()
+        assert not first.document_controller.write_recovery_if_needed()
+        assert not second.document_controller.write_recovery_if_needed()
+        assert not registry.startup_recovery_checked
+        assert store.candidates() == ()
     finally:
         _force_close(registry)
 

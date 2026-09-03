@@ -41,6 +41,7 @@ QTextEdit,
 QPlainTextEdit,
 QAbstractItemView {
     background-color: #1e1e1e;
+    alternate-background-color: #2d2d30;
     color: #f0f0f0;
     selection-background-color: #007acc;
     selection-color: #ffffff;
@@ -160,12 +161,14 @@ class MainWindow(QtWidgets.QMainWindow):
         window_registry: DocumentWindowRegistry | None = None,
         recovery_store: RecoveryStore | None = None,
         settings: QtCore.QSettings | None = None,
+        recovery_enabled: bool = True,
         check_startup_recovery: bool = False,
     ):
         super().__init__()
 
         self._window_registry = window_registry or DocumentWindowRegistry()
         self._recovery_store = recovery_store or RecoveryStore()
+        self._recovery_enabled = recovery_enabled
         self._settings_instance = settings
         self._force_close = False
 
@@ -175,6 +178,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.document_controller = DocumentController(
             self.canvas,
             recovery_store=self._recovery_store,
+            recovery_enabled=self._recovery_enabled,
             parent=self,
         )
         layer_manager = self.canvas.layer_manager()
@@ -205,7 +209,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_document_title()
         self._window_registry.register(self)
         if (
-            check_startup_recovery
+            self._recovery_enabled
+            and check_startup_recovery
             and not self._window_registry.startup_recovery_checked
         ):
             self._window_registry.startup_recovery_checked = True
@@ -519,6 +524,7 @@ class MainWindow(QtWidgets.QMainWindow):
             recent_files_path=self._recent_files_path,
             window_registry=self._window_registry,
             recovery_store=self._recovery_store,
+            recovery_enabled=self._recovery_enabled,
             check_startup_recovery=False,
         )
 
