@@ -812,7 +812,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._pages[self._master_index] = self._page_item
         scene.addItem(self._page_item)
         self._update_transition_edges()
-        QtCore.QTimer.singleShot(0, self._fit_view_to_page)
+        self._initial_fit_pending = True
         self._update_scene_rect()
 
         self._panning = False
@@ -1775,6 +1775,13 @@ class CanvasView(QtWidgets.QGraphicsView):
             scene.setSceneRect(new_rect)
             # ensure newly exposed areas are repainted so drag handles don't leave trails
             self.viewport().update()
+
+    def showEvent(self, event: QtGui.QShowEvent) -> None:
+        super().showEvent(event)
+        if self._initial_fit_pending:
+            self._initial_fit_pending = False
+            # File dialogs can process timers before a new window is laid out.
+            QtCore.QTimer.singleShot(0, self, self._fit_view_to_page)
 
     def resizeEvent(self, event: QtGui.QResizeEvent):
         """Ensure scene rect grows with the view."""
