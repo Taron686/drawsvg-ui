@@ -133,55 +133,59 @@ def _should_draw_selection(item: QtWidgets.QGraphicsItem) -> bool:
 
 
 def build_curvy_bracket_path(w: float, h: float, hook: float) -> QtGui.QPainterPath:
-    """Return a right-facing curly bracket path translated to the origin."""
+    """Return a right-endpoint curly bracket path translated to the origin."""
 
     w = max(8.0, float(w))
     h = max(40.0, float(h))
     hook = max(6.0, min(float(hook), h * 0.45))
 
     rect = QtCore.QRectF(-w / 2.0, -h / 2.0, w, h)
-    cx = rect.center().x()
     top = rect.top()
     bottom = rect.bottom()
     mid = rect.center().y()
-
-    curvature = w * 0.85
-    depth = hook * 0.55
+    end_x = rect.left() + w * 0.84
+    spine_x = rect.left() + w * 0.34
+    hook_ratio = hook / h
+    notch_depth = w * (0.08 + (hook_ratio - 0.08) / 0.37 * 0.26)
+    notch_x = spine_x - notch_depth
+    notch_control_x = spine_x - notch_depth * 0.55
+    shoulder = min(h * 0.28, max(h * 0.12, hook * 0.55))
+    notch_half_height = min(h * 0.14, max(h * 0.06, hook * 0.3))
 
     path = QtGui.QPainterPath()
-    path.moveTo(cx - w * 0.48, top + 2.0)
+    path.moveTo(end_x, top + 2.0)
     path.cubicTo(
-        cx - w * 0.48 + depth,
+        rect.left() + w * 0.56,
         top + 2.0,
-        cx - w * 0.12,
-        top + hook * 0.25,
-        cx + 0.0,
-        top + hook,
+        spine_x,
+        top + shoulder * 0.35,
+        spine_x,
+        top + shoulder,
+    )
+    path.lineTo(spine_x, mid - notch_half_height)
+    path.cubicTo(
+        spine_x,
+        mid - notch_half_height * 0.45,
+        notch_control_x,
+        mid - notch_half_height * 0.08,
+        notch_x,
+        mid,
     )
     path.cubicTo(
-        cx + curvature * 0.12,
-        top + hook + (h * 0.20),
-        cx + curvature * 0.18,
-        mid - (h * 0.08),
-        cx + w * 0.42,
-        mid - 2.0,
+        notch_control_x,
+        mid + notch_half_height * 0.08,
+        spine_x,
+        mid + notch_half_height * 0.45,
+        spine_x,
+        mid + notch_half_height,
     )
-    path.lineTo(cx + w * 0.50, mid)
-    path.lineTo(cx + w * 0.42, mid + 2.0)
+    path.lineTo(spine_x, bottom - shoulder)
     path.cubicTo(
-        cx + curvature * 0.18,
-        mid + (h * 0.08),
-        cx + curvature * 0.12,
-        bottom - hook - (h * 0.20),
-        cx + 0.0,
-        bottom - hook,
-    )
-    path.cubicTo(
-        cx - w * 0.12,
-        bottom - hook * 0.25,
-        cx - w * 0.48 + depth,
+        spine_x,
+        bottom - shoulder * 0.35,
+        rect.left() + w * 0.56,
         bottom - 2.0,
-        cx - w * 0.48,
+        end_x,
         bottom - 2.0,
     )
 
@@ -266,7 +270,8 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
             if isinstance(parent, (TriangleItem, DiamondItem)):
                 self._w0, self._h0 = parent._w, parent._h  # type: ignore[attr-defined]
             else:
-                bounds = parent.boundingRect()
+                handle_rect = getattr(parent, "_handle_rect", None)
+                bounds = handle_rect() if callable(handle_rect) else parent.boundingRect()
                 self._w0, self._h0 = bounds.width(), bounds.height()
 
         flags = parent.flags()
@@ -389,14 +394,36 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
 
     def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
         parent = self.parentItem()
-        bounds = parent.boundingRect()
-        old_top_left = parent.mapToScene(QtCore.QPointF(0, 0))
-        parent.setTransformOriginPoint(bounds.center())
-        new_top_left = parent.mapToScene(QtCore.QPointF(0, 0))
-        parent.setPos(parent.pos() + (old_top_left - new_top_left))
+        changes_geometry = isinstance(
+            parent, (QtWidgets.QGraphicsRectItem, QtWidgets.QGraphicsEllipseItem)
+        ) or callable(getattr(parent, "set_size", None))
+        if changes_geometry:
+            handle_rect = getattr(parent, "_handle_rect", None)
+            bounds = handle_rect() if callable(handle_rect) else parent.boundingRect()
+            old_top_left = parent.mapToScene(QtCore.QPointF(0, 0))
+            parent.setTransformOriginPoint(bounds.center())
+            new_top_left = parent.mapToScene(QtCore.QPointF(0, 0))
+            sends_geometry_changes = bool(
+                parent.flags()
+                & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+            )
+            if sends_geometry_changes:
+                parent.setFlag(
+                    QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges,
+                    False,
+                )
+            parent.setPos(parent.pos() + (old_top_left - new_top_left))
+            if sends_geometry_changes:
+                parent.setFlag(
+                    QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges,
+                    True,
+                )
 
         if self._parent_was_movable:
-            parent.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+            parent.setFlag(
+                QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
+                True,
+            )
             self._parent_was_movable = False
 
         self._start_pos_scene = None

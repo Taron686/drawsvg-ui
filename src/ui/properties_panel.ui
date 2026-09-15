@@ -535,22 +535,71 @@
                 </property>
                </widget>
               </item>
-              <item row="0" column="1">
-               <widget class="QDoubleSpinBox" name="spinHookDepth">
-                <property name="decimals">
-                 <number>3</number>
-                </property>
-                <property name="minimum">
-                 <double>0.080000000000000</double>
-                </property>
-                <property name="maximum">
-                 <double>0.450000000000000</double>
-                </property>
-                <property name="singleStep">
-                 <double>0.010000000000000</double>
-                </property>
-               </widget>
-              </item>
+               <item row="0" column="1">
+                <widget class="QWidget" name="widgetHookDepth">
+                 <layout class="QHBoxLayout" name="layoutHookDepth">
+                  <property name="spacing">
+                   <number>6</number>
+                  </property>
+                  <property name="leftMargin">
+                   <number>0</number>
+                  </property>
+                  <property name="topMargin">
+                   <number>0</number>
+                  </property>
+                  <property name="rightMargin">
+                   <number>0</number>
+                  </property>
+                  <property name="bottomMargin">
+                   <number>0</number>
+                  </property>
+                  <item>
+                   <widget class="QSlider" name="sliderHookDepth">
+                    <property name="minimum">
+                     <number>8</number>
+                    </property>
+                    <property name="maximum">
+                     <number>45</number>
+                    </property>
+                    <property name="value">
+                     <number>30</number>
+                    </property>
+                    <property name="orientation">
+                     <enum>Qt::Horizontal</enum>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QDoubleSpinBox" name="spinHookDepth">
+                    <property name="maximumSize">
+                     <size>
+                      <width>70</width>
+                      <height>16777215</height>
+                     </size>
+                    </property>
+                    <property name="focusPolicy">
+                     <enum>Qt::NoFocus</enum>
+                    </property>
+                    <property name="readOnly">
+                     <bool>true</bool>
+                    </property>
+                    <property name="buttonSymbols">
+                     <enum>QAbstractSpinBox::NoButtons</enum>
+                    </property>
+                    <property name="decimals">
+                     <number>3</number>
+                    </property>
+                    <property name="minimum">
+                     <double>0.080000000000000</double>
+                    </property>
+                    <property name="maximum">
+                     <double>0.450000000000000</double>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
              </layout>
             </widget>
            </item>
@@ -706,18 +755,15 @@
              <property name="title">
               <string>Label</string>
              </property>
-             <layout class="QFormLayout" name="formLabel">
-              <item row="0" column="0">
-               <widget class="QLabel" name="labelLabelText">
-                <property name="text">
-                 <string>Text</string>
-                </property>
-               </widget>
-              </item>
-              <item row="0" column="1">
-               <widget class="QLineEdit" name="lineLabelText"/>
-              </item>
-              <item row="1" column="0">
+              <layout class="QFormLayout" name="formLabel">
+               <item row="0" column="0" colspan="2">
+                <widget class="PlainTextEditor" name="plainLabelText">
+                 <property name="minimumHeight">
+                  <number>100</number>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="0">
                <widget class="QLabel" name="labelLabelFont">
                 <property name="text">
                  <string>Font Family</string>

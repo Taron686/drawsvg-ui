@@ -9,10 +9,12 @@
 from __future__ import annotations
 
 import ast
+from contextlib import nullcontext
 import math
 import json
 import re
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -21,6 +23,7 @@ from items import (
     BlockArrowItem,
     CurvyBracketItem,
     DiamondItem,
+    DiagramItem,
     EllipseItem,
     FolderTreeItem,
     LineItem,
@@ -30,11 +33,15 @@ from items import (
     TextItem,
     TriangleItem,
 )
+from items.shapes.paths import FreePathItem
+
+from shape_registry import SHAPE_REGISTRY
 
 from constants import DEFAULTS, PEN_STYLE_DASH_ARRAYS
 
 
 _ROT_RE = re.compile(r"rotate\(([-0-9.]+)\s+([-0-9.]+)\s+([-0-9.]+)\)")
+_MATRIX_RE = re.compile(r"matrix\(([^)]*)\)")
 _DASH_ARRAY_TO_STYLE = {
     tuple(round(val, 2) for val in pattern): style
     for style, pattern in PEN_STYLE_DASH_ARRAYS.items()
@@ -63,7 +70,7 @@ def _parse_call(line: str) -> tuple[list[Any], dict[str, Any]]:
 
 
 def _apply_style(item: QtWidgets.QGraphicsItem, kwargs: dict[str, Any]) -> None:
-    if isinstance(item, (QtWidgets.QGraphicsRectItem, QtWidgets.QGraphicsEllipseItem, LineItem, TriangleItem, DiamondItem, BlockArrowItem)):
+    if isinstance(item, (QtWidgets.QGraphicsRectItem, QtWidgets.QGraphicsEllipseItem, LineItem, FreePathItem, TriangleItem, DiamondItem, BlockArrowItem, CurvyBracketItem, DiagramItem)):
         if kwargs.get("fill") == "none":
             item.setBrush(QtCore.Qt.BrushStyle.NoBrush)
         elif "fill" in kwargs:
@@ -74,6 +81,10 @@ def _apply_style(item: QtWidgets.QGraphicsItem, kwargs: dict[str, Any]) -> None:
         pen = item.pen()
         if "stroke" in kwargs:
             pen.setColor(QtGui.QColor(kwargs["stroke"]))
+            if "stroke_opacity" in kwargs:
+                color = pen.color()
+                color.setAlphaF(float(kwargs["stroke_opacity"]))
+                pen.setColor(color)
         if "stroke_width" in kwargs:
             pen.setWidthF(float(kwargs["stroke_width"]))
         dash_pattern = None
@@ -121,30 +132,68 @@ def _parse_rotate(val: str) -> float:
     return 0.0
 
 
-def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget | None = None) -> None:
-    path, _ = QtWidgets.QFileDialog.getOpenFileName(
-        parent, "Load drawsvg-.py…", "", "Python (*.py)"
-    )
-    if not path:
+def _apply_transform(item: QtWidgets.QGraphicsItem, value: str) -> None:
+    """Apply a drawsvg rotate or affine matrix transform to a graphics item."""
+    matrix_match = _MATRIX_RE.fullmatch(str(value).strip())
+    if matrix_match is not None:
+        parts = matrix_match.group(1).replace(",", " ").split()
+        if len(parts) != 6:
+            raise ValueError(f"Invalid matrix transform: {value}")
+        m11, m12, m21, m22, dx, dy = map(float, parts)
+        transform = QtGui.QTransform(m11, m12, m21, m22, dx, dy)
+        local_offset = item.pos()
+        scale_x = math.hypot(m11, m12)
+        scale_y = math.hypot(m21, m22)
+        determinant = m11 * m22 - m12 * m21
+        if (
+            scale_x > 0.0
+            and determinant > 0.0
+            and math.isclose(scale_x, scale_y, rel_tol=1e-6, abs_tol=1e-6)
+        ):
+            origin = item.transformOriginPoint()
+            item.setPos(transform.map(origin + local_offset) - origin)
+            item.setRotation(math.degrees(math.atan2(m12, m11)))
+            item.setScale(scale_x)
+        else:
+            offset_dx = dx + m11 * local_offset.x() + m21 * local_offset.y()
+            offset_dy = dy + m12 * local_offset.x() + m22 * local_offset.y()
+            item.setPos(0.0, 0.0)
+            item.setRotation(0.0)
+            item.setScale(1.0)
+            item.setTransform(
+                QtGui.QTransform(m11, m12, m21, m22, offset_dx, offset_dy)
+            )
         return
+    item.setRotation(_parse_rotate(str(value)))
+
+
+def import_drawsvg_py(
+    scene: QtWidgets.QGraphicsScene,
+    parent: QtWidgets.QWidget | None = None,
+    path: str | Path | None = None,
+) -> Path | None:
+    if path is None:
+        selected_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            parent, "Load drawsvg-.py…", "", "Python (*.py)"
+        )
+        if not selected_path:
+            return None
+        path = selected_path
+    path = Path(path).expanduser().resolve()
     try:
         with open(path, "r", encoding="utf-8") as f:
             lines = f.readlines()
 
-        cleared = False
-        view = scene.parent()
-        if view is not None:
-            clear_method = getattr(view, "clear_canvas", None)
-            if callable(clear_method):
-                clear_method()
-                cleared = True
-        if not cleared:
-            scene.clear()
+        target_scene = scene
+        view = target_scene.parent()
+        parsed_scene = QtWidgets.QGraphicsScene()
+        recognized_drawing = False
 
         pending_split: dict[str, Any] | None = None
         pending_block: dict[str, Any] | None = None
         pending_bracket: dict[str, Any] | None = None
         pending_line: LineItem | None = None
+        pending_folder_tree: FolderTreeItem | None = None
 
         # Neu: Mapping von Label-ID -> Ziel-Shape sowie Sammelcontainer für mehrzeilige Label
         shape_label_targets: dict[str, ShapeLabelMixin] = {}
@@ -197,6 +246,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 pending_block = None
                 pending_bracket = None
                 pending_line = None
+                pending_folder_tree = None
                 continue
 
             if line.startswith("#"):
@@ -242,6 +292,9 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     rot_match = re.search(r"rotation=([-0-9.]+)", line)
                     if rot_match:
                         info["rotation"] = float(rot_match.group(1))
+                    scale_match = re.search(r"scale=([-0-9.]+)", line)
+                    if scale_match:
+                        info["scale"] = float(scale_match.group(1))
                     size_match = re.search(r"size=\(([-0-9.]+),\s*([-0-9.]+)\)", line)
                     if size_match:
                         info["w"] = float(size_match.group(1))
@@ -264,8 +317,10 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     rotation = float(info.get("rotation", 0.0))
                     if rotation:
                         item.setRotation(rotation)
+                    item.setScale(float(info.get("scale", 1.0)))
                     item.setData(0, "Folder Tree")
-                    scene.addItem(item)
+                    parsed_scene.addItem(item)
+                    pending_folder_tree = item
                 elif line.startswith("# Arrowheads:") and pending_line is not None:
                     comment = line.split(":", 1)[1]
                     start_flag = False
@@ -312,12 +367,23 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 continue
 
             if line.startswith("d = draw.Drawing("):
+                recognized_drawing = True
                 args, kwargs = _parse_call(line)
                 if len(args) >= 2:
                     ox = oy = 0.0
                     if "origin" in kwargs and isinstance(kwargs["origin"], (tuple, list)):
                         ox, oy = map(float, kwargs["origin"][:2])
-                    scene.setSceneRect(float(ox), float(oy), float(args[0]), float(args[1]))
+                    parsed_scene.setSceneRect(float(ox), float(oy), float(args[0]), float(args[1]))
+
+            elif line.startswith("_folder_tree = draw.Group("):
+                _args, kwargs = _parse_call(line)
+                if pending_folder_tree is not None and "transform" in kwargs:
+                    pending_folder_tree.setPos(0.0, 0.0)
+                    pending_folder_tree.setRotation(0.0)
+                    pending_folder_tree.setScale(1.0)
+                    _apply_transform(pending_folder_tree, kwargs["transform"])
+                pending_folder_tree = None
+                continue
 
             elif line.startswith("_folder_tree"):
                 continue
@@ -353,9 +419,9 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                                 pass
                         item.setTopBrush(color)
                 if "transform" in kwargs:
-                    item.setRotation(_parse_rotate(kwargs["transform"]))
+                    _apply_transform(item, kwargs["transform"])
                 item.setData(0, "Split Rounded Rectangle")
-                scene.addItem(item)
+                parsed_scene.addItem(item)
                 pending_split = None
 
             elif line.startswith("_rect = draw.Rectangle("):
@@ -370,7 +436,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 item = RectItem(x, y, w, h, rx, ry)
                 _apply_style(item, kwargs)
                 if "transform" in kwargs:
-                    item.setRotation(_parse_rotate(kwargs["transform"]))
+                    _apply_transform(item, kwargs["transform"])
                 shape_name = "Rounded Rectangle" if (rx or ry) else "Rectangle"
                 item.setData(0, shape_name)
                 label_id = kwargs.get("data_label_id")
@@ -380,7 +446,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     pending = shape_label_pending.pop(key, None)
                     if pending:
                         _apply_shape_label(item, pending)
-                scene.addItem(item)
+                parsed_scene.addItem(item)
 
             elif line.startswith("_ell = draw.Ellipse("):
                 args, kwargs = _parse_call(line)
@@ -392,7 +458,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 item = EllipseItem(x, y, w, h)
                 _apply_style(item, kwargs)
                 if "transform" in kwargs:
-                    item.setRotation(_parse_rotate(kwargs["transform"]))
+                    _apply_transform(item, kwargs["transform"])
                 item.setData(0, "Ellipse")
                 label_id = kwargs.get("data_label_id")
                 if label_id:
@@ -401,7 +467,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     pending = shape_label_pending.pop(key, None)
                     if pending:
                         _apply_shape_label(item, pending)
-                scene.addItem(item)
+                parsed_scene.addItem(item)
 
             elif line.startswith("_circ = draw.Circle("):
                 args, kwargs = _parse_call(line)
@@ -412,7 +478,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 item = EllipseItem(x, y, w, h)
                 _apply_style(item, kwargs)
                 if "transform" in kwargs:
-                    item.setRotation(_parse_rotate(kwargs["transform"]))
+                    _apply_transform(item, kwargs["transform"])
                 item.setData(0, "Circle")
                 label_id = kwargs.get("data_label_id")
                 if label_id:
@@ -421,7 +487,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     pending = shape_label_pending.pop(key, None)
                     if pending:
                         _apply_shape_label(item, pending)
-                scene.addItem(item)
+                parsed_scene.addItem(item)
 
             elif line.startswith("_tri = draw.Lines("):
                 args, kwargs = _parse_call(line)
@@ -435,9 +501,9 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 item = TriangleItem(x, y, w, h)
                 _apply_style(item, kwargs)
                 if "transform" in kwargs:
-                    item.setRotation(_parse_rotate(kwargs["transform"]))
+                    _apply_transform(item, kwargs["transform"])
                 item.setData(0, "Triangle")
-                scene.addItem(item)
+                parsed_scene.addItem(item)
 
             elif line.startswith("_diamond = draw.Lines("):
                 args, kwargs = _parse_call(line)
@@ -451,7 +517,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 item = DiamondItem(x, y, w, h)
                 _apply_style(item, kwargs)
                 if "transform" in kwargs:
-                    item.setRotation(_parse_rotate(kwargs["transform"]))
+                    _apply_transform(item, kwargs["transform"])
                 item.setData(0, "Diamond")
                 label_id = kwargs.get("data_label_id")
                 if label_id:
@@ -460,7 +526,7 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     pending = shape_label_pending.pop(key, None)
                     if pending:
                         _apply_shape_label(item, pending)
-                scene.addItem(item)
+                parsed_scene.addItem(item)
 
             elif line.startswith("_block_arrow = draw.Lines("):
                 args, kwargs = _parse_call(line)
@@ -489,13 +555,81 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     else:
                         item.update_handles()
                 if "transform" in kwargs:
-                    item.setRotation(_parse_rotate(kwargs["transform"]))
+                    _apply_transform(item, kwargs["transform"])
                 item.setData(0, "Block Arrow")
-                scene.addItem(item)
+                parsed_scene.addItem(item)
                 pending_block = None
 
-            elif line.startswith("_path = draw.Path("):
+            elif line.startswith(("_path = draw.Path(", "_diagram = draw.Path(")):
                 args, kwargs = _parse_call(line)
+                diagram_raw = kwargs.get("data_diagram")
+                if diagram_raw is not None:
+                    try:
+                        payload = json.loads(str(diagram_raw))
+                        if not isinstance(payload, Mapping):
+                            raise ValueError("Diagram payload must be an object")
+                        type_id = payload.get("type_id")
+                        if not isinstance(type_id, str):
+                            raise ValueError("Diagram payload has no type ID")
+                        definition = SHAPE_REGISTRY.get(type_id)
+                        if definition is None or definition.python_export_adapter != "diagram":
+                            raise ValueError("Unsupported diagram type")
+                        item = SHAPE_REGISTRY.create(type_id, 0.0, 0.0)
+                        if not isinstance(item, DiagramItem):
+                            raise ValueError("Diagram registry entry is invalid")
+                        size = payload.get("size")
+                        if isinstance(size, (list, tuple)) and len(size) == 2:
+                            item.set_size(float(size[0]), float(size[1]))
+                        parameters = payload.get("parameters")
+                        if isinstance(parameters, Mapping):
+                            item.apply_parameters(dict(parameters))
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        continue
+                    _apply_style(item, kwargs)
+                    if "transform" in kwargs:
+                        _apply_transform(item, kwargs["transform"])
+                    label_id = kwargs.get("data_label_id")
+                    if label_id:
+                        key = str(label_id)
+                        shape_label_targets[key] = item
+                        pending = shape_label_pending.pop(key, None)
+                        if pending:
+                            _apply_shape_label(item, pending)
+                    parsed_scene.addItem(item)
+                    continue
+                free_path_raw = kwargs.get("data_free_path")
+                if free_path_raw is not None:
+                    try:
+                        payload = json.loads(str(free_path_raw))
+                        if not isinstance(payload, Mapping):
+                            raise ValueError("Free path payload must be an object")
+                        start = payload.get("start")
+                        segments = payload.get("segments")
+                        if not isinstance(start, (list, tuple)) or not isinstance(segments, list):
+                            raise ValueError("Free path payload is incomplete")
+                        path_type = str(kwargs.get("data_free_path_type", "Free Polyline"))
+                        if path_type not in {"Free Polyline", "Free Polygon", "Bezier Path"}:
+                            raise ValueError("Unsupported free path type")
+                        item = FreePathItem(
+                            0.0,
+                            0.0,
+                            closed=bool(payload.get("closed", path_type == "Free Polygon")),
+                            start=start,
+                            segments=segments,
+                            path_kind={
+                                "Free Polyline": "polyline",
+                                "Free Polygon": "polygon",
+                                "Bezier Path": "bezier",
+                            }[path_type],
+                        )
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        continue
+                    _apply_style(item, kwargs)
+                    if "transform" in kwargs:
+                        _apply_transform(item, kwargs["transform"])
+                    item.setData(0, path_type)
+                    parsed_scene.addItem(item)
+                    continue
                 if pending_bracket is not None:
                     x = float(pending_bracket.get("x", 0.0))
                     y = float(pending_bracket.get("y", 0.0))
@@ -511,9 +645,14 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     item = CurvyBracketItem(x, y, w, h, hook_ratio)
                     _apply_style(item, kwargs)
                     if "transform" in kwargs:
-                        item.setRotation(_parse_rotate(kwargs["transform"]))
-                    item.setData(0, "Curvy Right Bracket")
-                    scene.addItem(item)
+                        _apply_transform(item, kwargs["transform"])
+                    bracket_type = (
+                        "Curvy Left Bracket"
+                        if pending_bracket.get("side") == "left"
+                        else "Curvy Right Bracket"
+                    )
+                    item.setData(0, bracket_type)
+                    parsed_scene.addItem(item)
                     pending_bracket = None
                     continue
                 if args:
@@ -571,9 +710,6 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                                 )
                             except (TypeError, ValueError):
                                 arrow_head_width_value = None
-                            angle = 0.0
-                            if "transform" in kwargs:
-                                angle = _parse_rotate(kwargs["transform"])
                             item = LineItem(
                                 0.0,
                                 0.0,
@@ -584,9 +720,10 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                                 arrow_head_width=arrow_head_width_value,
                             )
                             _apply_style(item, kwargs)
-                            item.setRotation(angle)
+                            if "transform" in kwargs:
+                                _apply_transform(item, kwargs["transform"])
                             item.setData(0, "Arrow" if arrow_start or arrow_end else "Line")
-                            scene.addItem(item)
+                            parsed_scene.addItem(item)
                             pending_line = item
                         else:
                             pending_line = None
@@ -598,31 +735,27 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     QtCore.QPointF(coords[i], coords[i + 1])
                     for i in range(0, len(coords), 2)
                 ]
-                angle = 0.0
-                if "transform" in kwargs:
-                    angle = _parse_rotate(kwargs["transform"])
                 item = LineItem(0.0, 0.0, points=pts)
                 _apply_style(item, kwargs)
-                item.setRotation(angle)
+                if "transform" in kwargs:
+                    _apply_transform(item, kwargs["transform"])
                 item.setData(0, "Line")
-                scene.addItem(item)
+                parsed_scene.addItem(item)
                 pending_line = item
 
             elif line.startswith("_line = draw.Line("):
                 args, kwargs = _parse_call(line)
                 x1, y1, x2, y2 = map(float, args[:4])
-                dx, dy = x2 - x1, y2 - y1
-                length = math.hypot(dx, dy)
-                angle = math.degrees(math.atan2(dy, dx))
-                if "transform" in kwargs:
-                    angle = _parse_rotate(kwargs["transform"])
-                cx = (x1 + x2) / 2.0
-                cy = (y1 + y2) / 2.0
-                item = LineItem(cx - length / 2.0, cy, length)
+                item = LineItem(
+                    0.0,
+                    0.0,
+                    points=[QtCore.QPointF(x1, y1), QtCore.QPointF(x2, y2)],
+                )
                 _apply_style(item, kwargs)
-                item.setRotation(angle)
+                if "transform" in kwargs:
+                    _apply_transform(item, kwargs["transform"])
                 item.setData(0, "Line")
-                scene.addItem(item)
+                parsed_scene.addItem(item)
                 pending_line = item
 
             # --- NEU: _label = draw.Text(...) mehrzeilig zusammenführen ---
@@ -695,6 +828,8 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     text = "\n".join(parts)
                 else:
                     text = str(raw_text_arg)
+                if "data_raw_text" in kwargs:
+                    text = str(kwargs["data_raw_text"])
                 size = float(args[1])
                 text_x = float(args[2])
                 text_y = float(args[3])
@@ -787,25 +922,23 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                         pass
 
                 doc_margin_scene = doc_margin * scale_factor
-                box_w_scene = (
-                    float(box_w) * scale_factor
-                    if box_w is not None
-                    else item.boundingRect().width() * scale_factor
-                )
-                if data_text_h == "right":
-                    x_pos = text_x - (box_w_scene - doc_margin_scene)
-                elif data_text_h == "center":
-                    x_pos = text_x - box_w_scene / 2.0
-                else:
-                    x_pos = text_x - doc_margin_scene
+                x_pos = text_x - doc_margin_scene
+                # Old files used start anchors even for aligned text; honor the
+                # exported anchor, not just the saved editor alignment metadata.
+                anchor = kwargs.get("text_anchor", "start")
+                box_width = item.boundingRect().width() * scale_factor
+                if anchor == "end":
+                    x_pos = text_x - (box_width - doc_margin_scene)
+                elif anchor == "middle":
+                    x_pos = text_x - box_width / 2.0
                 y_pos = text_y - doc_margin_scene
                 item.setPos(x_pos, y_pos)
                 br = item.boundingRect()
                 item.setTransformOriginPoint(br.width() / 2.0, br.height() / 2.0)
                 if "transform" in kwargs:
-                    item.setRotation(_parse_rotate(kwargs["transform"]))
+                    _apply_transform(item, kwargs["transform"])
                 item.setData(0, "Text")
-                scene.addItem(item)
+                parsed_scene.addItem(item)
 
         # --- NEU: am Ende verbleibende pending Labels anwenden ---
         for key, data in list(shape_label_pending.items()):
@@ -814,12 +947,43 @@ def import_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 _apply_shape_label(target, data)
                 shape_label_pending.pop(key, None)
 
-        if view is not None:
-            ensure_pages = getattr(view, "ensure_pages_for_scene_items", None)
-            if callable(ensure_pages):
-                ensure_pages()
+        if not recognized_drawing:
+            raise ValueError("The selected file does not contain a drawsvg drawing.")
+
+        parsed_scene_rect = parsed_scene.sceneRect()
+        parsed_items = [
+            item for item in reversed(parsed_scene.items()) if item.parentItem() is None
+        ]
+        clear_method = getattr(view, "clear_canvas", None) if view is not None else None
+        transaction_context = nullcontext()
+        history_getter = getattr(view, "history", None) if view is not None else None
+        if callable(history_getter):
+            transaction = getattr(history_getter(), "transaction", None)
+            if callable(transaction):
+                transaction_context = transaction()
+        with transaction_context:
+            if callable(clear_method):
+                clear_method()
+            else:
+                target_scene.clear()
+            target_scene.setSceneRect(parsed_scene_rect)
+            for item in parsed_items:
+                parsed_scene.removeItem(item)
+                target_scene.addItem(item)
+
+            if view is not None:
+                layer_manager_getter = getattr(view, "layer_manager", None)
+                if callable(layer_manager_getter):
+                    sync_items = getattr(layer_manager_getter(), "sync_items", None)
+                    if callable(sync_items):
+                        sync_items()
+                ensure_pages = getattr(view, "ensure_pages_for_scene_items", None)
+                if callable(ensure_pages):
+                    ensure_pages()
 
         if parent is not None:
             parent.statusBar().showMessage(f"Loaded: {path}", 5000)
+        return path
     except Exception as e:
         QtWidgets.QMessageBox.critical(parent, "Error loading file", str(e))
+        return None

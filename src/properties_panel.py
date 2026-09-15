@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import math
 import weakref
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtUiTools import QUiLoader
@@ -30,6 +31,8 @@ from items import (
     TextItem,
     TriangleItem,
 )
+from property_command_service import PropertyCommandService
+from style_presets import STYLE_VERSION, apply_preset, apply_style_data, preset_choices, style_data
 
 if TYPE_CHECKING:  # pragma: no cover - only for typing
     from canvas_view import CanvasView
@@ -245,6 +248,7 @@ class PropertiesPanel(QtWidgets.QWidget):
                 self._layout.setStretch(index, 1)
 
         self._cache_object_widgets()
+        self._install_style_preset_section()
         self._cache_text_widgets()
         self._initialize_combobox_options()
         self._initialize_half_width_tracking()
@@ -291,6 +295,10 @@ class PropertiesPanel(QtWidgets.QWidget):
 
         self._spin_pos_x = self._require_widget(QtWidgets.QDoubleSpinBox, "spinPosX")
         self._spin_pos_y = self._require_widget(QtWidgets.QDoubleSpinBox, "spinPosY")
+        for spin in (self._spin_pos_x, self._spin_pos_y):
+            spin.setReadOnly(True)
+            spin.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
+            spin.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
         self._spin_rotation = self._require_widget(QtWidgets.QDoubleSpinBox, "spinRotation")
         self._spin_scale = self._require_widget(QtWidgets.QDoubleSpinBox, "spinScale")
         self._spin_z_value = self._require_widget(QtWidgets.QDoubleSpinBox, "spinZValue")
@@ -306,6 +314,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._color_fill = self._require_widget(ColorButton, "colorFill")
         self._spin_head_ratio = self._require_widget(QtWidgets.QDoubleSpinBox, "spinHeadRatio")
         self._spin_shaft_ratio = self._require_widget(QtWidgets.QDoubleSpinBox, "spinShaftRatio")
+        self._slider_hook_depth = self._require_widget(QtWidgets.QSlider, "sliderHookDepth")
         self._spin_hook_depth = self._require_widget(QtWidgets.QDoubleSpinBox, "spinHookDepth")
         self._check_arrow_start = self._require_widget(QtWidgets.QCheckBox, "checkArrowStart")
         self._check_arrow_end = self._require_widget(QtWidgets.QCheckBox, "checkArrowEnd")
@@ -324,12 +333,58 @@ class PropertiesPanel(QtWidgets.QWidget):
             self._group_line_arrows,
         ]
 
+    def _install_style_preset_section(self) -> None:
+        self._group_style_preset = QtWidgets.QGroupBox("Style", self)
+        form = QtWidgets.QFormLayout(self._group_style_preset)
+        self._combo_style_preset = QtWidgets.QComboBox(self._group_style_preset)
+        for preset_id, label in preset_choices():
+            self._combo_style_preset.addItem(label, preset_id)
+        form.addRow("Preset", self._combo_style_preset)
+        self._check_style_shadow = QtWidgets.QCheckBox("Enable shadow", self._group_style_preset)
+        form.addRow(self._check_style_shadow)
+        self._spin_shadow_x = QtWidgets.QDoubleSpinBox(self._group_style_preset)
+        self._spin_shadow_y = QtWidgets.QDoubleSpinBox(self._group_style_preset)
+        self._spin_shadow_blur = QtWidgets.QDoubleSpinBox(self._group_style_preset)
+        for spin in (self._spin_shadow_x, self._spin_shadow_y):
+            spin.setRange(-100.0, 100.0)
+            spin.setDecimals(1)
+        self._spin_shadow_blur.setRange(0.0, 100.0)
+        self._spin_shadow_blur.setDecimals(1)
+        self._color_shadow = ColorButton(QtGui.QColor("#66000000"), self._group_style_preset)
+        form.addRow("Offset X", self._spin_shadow_x)
+        form.addRow("Offset Y", self._spin_shadow_y)
+        form.addRow("Blur", self._spin_shadow_blur)
+        form.addRow("Color", self._color_shadow)
+        layout = self._group_fill.parentWidget().layout()
+        if isinstance(layout, QtWidgets.QVBoxLayout):
+            layout.addWidget(self._group_style_preset)
+        self._object_groups.append(self._group_style_preset)
+        self._combo_style_preset.activated.connect(self._apply_selected_preset)
+        self._check_style_shadow.toggled.connect(self._write_shadow_style)
+        self._spin_shadow_x.valueChanged.connect(self._write_shadow_style)
+        self._spin_shadow_y.valueChanged.connect(self._write_shadow_style)
+        self._spin_shadow_blur.valueChanged.connect(self._write_shadow_style)
+        self._color_shadow.colorChanged.connect(lambda _color: self._write_shadow_style())
+
+    def _apply_selected_preset(self) -> None:
+        if self._current_item is not None and apply_preset(self._current_item, str(self._combo_style_preset.currentData())):
+            self._after_property_change()
+            self._rebuild_for_item(self._current_item)
+
+    def _write_shadow_style(self) -> None:
+        if self._current_item is None:
+            return
+        data = style_data(self._current_item) or {"version": STYLE_VERSION}
+        data["shadow"] = ({"offset_x": self._spin_shadow_x.value(), "offset_y": self._spin_shadow_y.value(), "blur_radius": self._spin_shadow_blur.value(), "color": self._color_shadow.color().name(QtGui.QColor.NameFormat.HexArgb)} if self._check_style_shadow.isChecked() else {})
+        apply_style_data(self._current_item, data)
+        self._after_property_change()
+
     def _cache_text_widgets(self) -> None:
         self._group_label = self._require_widget(QtWidgets.QGroupBox, "groupLabel")
         self._group_text_content = self._require_widget(QtWidgets.QGroupBox, "groupTextContent")
         self._group_text_format = self._require_widget(QtWidgets.QGroupBox, "groupTextFormat")
 
-        self._line_label_text = self._require_widget(QtWidgets.QLineEdit, "lineLabelText")
+        self._plain_label_text = self._require_widget(PlainTextEditor, "plainLabelText")
         self._combo_label_font = self._require_widget(QtWidgets.QFontComboBox, "comboLabelFont")
         self._spin_label_font_size = self._require_widget(QtWidgets.QDoubleSpinBox, "spinLabelFontSize")
         self._color_label_font = self._require_widget(ColorButton, "colorLabelFont")
@@ -376,7 +431,6 @@ class PropertiesPanel(QtWidgets.QWidget):
 
     def _initialize_half_width_tracking(self) -> None:
         widgets = [
-            self._line_label_text,
             self._combo_label_font,
             self._combo_label_horizontal,
             self._combo_label_vertical,
@@ -406,7 +460,7 @@ class PropertiesPanel(QtWidgets.QWidget):
             base = self.minimumWidth()
         if base <= 0:
             base = 200
-        return max(40,80)
+        return max(40, base // 2)
 
     def _track_half_width_widget(self, widget: QtWidgets.QWidget) -> None:
         if widget is None:
@@ -438,6 +492,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._title_label.setText("Properties")
         self._info_label.setText("No object selected.")
         self._info_label.show()
+        self._set_transform_controls_enabled(True)
         self._current_item = None
         self._latest_object_data = {}
         self._latest_text_data = {}
@@ -446,6 +501,44 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._reset_text_sections()
         self._set_tab_widget_active(False)
         self._set_empty_spacer_visible(True)
+
+    def show_selected_item_properties(
+        self,
+        items: list[QtWidgets.QGraphicsItem],
+        command_service: PropertyCommandService,
+    ) -> None:
+        """Display common transform controls for an explicitly supplied selection.
+
+        This is the T-023 integration point.  Existing snapshot-driven single-item
+        bindings remain unchanged; a later canvas-owner ticket may call this method
+        once it supplies the selected items.
+        """
+
+        if len(items) < 2:
+            self.clear()
+            return
+        self.clear()
+        self._title_label.setText("Properties")
+        self._info_label.setText(f"{len(items)} objects selected.")
+        self._info_label.show()
+        self._group_transform.show()
+        controls = (
+            (self._spin_pos_x, "position_x"),
+            (self._spin_pos_y, "position_y"),
+            (self._spin_rotation, "rotation"),
+            (self._spin_scale, "scale"),
+            (self._spin_z_value, "z_value"),
+        )
+        writable = command_service.can_write(items)
+        for spin, key in controls:
+            spin.setEnabled(writable)
+            self._bind_double_spin(
+                spin,
+                lambda key=key: command_service.common_value(items, key),
+                lambda value, key=key: command_service.apply(items, key, value),
+            )
+        self._set_tab_widget_active(True)
+        self._set_empty_spacer_visible(False)
 
     def show_multi_selection(self, count: int) -> None:
         self._title_label.setText("Properties")
@@ -498,6 +591,7 @@ class PropertiesPanel(QtWidgets.QWidget):
     ) -> None:
         self._title_label.setText(f"Properties – {title}")
         self._info_label.hide()
+        self._set_transform_controls_enabled(True)
 
         if item is not self._current_item:
             self._current_item = item
@@ -535,6 +629,16 @@ class PropertiesPanel(QtWidgets.QWidget):
             binding.deleteLater()
         self._object_bindings.clear()
         self._text_bindings.clear()
+
+    def _set_transform_controls_enabled(self, enabled: bool) -> None:
+        for spin in (
+            self._spin_pos_x,
+            self._spin_pos_y,
+            self._spin_rotation,
+            self._spin_scale,
+            self._spin_z_value,
+        ):
+            spin.setEnabled(enabled)
 
     def _bindings_for(self, group: str) -> list[PropertyBinding]:
         return self._object_bindings if group == "object" else self._text_bindings
@@ -634,6 +738,30 @@ class PropertiesPanel(QtWidgets.QWidget):
         )
         binding.refresh()
         self._bindings_for(group).append(binding)
+
+    def _bind_ratio_slider(
+        self,
+        slider: QtWidgets.QSlider,
+        display: QtWidgets.QDoubleSpinBox,
+        getter: Callable[[], Number],
+        setter: Callable[[Number], bool | None],
+    ) -> None:
+        def write_value(widget: QtWidgets.QSlider, value: Any) -> None:
+            ratio = float(value)
+            widget.setValue(round(ratio * 100.0))
+            self._set_double_spin_value(display, ratio)
+
+        binding = PropertyBinding(
+            slider,
+            getter,
+            setter,
+            slider.valueChanged,
+            lambda widget: float(widget.value()) / 100.0,
+            write_value,
+            self._after_property_change,
+        )
+        binding.refresh()
+        self._bindings_for("object").append(binding)
 
     def _bind_checkbox(
         self,
@@ -872,6 +1000,22 @@ class PropertiesPanel(QtWidgets.QWidget):
                 lambda color: self._set_brush_color(item, color),
             )
 
+        if hasattr(item, "setGraphicsEffect"):
+            self._group_style_preset.show()
+            data = style_data(item) or {}
+            shadow = data.get("shadow") if isinstance(data.get("shadow"), dict) else {}
+            with QtCore.QSignalBlocker(self._combo_style_preset):
+                preset_id = data.get("preset_id")
+                index = self._combo_style_preset.findData(preset_id)
+                self._combo_style_preset.setCurrentIndex(max(0, index))
+            with QtCore.QSignalBlocker(self._check_style_shadow):
+                self._check_style_shadow.setChecked(bool(shadow))
+            for spin, key in ((self._spin_shadow_x, "offset_x"), (self._spin_shadow_y, "offset_y"), (self._spin_shadow_blur, "blur_radius")):
+                with QtCore.QSignalBlocker(spin):
+                    spin.setValue(float(shadow.get(key, 0.0)))
+            with QtCore.QSignalBlocker(self._color_shadow):
+                self._color_shadow.setColor(str(shadow.get("color", "#66000000")))
+
         if isinstance(item, BlockArrowItem):
             self._group_arrow_shape.show()
             self._bind_double_spin(
@@ -887,7 +1031,8 @@ class PropertiesPanel(QtWidgets.QWidget):
 
         if isinstance(item, CurvyBracketItem):
             self._group_bracket.show()
-            self._bind_double_spin(
+            self._bind_ratio_slider(
+                self._slider_hook_depth,
                 self._spin_hook_depth,
                 item.hook_ratio,
                 lambda value: self._set_bracket_hook_ratio(item, value),
@@ -928,8 +1073,8 @@ class PropertiesPanel(QtWidgets.QWidget):
 
     def _build_label_section(self, item: ShapeLabelMixin) -> None:
         self._group_label.show()
-        self._bind_line_edit(
-            self._line_label_text,
+        self._bind_plain_text(
+            self._plain_label_text,
             item.label_text,
             lambda value: self._set_label_text(item, value),
             group="text",

@@ -1,11 +1,3 @@
-# drawsvg-ui
-# Copyright (C) 2025 Andreas Wambold
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-
 from PySide6 import QtCore, QtGui
 
 PALETTE_MIME = "application/x-drawsvg-shape"
@@ -21,6 +13,7 @@ SHAPES = (
     "Arrow",
     "Block Arrow",
     "Curvy Right Bracket",
+    "Curvy Left Bracket",
     "Text",
     "Folder Tree",
 )
@@ -37,8 +30,18 @@ DEFAULTS = {
     "Arrow":     (150.0, 0.0),     # length, (unused)
     "Block Arrow": (200.0, 120.0), # w, h
     "Curvy Right Bracket": (80.0, 160.0),  # w, h
+    "Curvy Left Bracket": (80.0, 160.0),  # w, h
     "Text":      (100.0, 50.0),    # placeholder bbox
     "Folder Tree": (240.0, 200.0), # auto-sized, reference bbox
+    "Hexagon": (160.0, 100.0),
+    "Parallelogram": (160.0, 100.0),
+    "Database": (160.0, 110.0),
+    "Document": (160.0, 110.0),
+    "Multiple Document": (170.0, 120.0),
+    "Cloud": (170.0, 110.0),
+    "Callout": (170.0, 120.0),
+    "Table": (240.0, 150.0),
+    "Swimlane": (300.0, 180.0),
 }
 
 PEN_NORMAL = QtGui.QPen(QtGui.QColor("#000"), 2)
@@ -48,13 +51,6 @@ PEN_SELECTED.setCosmetic(True)
 DEFAULT_FILL = QtGui.QBrush(QtCore.Qt.white)
 DEFAULT_TEXT_COLOR = QtGui.QColor("#000")
 DEFAULT_FONT_FAMILY = "Arial"
-
-# Hover preview for selectable items in the canvas.
-# Increase/decrease strength for a stronger/weaker effect.
-HOVER_PREVIEW_STRENGTH = 0.8
-# Total number of X markers drawn around the hovered item's border.
-HOVER_PREVIEW_X_COUNT = 16
-HOVER_PREVIEW_COLOR = QtGui.QColor("#14b5ff")
 
 # Default dash patterns used when exporting/importing common pen styles.
 PEN_STYLE_DASH_ARRAYS = {

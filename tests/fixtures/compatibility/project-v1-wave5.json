@@ -1,0 +1,28 @@
+{
+  "format": "drawsvg-ui-project",
+  "format_version": 1,
+  "document_id": "6f2fa1ae-4e59-4d47-8901-143dcf5c8b80",
+  "scene": {
+    "schema_version": 1,
+    "grid_visible": true,
+    "items": [
+      {
+        "type_id": "Diamond",
+        "stack_order": 0,
+        "pos": [80.0, 120.0],
+        "item_style": {
+          "version": 1,
+          "preset_id": "soft-shadow",
+          "shadow": {
+            "offset_x": 3.0,
+            "offset_y": 3.0,
+            "blur_radius": 5.0,
+            "color": "#66000000"
+          }
+        }
+      }
+    ]
+  },
+  "assets": [],
+  "thumbnail": null
+}

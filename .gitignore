@@ -3,3 +3,8 @@ __pycache__/
 .venv/
 dist/
 src/drawsvg_ui.egg-info/
+
+build/
+.pytest_cache/
+.ruff_cache/
+.gitnexus/

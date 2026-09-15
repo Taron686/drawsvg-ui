@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 PACKAGE_NAME = "drawsvg-ui"
-GITHUB_URL = "https://github.com/Taron686/UI_drawsvg"
+GITHUB_URL = "https://github.com/Taron686/drawsvg-ui"
 
 
 def get_version() -> str:

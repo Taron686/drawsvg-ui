@@ -13,7 +13,7 @@ The goal of this project is to help users quickly prototype and generate `drawsv
 
 ## Requirements
 
-The application requires **Python 3.10**.  
+The application requires **Python 3.10 or newer**.
 Dependencies include:
 
 * **drawsvg**  
@@ -75,6 +75,27 @@ python src/main.py
 
 ### Import/Export
 * Load or save scenes as ready-to-run `drawsvg` Python files via the `File` menu.
+
+## Version 0.7.0 — local integration candidate
+
+This candidate integrates the editor development from `UI_drawsvg` into this repository.
+It adds native `.drawsvg` project files, connectors, free paths, diagram shapes,
+layers, clipboard operations, style presets, templates, guides and document
+lifecycle support. SVG, PDF and configurable PNG export use the shared Qt renderer.
+The existing canvas hover preview and aligned Python text export are retained.
+
+No release has been published for this integration. See
+[the integration report](docs/integration-0.7.0.md) for validation and remaining
+release limitations, including the existing Python-export visual-parity gate.
+
+### Development checks
+
+```bash
+python -m pip install -e ".[dev]"
+python -m pytest -q
+python -m ruff check .
+python -m build
+```
 
 ## License
 

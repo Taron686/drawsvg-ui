@@ -1,0 +1,55 @@
+name: Export tool integrity
+
+on:
+  pull_request:
+    paths:
+      - "tests/export-tools.lock"
+      - "tests/export_test_tools.py"
+      - "tests/test_export_test_tools.py"
+      - ".github/workflows/export-tool-integrity.yml"
+  push:
+    branches: [main, develop, master]
+    paths:
+      - "tests/export-tools.lock"
+      - "tests/export_test_tools.py"
+      - "tests/test_export_test_tools.py"
+      - ".github/workflows/export-tool-integrity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-locked-tools:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Download and verify locked tool artifacts
+        shell: pwsh
+        run: |
+          $toolLock = Get-Content tests/export-tools.lock -Raw | ConvertFrom-Json
+          $resvg = $toolLock.resvg.platforms.'windows-x86_64'
+          $archive = Join-Path $PWD $resvg.asset
+          $extractDirectory = Join-Path $PWD 'resvg-release'
+
+          Invoke-WebRequest -Uri $resvg.url -OutFile $archive
+          $env:PYTHONPATH = Join-Path $PWD 'tests'
+          $env:RESVG_ARCHIVE = $archive
+          python -c "import os; from pathlib import Path; from export_test_tools import load_tool_lock, verify_resvg_archive; verify_resvg_archive(Path(os.environ['RESVG_ARCHIVE']), load_tool_lock(), platform_key='windows-x86_64')"
+
+          Expand-Archive -LiteralPath $archive -DestinationPath $extractDirectory
+          $binary = Get-ChildItem -Path $extractDirectory -Recurse -File -Filter $resvg.binary | Select-Object -First 1
+          if ($null -eq $binary) { throw "Locked resvg binary '$($resvg.binary)' was not found in the archive." }
+          $env:RESVG_BINARY = $binary.FullName
+          python -c "import os; from pathlib import Path; from export_test_tools import load_tool_lock, verify_resvg_executable; verify_resvg_executable(Path(os.environ['RESVG_BINARY']), load_tool_lock(), platform_key='windows-x86_64')"
+
+          $pdfium = $toolLock.pypdfium2.platforms.'windows-x86_64'
+          $wheel = Join-Path $PWD $pdfium.wheel
+          Invoke-WebRequest -Uri $pdfium.url -OutFile $wheel
+          $env:PYPDFIUM2_WHEEL = $wheel
+          python -c "import os; from pathlib import Path; from export_test_tools import load_tool_lock, verify_pypdfium2_wheel; verify_pypdfium2_wheel(Path(os.environ['PYPDFIUM2_WHEEL']), load_tool_lock(), platform_key='windows-x86_64')"

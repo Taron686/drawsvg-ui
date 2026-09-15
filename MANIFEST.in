@@ -1,0 +1,4 @@
+include requirements.txt
+recursive-include docs *.md *.json
+recursive-include tests *.py *.json *.lock
+recursive-include benchmarks *.py
