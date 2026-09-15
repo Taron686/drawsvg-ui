@@ -99,7 +99,7 @@ python -m build
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 (GPLv3).
+This project is licensed under the GNU General Public License version 2 or later (GPL-2.0-or-later); see [LICENSE](LICENSE).
 
 You may use, modify and distribute this software under the terms of the GPL.
 Any derivative work must also be distributed under the same license.

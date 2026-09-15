@@ -71,9 +71,9 @@ public drawsvg-ui/main, their local edits and remote branches are unchanged.
 - Existing strict expected failure: drawsvg-Python visual export parity.
 - Existing expected failure: local positions in nested-group roundtrips.
 - Independent raster-tool checks require provisioned resvg and pypdfium2.
-- The inherited LICENSE file contains GPLv2, whereas public metadata and source
-  notices declare GPLv3-or-later. This discrepancy is preserved for the owner to
-  resolve before publication; the integration makes no licensing decision.
+- License metadata and source notices now match the owner-confirmed GPLv2
+  license file: GPL-2.0-or-later, retaining the existing "or later" grant.
+  The LICENSE text itself is unchanged.
 - Uncommitted edits in the original `UI_drawsvg` checkout are not included.
 
 This is a local integration candidate, not a distribution release approval.
