@@ -208,6 +208,8 @@ class ExportRenderer:
         writer = QtGui.QPdfWriter(str(output_path))
         writer.setResolution(72)
         writer.setPageSize(self._pdf_page_size(source_rects[0]))
+        # The page already matches the content; Qt's default margins shift and clip it.
+        writer.setPageMargins(QtCore.QMarginsF(0.0, 0.0, 0.0, 0.0))
         self._report_font_fallbacks(request)
         with self._temporary_export_state(request.hidden_items):
             painter = QtGui.QPainter(writer)
@@ -239,7 +241,7 @@ class ExportRenderer:
                 raise ValueError("Cannot export an empty selection")
             rect = QtCore.QRectF()
             for item in selected:
-                rect = rect.united(item.sceneBoundingRect())
+                rect = rect.united(self._item_content_rect(item))
             return (self._valid_rect(rect),)
 
         if request.area is ExportArea.CURRENT_PAGE:
@@ -256,8 +258,16 @@ class ExportRenderer:
             rect = QtCore.QRectF()
             for item in self._scene.items():
                 if item.isVisible():
-                    rect = rect.united(item.sceneBoundingRect())
+                    rect = rect.united(self._item_content_rect(item))
         return (self._valid_rect(rect),)
+
+    @staticmethod
+    def _item_content_rect(item: QtWidgets.QGraphicsItem) -> QtCore.QRectF:
+        if isinstance(item, QtWidgets.QGraphicsPathItem):
+            # Path-item boundingRect includes off-curve Bezier control points.
+            # Bound the stroked shape after transforming it, not its loose box.
+            return item.mapToScene(item.shape()).boundingRect()
+        return item.sceneBoundingRect()
 
     @staticmethod
     def _valid_rect(rect: QtCore.QRectF) -> QtCore.QRectF:

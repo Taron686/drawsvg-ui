@@ -59,7 +59,7 @@ python src/main.py
 * Rubber-band selection; add to selection with `Ctrl`/`Shift` click; duplicate selection with `Ctrl` + drag.
 * Resize via handles; items snap while moving/resizing unless `Alt` is held.
 * Align multiple items (left/center/right, top/middle/bottom, snap to grid) from the context menu.
-* Group/ungroup selections (`Ctrl+G` / `Ctrl+Shift+G`) and change z-order (bring forward/back).
+* Group selections (`Ctrl+G`); ungroup an entire selection including nested groups (`Ctrl+Shift+G`); change z-order (bring forward/back).
 * Delete with the `Delete` key or clear everything via `Edit → Clear canvas`. Full undo/redo stack (`Ctrl+Z`, `Ctrl+Y` / `Ctrl+Shift+Z`).
 
 ### Styling, text, and labels
@@ -76,7 +76,15 @@ python src/main.py
 ### Import/Export
 * Load or save scenes as ready-to-run `drawsvg` Python files via the `File` menu.
 
-## Version 0.7.0 — local integration candidate
+## Version 0.7.1
+
+This release fixes grouped selection handles, arrow selection outlines, editing
+rotated arrows, recursive ungrouping and restoring group pivots during undo.
+PDF export preserves page-edge content and arrowhead contours; curved paths use
+tight export bounds. The public hover preview and aligned Python text export
+remain available.
+
+### Editor integration introduced in 0.7.0
 
 This candidate integrates the editor development from `UI_drawsvg` into this repository.
 It adds native `.drawsvg` project files, connectors, free paths, diagram shapes,
@@ -84,9 +92,8 @@ layers, clipboard operations, style presets, templates, guides and document
 lifecycle support. SVG, PDF and configurable PNG export use the shared Qt renderer.
 The existing canvas hover preview and aligned Python text export are retained.
 
-No release has been published for this integration. See
-[the integration report](docs/integration-0.7.0.md) for validation and remaining
-release limitations, including the existing Python-export visual-parity gate.
+See [the integration report](docs/integration-0.7.0.md) for validation of the
+original integration and the existing Python-export visual-parity limitation.
 
 ### Development checks
 

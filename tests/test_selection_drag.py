@@ -2,6 +2,51 @@ import pytest
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtTest import QTest
 
+from items import GroupItem
+
+
+@pytest.mark.parametrize(
+    "shape",
+    ("Arrow", "Line", "Free Polyline", "Free Polygon", "Bezier Path", "Rectangle"),
+)
+def test_grouping_hides_child_handles_until_ungrouped(
+    application, canvas_view, shape
+):
+    rectangle = canvas_view.add_shape(
+        "Rectangle", QtCore.QPointF(100.0, 100.0), snap_to_grid=False
+    )
+    item = canvas_view.add_shape(
+        shape, QtCore.QPointF(100.0, 250.0), snap_to_grid=False
+    )
+    assert rectangle is not None and item is not None
+    scene = canvas_view.scene()
+    scene.clearSelection()
+    rectangle.setSelected(True)
+    item.setSelected(True)
+    handles = item._handles + getattr(item, "_mid_handles", [])
+    rotation_handle = getattr(item, "_rotation_handle", None)
+    if rotation_handle is not None:
+        handles = handles + [rotation_handle]
+    assert handles and all(handle.isVisible() for handle in handles)
+
+    canvas_view._group_selected_items()
+    group = item.parentItem()
+    assert isinstance(group, GroupItem)
+    scene.clearSelection()
+    application.processEvents()
+
+    assert not scene.selectedItems()
+    assert not item.isSelected()
+    assert all(not handle.isVisible() for handle in handles)
+
+    group.setSelected(True)
+    assert all(not handle.isVisible() for handle in handles)
+    canvas_view._ungroup_selected_items()
+    assert item.parentItem() is None
+    item.setSelected(True)
+    assert all(handle.isVisible() for handle in handles)
+    scene.clearSelection()
+
 
 @pytest.mark.parametrize("grabbed", (0, 1, 2))
 @pytest.mark.parametrize("free_move", (False, True))

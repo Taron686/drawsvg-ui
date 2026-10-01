@@ -33,6 +33,7 @@ from items import (
     EllipseItem,
     FolderTreeItem,
     GroupItem,
+    HandleAwareItemMixin,
     LineItem,
     RectItem,
     ResizableItem,
@@ -1051,6 +1052,8 @@ class CanvasView(QtWidgets.QGraphicsView):
             self._bitmap_assets.ensure(item.asset)
             base.update(serialize_bitmap_item(item))
         elif isinstance(item, GroupItem):
+            origin = item.transformOriginPoint()
+            base["transform_origin"] = [float(origin.x()), float(origin.y())]
             children = [
                 child
                 for child in item.childItems()
@@ -1187,6 +1190,12 @@ class CanvasView(QtWidgets.QGraphicsView):
             self._notify_selection_snapshot()
 
     def _apply_item_transform(self, item: QtWidgets.QGraphicsItem, data: Mapping[str, Any]) -> None:
+        if isinstance(item, GroupItem):
+            origin = data.get("transform_origin")
+            if isinstance(origin, (list, tuple)) and len(origin) == 2:
+                item.setTransformOriginPoint(float(origin[0]), float(origin[1]))
+            else:
+                item.setTransformOriginPoint(item._contentRect().center())
         transform = data.get("transform")
         if isinstance(transform, (list, tuple)) and len(transform) == 9:
             item.setTransform(QtGui.QTransform(*(float(value) for value in transform)))
@@ -1232,7 +1241,8 @@ class CanvasView(QtWidgets.QGraphicsView):
                 continue
             scene.addItem(child)
             group.addToGroup(child)
-            self._apply_item_transform(child, child_data)
+            if not isinstance(child, GroupItem):
+                self._apply_item_transform(child, child_data)
             SceneCodec.restore_item_metadata(child, child_data)
             self._layer_manager.restore_item_state(child, child_data)
             child.setSelected(False)
@@ -1250,6 +1260,7 @@ class CanvasView(QtWidgets.QGraphicsView):
                 sub_children = child_data.get("children")
                 if isinstance(sub_children, list):
                     self._restore_group_children(child, sub_children)
+                self._apply_item_transform(child, child_data)
 
     def _restore_scene_state(self, state: Mapping[str, Any]) -> None:
         scene = self.scene()
@@ -2268,7 +2279,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         selected = [
             item
             for item in self.scene().selectedItems()
-            if not isinstance(item, ConnectorItem)
+            if item.parentItem() is None and not isinstance(item, ConnectorItem)
         ]
         if len(selected) < 2:
             return
@@ -2290,7 +2301,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             it.setFlag(
                 QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False
             )
-            if isinstance(it, ResizableItem):
+            if isinstance(it, HandleAwareItemMixin):
                 it.hide_handles()
 
         group.setTransformOriginPoint(group.boundingRect().center())
@@ -2300,30 +2311,35 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     @_undo_transaction
     def _ungroup_selected_items(self):
-        selected = self.scene().selectedItems()
-        changed = False
-        for it in selected:
-            if isinstance(it, GroupItem):
-                it.setSelected(False)
-                children = [
-                    c
-                    for c in it.childItems()
-                    if not isinstance(c, (ResizeHandle, RotationHandle))
-                ]
-                for child in children:
-                    it.removeFromGroup(child)
-                    locked = bool(getattr(child, "locked", False))
-                    child.setFlag(
-                        QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
-                        not locked,
-                    )
-                    child.setFlag(
-                        QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
-                        not locked,
-                    )
-                    child.setSelected(False)
-                self.scene().removeItem(it)
-                changed = True
+        groups = [
+            item for item in self.scene().selectedItems()
+            if item.parentItem() is None and isinstance(item, GroupItem)
+        ]
+        changed = bool(groups)
+        while groups:
+            group = groups.pop()
+            group.setSelected(False)
+            children = [
+                child for child in group.childItems()
+                if not isinstance(child, (ResizeHandle, RotationHandle))
+            ]
+            for child in children:
+                # removeFromGroup preserves the complete scene transform.
+                group.removeFromGroup(child)
+                if isinstance(child, GroupItem):
+                    groups.append(child)
+                    continue
+                locked = bool(getattr(child, "locked", False))
+                child.setFlag(
+                    QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
+                    not locked,
+                )
+                child.setFlag(
+                    QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
+                    not locked,
+                )
+                child.setSelected(False)
+            self.scene().removeItem(group)
         if changed:
             self.scene().clearSelection()
             self._prune_empty_pages()
@@ -2903,7 +2919,10 @@ class CanvasView(QtWidgets.QGraphicsView):
 
         menu = QtWidgets.QMenu(self)
 
-        selected = self.scene().selectedItems()
+        # Qt also reports children of selected groups as selected.
+        selected = [
+            item for item in self.scene().selectedItems() if item.parentItem() is None
+        ]
         group_act = ungroup_act = None
         if len(selected) >= 2:
             group_act = menu.addAction("Group")

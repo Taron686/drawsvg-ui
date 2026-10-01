@@ -135,8 +135,18 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         for point in self._points[1:]:
             path.lineTo(point)
         self.setPath(path)
+        center = self._compute_center()
+        origin_delta = center - self.transformOriginPoint()
+        rotation_scale = QtGui.QTransform().rotate(self.rotation())
+        rotation_scale.scale(self.scale(), self.scale())
+        offset = rotation_scale.map(origin_delta) - origin_delta
+        # Recenter the pivot without shifting the vertices in scene coordinates.
+        if not offset.isNull():
+            self._points = [point + offset for point in self._points]
+            path.translate(offset)
+            self.setPath(path)
         self._update_length()
-        self.setTransformOriginPoint(self._compute_center())
+        self.setTransformOriginPoint(center + offset)
 
     def insert_point(self, index: int, pos: QtCore.QPointF) -> None:
         self._points.insert(index, QtCore.QPointF(pos))
@@ -374,14 +384,27 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
             painter.setPen(arrow_pen)
             painter.setBrush(self.pen().color())
             for polygon in arrow_polygons:
-                painter.drawPolygon(polygon)
+                if (
+                    painter.paintEngine().type() == QtGui.QPaintEngine.Type.Pdf
+                    and not arrow_pen.isCosmetic()
+                ):
+                    # PDF miter joins bevel corners differently from Qt's raster
+                    # engine. Resolve the outline in Qt and export a vector fill.
+                    outline = QtGui.QPainterPath()
+                    outline.addPolygon(polygon)
+                    outline.closeSubpath()
+                    stroker = QtGui.QPainterPathStroker(arrow_pen)
+                    painter.setPen(QtCore.Qt.PenStyle.NoPen)
+                    painter.drawPath(outline.united(stroker.createStroke(outline)))
+                else:
+                    painter.drawPolygon(polygon)
             painter.restore()
 
         if _should_draw_selection(self):
             painter.save()
             painter.setPen(PEN_SELECTED)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-            painter.drawRect(self.boundingRect())
+            painter.drawPath(self.shape())
             painter.restore()
 
 
