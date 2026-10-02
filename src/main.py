@@ -22,6 +22,7 @@ def main():
     start_session()
     try:
         app = QtWidgets.QApplication(sys.argv)
+        app.setStyle("Fusion")
         win = MainWindow(
             recovery_enabled=RECOVERY_ENABLED,
             check_startup_recovery=RECOVERY_ENABLED,

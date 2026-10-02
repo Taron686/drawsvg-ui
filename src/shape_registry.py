@@ -465,6 +465,7 @@ def _serialize_text(item: QtWidgets.QGraphicsItem) -> dict[str, Any]:
         "color": _color_to_data(item.defaultTextColor()),
         "alignment": [horizontal, vertical],
         "direction": item.text_direction(),
+        "auto_size": item.auto_sizes_to_text(),
     }
     font_size = _font_size(item.font())
     if font_size:
@@ -476,7 +477,7 @@ def _serialize_text(item: QtWidgets.QGraphicsItem) -> dict[str, Any]:
 
 def _restore_text(data: Mapping[str, Any]) -> TextItem:
     width, height = _size(data, DEFAULTS["Text"])
-    item = TextItem(0.0, 0.0, width, height)
+    item = TextItem(0.0, 0.0, width, height, auto_size=False)
     if isinstance(data.get("text"), str):
         item.setPlainText(str(data["text"]))
     if isinstance(data.get("font"), str):
@@ -495,6 +496,8 @@ def _restore_text(data: Mapping[str, Any]) -> TextItem:
         )
     if isinstance(data.get("direction"), str):
         item.set_text_direction(str(data["direction"]))
+    if data.get("auto_size") is True:
+        item.fit_to_text()
     return item
 
 

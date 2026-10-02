@@ -76,6 +76,13 @@ python src/main.py
 ### Import/Export
 * Load or save scenes as ready-to-run `drawsvg` Python files via the `File` menu.
 
+## Version 0.7.2
+
+Text boxes now fit their content automatically until manually resized, with a
+Fit to text action and preserved sizing mode in native and Python files. Group
+selection bounds exclude temporary child handles. Light and dark themes use
+consistent Fusion styling, readable controls and stable widget geometry.
+
 ## Version 0.7.1
 
 This release fixes grouped selection handles, arrow selection outlines, editing

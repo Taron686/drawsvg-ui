@@ -2737,6 +2737,8 @@ class CanvasView(QtWidgets.QGraphicsView):
             make_action("Dotted", QtCore.Qt.PenStyle.DotLine)
 
         def add_text_actions() -> None:
+            fit_action = menu.addAction("Fit to text")
+            actions[fit_action] = lambda item=item: item.fit_to_text()
             text_color_action, text_color_callback = self._create_color_action(
                 menu,
                 "Set text color...",

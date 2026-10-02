@@ -6,7 +6,7 @@ import subprocess
 import sys
 
 import pytest
-from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtTest, QtWidgets
 
 from document_controller import DocumentWindowRegistry
 from export_renderer import ExportRenderer, ExportRequest
@@ -96,7 +96,8 @@ def test_dark_and_light_themes_update_the_complete_window_chrome(
         application.processEvents()
         for widget in themed_widgets:
             palette = QtWidgets.QWidget.palette(widget)
-            assert palette.color(QtGui.QPalette.ColorRole.Window).name() == "#252526"
+            surface_color = "#1e1e1e" if isinstance(widget, QtWidgets.QAbstractItemView) else "#252526"
+            assert palette.color(QtGui.QPalette.ColorRole.Window).name() == surface_color
             assert palette.color(QtGui.QPalette.ColorRole.WindowText).name() == "#f0f0f0"
         assert "background-color: #1e1e1e" in window.styleSheet()
         assert "alternate-background-color: #2d2d30" in window.styleSheet()
@@ -119,15 +120,10 @@ def test_dark_and_light_themes_update_the_complete_window_chrome(
         window._set_theme("light")
         application.processEvents()
         assert window.canvas.backgroundBrush().color() == QtGui.QColor("#f0f0f0")
-        light_palette = window.style().standardPalette()
         for widget in themed_widgets:
             palette = QtWidgets.QWidget.palette(widget)
-            assert palette.color(QtGui.QPalette.ColorRole.Window) == light_palette.color(
-                QtGui.QPalette.ColorRole.Window
-            )
-            assert palette.color(QtGui.QPalette.ColorRole.WindowText) == light_palette.color(
-                QtGui.QPalette.ColorRole.WindowText
-            )
+            assert palette.color(QtGui.QPalette.ColorRole.Window).lightness() > 180
+            assert palette.color(QtGui.QPalette.ColorRole.WindowText).lightness() < 80
         line_image = line_item.icon().pixmap(window.palette.iconSize()).toImage()
         light_line_pixels = (
             line_image.pixelColor(x, y)
@@ -139,6 +135,195 @@ def test_dark_and_light_themes_update_the_complete_window_chrome(
     finally:
         window._force_close = True
         window.close()
+
+
+def test_light_theme_stays_light_with_a_dark_standard_palette(application, tmp_path) -> None:
+    class DarkSystemStyle(QtWidgets.QProxyStyle):
+        def standardPalette(self):
+            palette = super().standardPalette()
+            for role in (
+                QtGui.QPalette.ColorRole.Window,
+                QtGui.QPalette.ColorRole.Base,
+                QtGui.QPalette.ColorRole.Button,
+            ):
+                palette.setColor(role, QtGui.QColor("#242424"))
+            for role in (
+                QtGui.QPalette.ColorRole.WindowText,
+                QtGui.QPalette.ColorRole.Text,
+                QtGui.QPalette.ColorRole.ButtonText,
+            ):
+                palette.setColor(role, QtGui.QColor("#f0f0f0"))
+            return palette
+
+    previous_style = application.style().objectName()
+    previous_palette = QtGui.QPalette(application.palette())
+    window = None
+    try:
+        application.setStyle(DarkSystemStyle("Fusion"))
+        assert application.style().standardPalette().color(
+            QtGui.QPalette.ColorRole.Window
+        ).lightness() < 80
+        settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
+        window = _window(tmp_path, DocumentWindowRegistry(), settings)
+        for theme in ("light", "dark", "light"):
+            window._set_theme(theme)
+            application.processEvents()
+            if theme == "dark":
+                continue
+            for widget in (window.centralWidget(), window.properties_panel):
+                palette = QtWidgets.QWidget.palette(widget)
+                for group in (QtGui.QPalette.ColorGroup.Active, QtGui.QPalette.ColorGroup.Inactive):
+                    for role in (
+                        QtGui.QPalette.ColorRole.Window,
+                        QtGui.QPalette.ColorRole.Base,
+                        QtGui.QPalette.ColorRole.Button,
+                    ):
+                        assert palette.color(group, role).lightness() > 180
+                    for role in (
+                        QtGui.QPalette.ColorRole.WindowText,
+                        QtGui.QPalette.ColorRole.Text,
+                        QtGui.QPalette.ColorRole.ButtonText,
+                    ):
+                        assert palette.color(group, role).lightness() < 80
+    finally:
+        if window is not None:
+            window._force_close = True
+            window.close()
+        application.setStyle(previous_style)
+        application.setPalette(previous_palette)
+
+
+@pytest.mark.parametrize("spin_type", [QtWidgets.QSpinBox, QtWidgets.QDoubleSpinBox])
+def test_dark_fusion_spinbox_arrows_are_visible_and_receive_clicks(application, tmp_path, spin_type) -> None:
+    previous_style = application.style().objectName()
+    previous_palette = QtGui.QPalette(application.palette())
+    window = None
+    try:
+        application.setStyle("Fusion")
+        settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
+        window = _window(tmp_path, DocumentWindowRegistry(), settings)
+        window.setAttribute(QtCore.Qt.WidgetAttribute.WA_DontShowOnScreen)
+        spin = spin_type(window)
+        spin.setRange(-1000, 1000)
+        spin.setGeometry(5, 5, 220, 27)
+        window._set_theme("dark")
+        window.show()
+        application.processEvents()
+        spin.clearFocus()
+        image = spin.grab().toImage()
+        option = QtWidgets.QStyleOptionSpinBox()
+        spin.initStyleOption(option)
+        for subcontrol, direction in (
+            (QtWidgets.QStyle.SubControl.SC_SpinBoxUp, 1),
+            (QtWidgets.QStyle.SubControl.SC_SpinBoxDown, -1),
+        ):
+            button = spin.style().subControlRect(
+                QtWidgets.QStyle.ComplexControl.CC_SpinBox, option, subcontrol, spin
+            )
+            assert not button.intersects(spin.lineEdit().geometry())
+            interior = button.adjusted(3, 2, -3, -2)
+            scale = image.devicePixelRatio()
+            assert any(
+                image.pixelColor(x, y).lightness() > 150
+                for x in range(round(interior.left() * scale), round((interior.right() + 1) * scale))
+                for y in range(round(interior.top() * scale), round((interior.bottom() + 1) * scale))
+            ), "No visible arrow inside the spin button"
+            target = spin.childAt(button.center()) or spin
+            spin.setValue(0)
+            QtTest.QTest.mouseClick(
+                target, QtCore.Qt.MouseButton.LeftButton,
+                pos=target.mapFrom(spin, button.center()),
+            )
+            assert spin.value() == direction * spin.singleStep()
+    finally:
+        if window is not None:
+            window._force_close = True
+            window.close()
+        application.setStyle(previous_style)
+        application.setPalette(previous_palette)
+
+
+@pytest.mark.parametrize("surface", ["menus", "scrollbars", "tabs", "panels", "inputs"])
+def test_fusion_chrome_follows_window_theme_with_dark_application_palette(
+    application, tmp_path, surface
+) -> None:
+    previous_style = application.style().objectName()
+    previous_palette = QtGui.QPalette(application.palette())
+    window = None
+    try:
+        application.setStyle("Fusion")
+        system_palette = QtGui.QPalette(application.palette())
+        for role, color in (
+            (QtGui.QPalette.ColorRole.Window, "#1e1e1e"),
+            (QtGui.QPalette.ColorRole.Base, "#2d2d2d"),
+            (QtGui.QPalette.ColorRole.Button, "#3c3c3c"),
+            (QtGui.QPalette.ColorRole.WindowText, "#ffffff"),
+            (QtGui.QPalette.ColorRole.Text, "#ffffff"),
+            (QtGui.QPalette.ColorRole.ButtonText, "#ffffff"),
+        ):
+            system_palette.setColor(role, QtGui.QColor(color))
+        application.setPalette(system_palette)
+        settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
+        window = _window(tmp_path, DocumentWindowRegistry(), settings)
+        window.setAttribute(QtCore.Qt.WidgetAttribute.WA_DontShowOnScreen)
+        window.resize(1200, 800)
+        window.canvas.add_shape("Rectangle", QtCore.QPointF(0, 0))
+        window.canvas.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        window.canvas.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        window.canvas.scene().setSceneRect(-2000, -2000, 4000, 4000)
+        window.show()
+        # Context menus created after startup must also inherit the window's theme.
+        context_menu = QtWidgets.QMenu(window.canvas)
+        context_menu.addAction("Context action")
+        if surface == "menus":
+            widgets = window.findChildren(QtWidgets.QMenu)
+        elif surface == "scrollbars":
+            widgets = [window.canvas.horizontalScrollBar(), window.canvas.verticalScrollBar()]
+        elif surface == "tabs":
+            widgets = window.findChildren(QtWidgets.QTabBar)
+        elif surface == "panels":
+            widgets = [window.palette.viewport(), window.properties_panel, window.menuBar(), window.statusBar()]
+        else:
+            spin = window.properties_panel.findChild(QtWidgets.QDoubleSpinBox, "spinZValue")
+            widgets = [spin.lineEdit()]
+        assert widgets
+        for theme in ("light", "dark", "light"):
+            window._set_theme(theme)
+            application.processEvents()
+            for widget in widgets:
+                widget.ensurePolished()
+                image = widget.grab().toImage()
+                scale = image.devicePixelRatio()
+                if surface == "menus":
+                    point = QtCore.QPoint(widget.width() - 5, 5)
+                elif surface == "scrollbars":
+                    option = QtWidgets.QStyleOptionSlider()
+                    widget.initStyleOption(option)
+                    thumb = widget.style().subControlRect(
+                        QtWidgets.QStyle.ComplexControl.CC_ScrollBar, option,
+                        QtWidgets.QStyle.SubControl.SC_ScrollBarSlider, widget,
+                    )
+                    # Sample the thumb surface, away from Fusion's dark grip marks.
+                    point = thumb.topLeft() + QtCore.QPoint(5, 5)
+                elif surface == "tabs":
+                    point = widget.tabRect(0).topLeft() + QtCore.QPoint(5, 5)
+                else:
+                    point = QtCore.QPoint(widget.width() - 20, 5)
+                pixel = image.pixelColor(round(point.x() * scale), round(point.y() * scale))
+                assert pixel.lightness() > 180 if theme == "light" else pixel.lightness() < 128, (
+                    surface, theme, widget.objectName(), pixel.name()
+                )
+                if surface == "menus":
+                    text_color = widget.palette().color(QtGui.QPalette.ColorRole.WindowText)
+                    minimum_contrast = 100 if widget.isEnabled() else 70
+                    assert abs(pixel.lightness() - text_color.lightness()) > minimum_contrast
+            assert application.palette() == system_palette
+    finally:
+        if window is not None:
+            window._force_close = True
+            window.close()
+        application.setStyle(previous_style)
+        application.setPalette(previous_palette)
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows native style regression")
@@ -234,3 +419,65 @@ def test_theme_does_not_change_export(application, tmp_path) -> None:
         for candidate in registry.windows():
             candidate._force_close = True
             candidate.close()
+
+
+@pytest.mark.parametrize("startup_theme", [None, "light", "dark"])
+@pytest.mark.parametrize("shape", ["Text", "Rectangle"])
+def test_theme_switch_preserves_widget_geometry_and_page_position(
+    application, tmp_path, startup_theme, shape
+) -> None:
+    previous_style = application.style().objectName()
+    previous_palette = QtGui.QPalette(application.palette())
+    window = None
+    try:
+        application.setStyle("Fusion")
+        settings = QtCore.QSettings(
+            str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat
+        )
+        if startup_theme is not None:
+            settings.setValue("view/settings_version", 1)
+            settings.setValue("view/theme", startup_theme)
+        window = _window(tmp_path, DocumentWindowRegistry(), settings)
+        window.setAttribute(QtCore.Qt.WidgetAttribute.WA_DontShowOnScreen)
+        window.resize(1198, 808)
+        window.show()
+        window.mainSplitter.setSizes([220, 598, 380])
+        item = window.canvas.add_shape(shape, QtCore.QPointF(80.0, 80.0))
+        for _ in range(4):
+            application.processEvents()
+
+        panel = window.properties_panel
+        widgets = [
+            window.menuBar(), window.statusBar(), window.mainSplitter,
+            window.right_panel_tabs, panel, window.canvas.viewport(),
+            window.canvas.horizontalScrollBar(), window.canvas.verticalScrollBar(),
+            *[widget for widget in panel.findChildren(QtWidgets.QWidget)
+              if widget.objectName() and widget.isVisible()],
+        ]
+        geometry = [
+            (widget.mapTo(window, QtCore.QPoint()), widget.size(), widget.sizeHint())
+            for widget in widgets
+        ]
+        page_origin = window.canvas.mapFromScene(
+            window.canvas._page_item.sceneBoundingRect().topLeft()
+        )
+        item_transform = item.sceneTransform()
+        for theme in ("dark", "light", "dark", "light"):
+            window._set_theme(theme)
+            for _ in range(4):
+                application.processEvents()
+            for widget, expected in zip(widgets, geometry):
+                actual = (
+                    widget.mapTo(window, QtCore.QPoint()), widget.size(), widget.sizeHint()
+                )
+                assert actual == expected, f"{theme}: {widget.objectName()} changed geometry"
+            assert window.canvas.mapFromScene(
+                window.canvas._page_item.sceneBoundingRect().topLeft()
+            ) == page_origin
+            assert item.sceneTransform() == item_transform
+    finally:
+        if window is not None:
+            window._force_close = True
+            window.close()
+        application.setStyle(previous_style)
+        application.setPalette(previous_palette)

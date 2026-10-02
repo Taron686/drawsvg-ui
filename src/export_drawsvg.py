@@ -36,6 +36,8 @@ from items import (
 
     SplitRoundedRectItem,
 
+    TextItem,
+
 )
 from shape_registry import SHAPE_REGISTRY
 from items.shapes.paths import FreePathItem
@@ -1426,6 +1428,8 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             ]
             base_attrs.append(f"data_box_w={br.width():.4f}")
             base_attrs.append(f"data_box_h={br.height():.4f}")
+            if isinstance(it, TextItem):
+                base_attrs.append(f"data_auto_size={it.auto_sizes_to_text()!r}")
             if h_align:
                 base_attrs.append(f"data_text_h='{h_align}'")
             if v_align:

@@ -921,6 +921,9 @@ def import_drawsvg_py(
                     except Exception:
                         pass
 
+                if kwargs.get("data_auto_size") is True:
+                    item.fit_to_text()
+
                 doc_margin_scene = doc_margin * scale_factor
                 x_pos = text_x - doc_margin_scene
                 # Old files used start anchors even for aligned text; honor the

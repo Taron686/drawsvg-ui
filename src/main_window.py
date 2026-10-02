@@ -40,99 +40,104 @@ _EXPORT_FORMATS = {
     "png": ("PNG image (*.png)", ".png", "export_png"),
     "pdf": ("PDF document (*.pdf)", ".pdf", "export_pdf"),
 }
-_DARK_THEME_STYLESHEET = """
-QMainWindow,
-QMainWindow QWidget {
-    background-color: #252526;
-    color: #f0f0f0;
+# Both themes use the same selectors and geometry. Literal palette colors also
+# reach popup windows and widgets that do not inherit the window's palette.
+_THEME_STYLESHEET = """
+QWidget {
+    background-color: %(Window)s;
+    color: %(WindowText)s;
 }
 QLineEdit,
 QTextEdit,
 QPlainTextEdit,
 QAbstractItemView {
-    background-color: #1e1e1e;
-    alternate-background-color: #2d2d30;
-    color: #f0f0f0;
-    selection-background-color: #007acc;
-    selection-color: #ffffff;
+    background-color: %(Base)s;
+    alternate-background-color: %(AlternateBase)s;
+    color: %(Text)s;
+    selection-background-color: %(Highlight)s;
+    selection-color: %(HighlightedText)s;
+}
+QLineEdit:disabled,
+QAbstractSpinBox:disabled,
+QTextEdit:disabled,
+QPlainTextEdit:disabled,
+QAbstractItemView:disabled {
+    color: %(DisabledText)s;
+}
+QLineEdit:disabled {
+    background-color: %(DisabledBase)s;
 }
 QPushButton,
 QToolButton,
-QComboBox,
-QSpinBox,
-QDoubleSpinBox {
-    background-color: #333337;
-    border: 1px solid #5a5a5f;
-    color: #f0f0f0;
+QComboBox {
+    background-color: %(Button)s;
+    border: 1px solid %(Border)s;
+    color: %(ButtonText)s;
     padding: 2px 5px;
 }
 QPushButton:hover,
 QToolButton:hover,
-QComboBox:hover,
-QSpinBox:hover,
-QDoubleSpinBox:hover {
-    background-color: #3e3e42;
+QComboBox:hover {
+    background-color: %(Hover)s;
 }
 QPushButton:disabled,
 QToolButton:disabled,
-QComboBox:disabled,
-QSpinBox:disabled,
-QDoubleSpinBox:disabled {
-    color: #858585;
+QComboBox:disabled {
+    color: %(DisabledText)s;
 }
 QMenuBar,
 QMenu,
 QStatusBar,
 QTabWidget::pane,
 QHeaderView::section {
-    background-color: #252526;
-    color: #f0f0f0;
+    background-color: %(Window)s;
+    color: %(WindowText)s;
 }
 QMenuBar::item {
     background-color: transparent;
-    color: #f0f0f0;
+    color: %(WindowText)s;
 }
 QMenuBar::item:selected,
 QMenu::item:selected,
 QTabBar::tab:hover {
-    background-color: #3e3e42;
+    background-color: %(Hover)s;
 }
 QMenu::separator {
-    background-color: #4b4b50;
+    background-color: %(Midlight)s;
     height: 1px;
     margin: 4px 8px;
 }
 QTabBar::tab {
-    background-color: #2d2d30;
-    border: 1px solid #3f3f46;
-    color: #d4d4d4;
+    background-color: %(AlternateBase)s;
+    border: 1px solid %(Midlight)s;
+    color: %(WindowText)s;
     padding: 5px 10px;
 }
 QTabBar::tab:selected {
-    background-color: #252526;
-    color: #ffffff;
+    background-color: %(Window)s;
+    color: %(WindowText)s;
 }
 QSplitter::handle {
-    background-color: #3f3f46;
+    background-color: %(Midlight)s;
 }
 QScrollBar:vertical {
-    background-color: #252526;
+    background-color: %(Window)s;
     margin: 0;
     width: 14px;
 }
 QScrollBar:horizontal {
-    background-color: #252526;
+    background-color: %(Window)s;
     height: 14px;
     margin: 0;
 }
 QScrollBar::handle {
-    background-color: #5a5a5f;
+    background-color: %(ScrollHandle)s;
     border-radius: 3px;
     min-height: 24px;
     min-width: 24px;
 }
 QScrollBar::handle:hover {
-    background-color: #77777c;
+    background-color: %(ScrollHandleHover)s;
 }
 QScrollBar::add-line,
 QScrollBar::sub-line {
@@ -144,9 +149,9 @@ QScrollBar::sub-page {
     background-color: transparent;
 }
 QToolTip {
-    background-color: #333337;
-    border: 1px solid #5a5a5f;
-    color: #f0f0f0;
+    background-color: %(ToolTipBase)s;
+    border: 1px solid %(Border)s;
+    color: %(ToolTipText)s;
 }
 """.strip()
 _TEMPLATES = {
@@ -574,6 +579,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _restore_view_settings(self) -> None:
         settings = self._settings()
         if settings.value("view/settings_version", 0, int) != 1:
+            self._set_theme("light", persist=False)
             return
         self._restoring_view_settings = True
         try:
@@ -604,7 +610,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _set_theme(self, theme: str, *, persist: bool = True) -> None:
         dark = theme == "dark"
-        self.setStyleSheet("")
         palette = self.style().standardPalette()
         if dark:
             colors = {
@@ -629,20 +634,59 @@ class MainWindow(QtWidgets.QMainWindow):
                 QtGui.QPalette.ColorRole.HighlightedText: "#ffffff",
                 QtGui.QPalette.ColorRole.PlaceholderText: "#9d9d9d",
             }
-            for role, color in colors.items():
-                palette.setColor(role, QtGui.QColor(color))
-            for role in (
-                QtGui.QPalette.ColorRole.WindowText,
-                QtGui.QPalette.ColorRole.Text,
-                QtGui.QPalette.ColorRole.ButtonText,
-            ):
-                palette.setColor(
-                    QtGui.QPalette.ColorGroup.Disabled,
-                    role,
-                    QtGui.QColor("#858585"),
-                )
+        else:
+            colors = {
+                QtGui.QPalette.ColorRole.Window: "#efefef",
+                QtGui.QPalette.ColorRole.WindowText: "#202020",
+                QtGui.QPalette.ColorRole.Base: "#ffffff",
+                QtGui.QPalette.ColorRole.AlternateBase: "#f7f7f7",
+                QtGui.QPalette.ColorRole.ToolTipBase: "#ffffdc",
+                QtGui.QPalette.ColorRole.ToolTipText: "#202020",
+                QtGui.QPalette.ColorRole.Text: "#202020",
+                QtGui.QPalette.ColorRole.Button: "#efefef",
+                QtGui.QPalette.ColorRole.ButtonText: "#202020",
+                QtGui.QPalette.ColorRole.BrightText: "#ffffff",
+                QtGui.QPalette.ColorRole.Link: "#0066cc",
+                QtGui.QPalette.ColorRole.LinkVisited: "#663399",
+                QtGui.QPalette.ColorRole.Light: "#ffffff",
+                QtGui.QPalette.ColorRole.Midlight: "#cacaca",
+                QtGui.QPalette.ColorRole.Mid: "#b8b8b8",
+                QtGui.QPalette.ColorRole.Dark: "#a0a0a0",
+                QtGui.QPalette.ColorRole.Shadow: "#767676",
+                QtGui.QPalette.ColorRole.Highlight: "#007acc",
+                QtGui.QPalette.ColorRole.HighlightedText: "#ffffff",
+                QtGui.QPalette.ColorRole.Accent: "#007acc",
+                QtGui.QPalette.ColorRole.PlaceholderText: "#707070",
+            }
+        for role, color in colors.items():
+            palette.setColor(role, QtGui.QColor(color))
+        for role in (
+            QtGui.QPalette.ColorRole.WindowText,
+            QtGui.QPalette.ColorRole.Text,
+            QtGui.QPalette.ColorRole.ButtonText,
+        ):
+            palette.setColor(
+                QtGui.QPalette.ColorGroup.Disabled,
+                role,
+                QtGui.QColor("#858585" if dark else "#808080"),
+            )
+        if not dark:
+            palette.setColor(
+                QtGui.QPalette.ColorGroup.Disabled,
+                QtGui.QPalette.ColorRole.Base,
+                QtGui.QColor("#efefef"),
+            )
         self.setPalette(palette)
-        self.setStyleSheet(_DARK_THEME_STYLESHEET if dark else "")
+        stylesheet_colors = {role.name: color for role, color in colors.items()}
+        stylesheet_colors.update(
+            Border="#5a5a5f" if dark else "#a0a0a0",
+            Hover="#3e3e42" if dark else "#e0e0e0",
+            DisabledText="#858585" if dark else "#808080",
+            DisabledBase="#1e1e1e" if dark else "#efefef",
+            ScrollHandle="#5a5a5f" if dark else "#c0c0c0",
+            ScrollHandleHover="#77777c" if dark else "#a0a0a0",
+        )
+        self.setStyleSheet(_THEME_STYLESHEET % stylesheet_colors)
         self.canvas.setBackgroundBrush(QtGui.QColor("#2d2d30" if dark else "#f0f0f0"))
         for action in self._theme_actions.actions():
             action.setChecked(str(action.data()) == ("dark" if dark else "light"))

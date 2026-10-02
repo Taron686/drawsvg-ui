@@ -17,7 +17,7 @@ from constants import PEN_SELECTED, DEFAULT_TEXT_COLOR, DEFAULT_FONT_FAMILY
 
 
 class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
-    """Editable text item whose bounding box stays user-controlled."""
+    """Editable text with a fitted box, or an explicitly resized wrapping box."""
 
     _MIN_DIMENSION = 10.0
     _VALID_H_ALIGN = ("left", "center", "right")
@@ -27,10 +27,11 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
         "rtl": QtCore.Qt.LayoutDirection.RightToLeft,
     }
 
-    def __init__(self, x, y, w, h):
+    def __init__(self, x, y, w, h, *, auto_size: bool = True):
         QtWidgets.QGraphicsTextItem.__init__(self, "Text")
         self._box_size = QtCore.QSizeF(1.0, 1.0)
-        self._auto_size = False
+        self._auto_size = auto_size
+        self._fitting_text = False
         self._text_h_align = "left"
         self._text_v_align = "top"
         self._text_direction = "ltr"
@@ -50,18 +51,16 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
         base_rect = QtWidgets.QGraphicsTextItem.boundingRect(self)
         width = float(w) if w and w > 0.0 else base_rect.width()
         height = float(h) if h and h > 0.0 else base_rect.height()
-        self._auto_size = not (w and w > 0.0 and h and h > 0.0)
         self._set_box_size(width, height, update_origin=True, from_init=True)
+        if self._auto_size:
+            self._fit_box_to_document()
         self.setPos(x, y)
+        self.document().contentsChanged.connect(self._fit_box_to_document)
 
     def setPlainText(self, text: str) -> None:  # type: ignore[override]
         super().setPlainText(text)
         if self._auto_size:
-            content_rect = QtWidgets.QGraphicsTextItem.boundingRect(self)
-            self._set_box_size(
-                content_rect.width(), content_rect.height(), update_origin=True
-            )
-            self._auto_size = False
+            self._fit_box_to_document()
         else:
             self._update_document_constraints()
             self._update_transform_origin()
@@ -71,6 +70,9 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
 
     def setFont(self, font: QtGui.QFont) -> None:  # type: ignore[override]
         super().setFont(font)
+        if self._auto_size:
+            self._fit_box_to_document()
+            return
         self._update_document_constraints()
         self._update_transform_origin()
         if _should_draw_selection(self):
@@ -110,6 +112,9 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
         if doc is None:
             return
         doc.setDocumentMargin(max(0.0, float(margin)))
+        if self._auto_size:
+            self._fit_box_to_document()
+            return
         self._update_document_constraints()
         self._update_transform_origin()
         if _should_draw_selection(self):
@@ -121,6 +126,43 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
 
         self._auto_size = False
         self._set_box_size(width, height, update_origin=adjust_origin)
+
+    def auto_sizes_to_text(self) -> bool:
+        return self._auto_size
+
+    def fit_to_text(self) -> None:
+        """Fit the field to its text and continue fitting subsequent edits."""
+        self._auto_size = True
+        self._fit_box_to_document()
+
+    def _fit_box_to_document(self) -> None:
+        if not self._auto_size or self._fitting_text:
+            return
+        self._fitting_text = True
+        try:
+            self._update_document_constraints()
+            # Measure without a width constraint, then lay out all explicit lines
+            # against the fitted width so center/right alignment shares one box.
+            self.setTextWidth(-1.0)
+            self.document().setPageSize(QtCore.QSizeF(-1.0, -1.0))
+            size = self.document().size()
+            anchor = self.mapToParent(QtCore.QPointF())
+            self._set_box_size(
+                size.width(), size.height(), update_origin=True, snap_position=False
+            )
+            delta = anchor - self.mapToParent(QtCore.QPointF())
+            if not delta.isNull():
+                # Changing the pivot of a rotated/scaled item must not move its text.
+                # This compensation is geometry maintenance, not a grid-snapped drag.
+                flag = QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+                sends_changes = bool(self.flags() & flag)
+                self.setFlag(flag, False)
+                try:
+                    self.setPos(self.pos() + delta)
+                finally:
+                    self.setFlag(flag, sends_changes)
+        finally:
+            self._fitting_text = False
 
     def text_alignment(self) -> tuple[str, str]:
         return self._text_h_align, self._text_v_align
@@ -180,6 +222,7 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
         *,
         update_origin: bool,
         from_init: bool = False,
+        snap_position: bool = True,
     ) -> None:
         width = max(self._MIN_DIMENSION, float(width))
         height = max(self._MIN_DIMENSION, float(height))
@@ -198,27 +241,21 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
             self.update_handles()
         if not from_init:
             self.update()
-            snapped = self._snap_position_value(QtCore.QPointF(self.pos()))
-            if isinstance(snapped, QtCore.QPointF) and snapped != self.pos():
-                QtWidgets.QGraphicsTextItem.setPos(self, snapped)
+            if snap_position:
+                snapped = self._snap_position_value(QtCore.QPointF(self.pos()))
+                if isinstance(snapped, QtCore.QPointF) and snapped != self.pos():
+                    QtWidgets.QGraphicsTextItem.setPos(self, snapped)
 
     def _update_document_constraints(self, *, adjust_layout: bool = False) -> None:
         doc = self.document()
         if doc is None:
             return
-        margin = doc.documentMargin()
-        available_width = self._box_size.width() - 2.0 * margin
-        text_width = available_width if available_width > 0.0 else -1.0
-        page_width = (
-            available_width if available_width > 0.0 else self._box_size.width()
-        )
-        doc_height = max(self._MIN_DIMENSION, self._box_size.height())
+        # Qt includes both document margins in the supplied width.
+        text_width = self._box_size.width()
         self.setTextWidth(text_width)
-        doc.setPageSize(QtCore.QSizeF(max(0.0, page_width), doc_height))
+        doc.setPageSize(QtCore.QSizeF(text_width, -1.0))
         if adjust_layout:
-            doc.adjustSize()
-            self.setTextWidth(text_width)
-            doc.setPageSize(QtCore.QSizeF(max(0.0, page_width), doc_height))
+            doc.documentLayout().documentSize()
         self._apply_text_alignment()
         self._update_content_offset()
 
@@ -227,6 +264,11 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
         if doc is None:
             return
         option = doc.defaultTextOption()
+        option.setWrapMode(
+            QtGui.QTextOption.WrapMode.NoWrap
+            if self._auto_size
+            else QtGui.QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere
+        )
         alignment = option.alignment()
         alignment &= ~(
             QtCore.Qt.AlignmentFlag.AlignLeft
@@ -306,10 +348,17 @@ class GroupItem(ResizableItem, QtWidgets.QGraphicsItemGroup):
     def _contentRect(self) -> QtCore.QRectF:
         rect = QtCore.QRectF()
         first = True
-        for child in self.childItems():
+        children = list(self.childItems())
+        while children:
+            child = children.pop()
             if isinstance(child, (ResizeHandle, RotationHandle)):
                 continue
-            child_rect = child.mapToParent(child.boundingRect()).boundingRect()
+            if isinstance(child, GroupItem):
+                children.extend(child.childItems())
+                continue
+            # Map content directly into this group: Qt's cached subgroup bounds
+            # include helper handles and can retain obsolete child geometry.
+            child_rect = child.mapToItem(self, child.boundingRect()).boundingRect()
             rect = child_rect if first else rect.united(child_rect)
             first = False
         return rect if not first else QtCore.QRectF()
