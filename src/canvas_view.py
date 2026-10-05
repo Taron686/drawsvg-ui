@@ -7,9 +7,11 @@
 # (at your option) any later version.
 
 import json
+import logging
 import math
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
+from dataclasses import replace
 from functools import wraps
 from typing import Any
 
@@ -22,7 +24,13 @@ from connectors import (
     is_connector_data,
 )
 from asset_service import BitmapAssetService
-from bitmap_item import BitmapItem, restore_bitmap_item, serialize_bitmap_item
+from bitmap_item import (
+    BitmapItem,
+    bitmap_assets_for_items,
+    restore_bitmap_item,
+    serialize_bitmap_item,
+)
+from clipboard_service import CLIPBOARD_MIME_TYPE, ClipboardService
 from hover_preview import draw_hover_preview
 from constants import DEFAULTS, PALETTE_MIME, SHAPES
 from document_format import ProjectAsset
@@ -47,6 +55,7 @@ from items import (
 from layer_manager import LayerManager
 from scene_codec import KEY_ITEM_ID, KEY_LAYER_ID, SceneCodec
 from shape_registry import SHAPE_REGISTRY
+from snap_geometry import item_grid_anchor, item_snap_bounds, scene_root_items
 
 A4_WIDTH_MM = 210
 A4_HEIGHT_MM = 297
@@ -280,11 +289,27 @@ class SceneHistory(QtCore.QObject):
             scene.changed.connect(self._on_scene_changed)
 
     def capture_initial_state(self) -> None:
-        self._states.clear()
-        self._history_bytes = 0
-        self._index = -1
-        self._capture_snapshot(force=True)
+        if self._ignore_changes:
+            return
+        # Serialize before replacing history so a failure retains Undo and Redo.
+        state_str = self._serialize_state()
+        state_bytes = len(state_str.encode("utf-8"))
+        self._timer.stop()
+        self._states = [state_str] if state_bytes <= self._max_bytes else []
+        self._history_bytes = state_bytes if self._states else 0
+        self._index = len(self._states) - 1
         self._notify()
+
+    @contextmanager
+    def suspended(self) -> Iterator[None]:
+        """Pause recording across scene replacement and any necessary rollback."""
+        previous = self._ignore_changes
+        self._ignore_changes = True
+        self._timer.stop()
+        try:
+            yield
+        finally:
+            self._ignore_changes = previous
 
     @property
     def history_bytes(self) -> int:
@@ -374,7 +399,11 @@ class SceneHistory(QtCore.QObject):
     def _capture_snapshot(self, force: bool = False) -> None:
         if self._ignore_changes:
             return
-        state_str = self._serialize_state()
+        try:
+            state_str = self._serialize_state()
+        except Exception:
+            logging.getLogger(__name__).exception("Could not capture scene history")
+            return
         if not force and self._index >= 0 and self._states[self._index] == state_str:
             return
         state_bytes = len(state_str.encode("utf-8"))
@@ -818,6 +847,8 @@ class CanvasView(QtWidgets.QGraphicsView):
         self.setBackgroundBrush(QtGui.QColor("#f0f0f0"))
         self._grid_size = 50
         self._grid_size_min = 10
+        self._grid_snap_enabled = True
+        self._alignment_snap_enabled = True
         self._show_grid = True
         self._page_width = mm_to_px(A4_WIDTH_MM, SCREEN_DPI)
         self._page_height = mm_to_px(A4_HEIGHT_MM, SCREEN_DPI)
@@ -1262,10 +1293,9 @@ class CanvasView(QtWidgets.QGraphicsView):
                     self._restore_group_children(child, sub_children)
                 self._apply_item_transform(child, child_data)
 
-    def _restore_scene_state(self, state: Mapping[str, Any]) -> None:
-        scene = self.scene()
-        if scene is None:
-            return
+    @staticmethod
+    def _validate_scene_state(state: Mapping[str, Any]) -> dict[str, Any]:
+        """Check shape support before touching the current scene or selection."""
         state = SceneCodec.normalize_state(state)
         items_data = state.get("items")
 
@@ -1286,6 +1316,14 @@ class CanvasView(QtWidgets.QGraphicsView):
 
         if isinstance(items_data, list):
             validate_items(items_data)
+        return state
+
+    def _restore_scene_state(self, state: Mapping[str, Any]) -> None:
+        scene = self.scene()
+        if scene is None:
+            return
+        state = self._validate_scene_state(state)
+        items_data = state.get("items")
         self.clear_canvas()
         self._guides = self._guides_from_state(state.get("guides"))
         self._active_snap_guides.clear()
@@ -1557,6 +1595,10 @@ class CanvasView(QtWidgets.QGraphicsView):
                 continue
             self._ensure_page_for_item(item, item.sceneBoundingRect().center())
 
+    def fit_to_page(self) -> None:
+        """Fit the master page after switching documents in an existing view."""
+        self._fit_view_to_page()
+
     def _fit_view_to_page(self) -> None:
         if self._page_item is None:
             return
@@ -1571,6 +1613,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         """Remove all items from the scene."""
         self._clear_hover_preview()
         scene = self.scene()
+        self.set_connector_creation_enabled(False)
         self._connector_manager.reset()
         for item in list(scene.items()):
             if isinstance(item, A4PageItem):
@@ -1767,14 +1810,37 @@ class CanvasView(QtWidgets.QGraphicsView):
         *,
         exclude: tuple[QtWidgets.QGraphicsItem, ...] = (),
         grid_spacing: float | None = None,
+        grid_anchor: QtCore.QPointF | None = None,
     ) -> tuple[QtCore.QPointF, dict[str, float]]:
-        """Snap a top-left scene position using guide, object, then grid priority."""
+        """Translate by the geometry grid anchor, then report reached alignment.
+
+        With grid snapping disabled, guides and objects may translate freely.
+        ``position`` and ``size`` describe the alignment envelope independently
+        of the geometry reference supplied by ``grid_anchor``.
+        """
+
+        position = QtCore.QPointF(position)
+        grid_enabled = getattr(self, "_grid_snap_enabled", True)
+        alignment_enabled = getattr(self, "_alignment_snap_enabled", True)
+        if grid_enabled:
+            anchor = grid_anchor if grid_anchor is not None else position
+            spacing = float(grid_spacing if grid_spacing is not None else self._grid_size_min)
+            snapped_anchor = QtCore.QPointF(
+                _snap_coordinate(anchor.x(), spacing, self._master_origin.x()),
+                _snap_coordinate(anchor.y(), spacing, self._master_origin.y()),
+            )
+            position += snapped_anchor - anchor
+        if not alignment_enabled:
+            return position, {}
 
         width = max(0.0, float(size.width())) if size is not None else 0.0
         height = max(0.0, float(size.height())) if size is not None else 0.0
         x_values = (position.x(), position.x() + width / 2.0, position.x() + width)
         y_values = (position.y(), position.y() + height / 2.0, position.y() + height)
         threshold_x, threshold_y = self._snap_threshold_scene_units()
+        if grid_enabled:
+            # Near misses must not be advertised as alignment after grid snap.
+            threshold_x = threshold_y = 1e-6
         guide_x = tuple(value for axis, value in self._guides if axis == "vertical")
         guide_y = tuple(value for axis, value in self._guides if axis == "horizontal")
         snapped_x = self._nearest_snap(x_values, guide_x, threshold_x)
@@ -1784,14 +1850,12 @@ class CanvasView(QtWidgets.QGraphicsView):
             excluded = set(exclude)
             smart_x: list[float] = []
             smart_y: list[float] = []
-            for item in scene.items():
+            for item in scene_root_items(scene.items()):
                 if item in excluded or isinstance(item, A4PageItem):
                     continue
-                if item.__class__.__name__.endswith("Handle"):
+                bounds = item_snap_bounds(item, self)
+                if bounds is None:
                     continue
-                if item.parentItem() is not None:
-                    continue
-                bounds = item.sceneBoundingRect()
                 smart_x.extend((bounds.left(), bounds.center().x(), bounds.right()))
                 smart_y.extend((bounds.top(), bounds.center().y(), bounds.bottom()))
             if snapped_x is None:
@@ -1799,20 +1863,33 @@ class CanvasView(QtWidgets.QGraphicsView):
             if snapped_y is None:
                 snapped_y = self._nearest_snap(y_values, tuple(smart_y), threshold_y)
 
-        spacing = float(grid_spacing if grid_spacing is not None else self._grid_size_min)
-        origin_x, origin_y = self._master_origin.x(), self._master_origin.y()
         active: dict[str, float] = {}
-        if snapped_x is None:
-            x = _snap_coordinate(position.x(), spacing, origin_x)
-        else:
-            x = position.x() + snapped_x[0]
+        x, y = position.x(), position.y()
+        if snapped_x is not None:
+            if not grid_enabled:
+                x += snapped_x[0]
             active["vertical"] = snapped_x[1]
-        if snapped_y is None:
-            y = _snap_coordinate(position.y(), spacing, origin_y)
-        else:
-            y = position.y() + snapped_y[0]
+        if snapped_y is not None:
+            if not grid_enabled:
+                y += snapped_y[0]
             active["horizontal"] = snapped_y[1]
         return QtCore.QPointF(x, y), active
+
+    def set_grid_snap_enabled(self, enabled: bool) -> None:
+        self._grid_snap_enabled = bool(enabled)
+        self._active_snap_guides.clear()
+        self.viewport().update()
+
+    def set_alignment_snap_enabled(self, enabled: bool) -> None:
+        self._alignment_snap_enabled = bool(enabled)
+        self._active_snap_guides.clear()
+        self.viewport().update()
+
+    def grid_snap_enabled(self) -> bool:
+        return self._grid_snap_enabled
+
+    def alignment_snap_enabled(self) -> bool:
+        return self._alignment_snap_enabled
 
     def set_grid_visible(self, visible: bool):
         self._show_grid = visible
@@ -1859,6 +1936,24 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._update_scene_rect()
         self.viewChanged.emit()
 
+    def _snap_new_item(
+        self, item: QtWidgets.QGraphicsItem, *, grid_spacing: float
+    ) -> dict[str, float]:
+        """Snap a prospective scene root using its constructed geometry."""
+        bounds = item_snap_bounds(item, self)
+        anchor = item_grid_anchor(item)
+        if bounds is None or anchor is None:
+            return {}
+        snapped, active = self.snap_scene_position(
+            bounds.topLeft(), bounds.size(),
+            grid_spacing=grid_spacing, grid_anchor=anchor,
+        )
+        delta = snapped - bounds.topLeft()
+        # Prospective items are not in the scene, so item-local grid hooks do
+        # not interfere with this single central geometry translation.
+        item.moveBy(delta.x(), delta.y())
+        return active
+
     @_undo_transaction
     def add_shape(
         self,
@@ -1877,21 +1972,16 @@ class CanvasView(QtWidgets.QGraphicsView):
 
         if snap_to_grid:
             size = self._grid_size
-            if normalized in ("Line", "Arrow"):
+            if (normalized in ("Line", "Arrow")
+                    and getattr(self, "_grid_snap_enabled", True) and size > 0):
                 w = round(w / size) * size
-            snapped, active_guides = self.snap_scene_position(
-                QtCore.QPointF(x, y),
-                QtCore.QSizeF(w, h),
-                grid_spacing=size,
-            )
-            x, y = snapped.x(), snapped.y()
-            self._active_snap_guides = active_guides
-
-        drop_reference = QtCore.QPointF(x + w / 2.0, y + h / 2.0)
-
         item = SHAPE_REGISTRY.create(normalized, x, y, w, h)
         if item is None:
             return None
+        if snap_to_grid:
+            self._active_snap_guides = self._snap_new_item(item, grid_spacing=size)
+            x, y = item.pos().x(), item.pos().y()
+        drop_reference = QtCore.QPointF(x + w / 2.0, y + h / 2.0)
 
         self.scene().clearSelection()
         self.scene().addItem(item)
@@ -1932,23 +2022,35 @@ class CanvasView(QtWidgets.QGraphicsView):
         if definition is None:
             return None
 
+        snap = not (
+            QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.KeyboardModifier.AltModifier
+        )
+        if not snap:
+            self._active_snap_guides.clear()
         center = self.mapToScene(self.viewport().rect().center())
         w, h = definition.default_size
         if normalized in ("Line", "Arrow"):
             pos = QtCore.QPointF(center.x() - w / 2.0, center.y())
         else:
             pos = QtCore.QPointF(center.x() - w / 2.0, center.y() - h / 2.0)
+        if (snap and normalized in ("Line", "Arrow")
+                and getattr(self, "_grid_snap_enabled", True) and self._grid_size > 0):
+            w = round(w / self._grid_size) * self._grid_size
         preview = SHAPE_REGISTRY.create(normalized, pos.x(), pos.y(), w, h)
         assert preview is not None
-        candidate = preview.sceneBoundingRect()
-        while any(
-            self._is_serializable_item(item)
-            and item.sceneBoundingRect().intersects(candidate)
-            for item in self.scene().items()
-        ):
+        while True:
+            preview.setPos(pos)
+            if snap:
+                self._snap_new_item(preview, grid_spacing=self._grid_size)
+            candidate = preview.sceneBoundingRect()
+            if not any(
+                self._is_serializable_item(item)
+                and item.sceneBoundingRect().intersects(candidate)
+                for item in self.scene().items()
+            ):
+                break
             pos += QtCore.QPointF(self._grid_size, self._grid_size)
-            candidate.translate(self._grid_size, self._grid_size)
-        return self.add_shape(normalized, pos, snap_to_grid=False)
+        return self.add_shape(normalized, pos, snap_to_grid=snap)
 
     # --- Drag and drop from the palette ---
     def dragEnterEvent(self, event: QtGui.QDragEnterEvent):
@@ -2114,11 +2216,11 @@ class CanvasView(QtWidgets.QGraphicsView):
             event.buttons() & QtCore.Qt.MouseButton.LeftButton
             and grabber is not None
             and not grabber.__class__.__name__.endswith("Handle")
-            and len(self.scene().selectedItems()) > 1
         )
         original_spacing = self._grid_size_min
         if moving_selection:
-            # Qt moves each item separately; snap the selection only as a whole.
+            # Item-local position snapping cannot know the geometry reference.
+            # Let Qt translate freely, then snap the dragged root as a whole.
             self._grid_size_min = 0
         try:
             super().mouseMoveEvent(event)
@@ -2188,24 +2290,39 @@ class CanvasView(QtWidgets.QGraphicsView):
                 self._history.end_transaction()
 
     def _snap_selected_items(self) -> None:
+        roots = set(scene_root_items(self.scene().items()))
         selected = [
             item
             for item in self.scene().selectedItems()
             if not isinstance(item, A4PageItem)
             and not item.__class__.__name__.endswith("Handle")
-            and item.parentItem() is None
+            and item in roots
         ]
         if not selected:
             if self._active_snap_guides:
                 self._active_snap_guides.clear()
                 self.viewport().update()
             return
-        primary = selected[0]
-        bounds = primary.sceneBoundingRect()
+        primary = self.scene().mouseGrabberItem()
+        while primary is not None and primary.parentItem() is not None:
+            primary = primary.parentItem()
+        if primary not in selected:
+            selected.sort(key=lambda item: (
+                item.scenePos().x(), item.scenePos().y(),
+                str(item.data(KEY_ITEM_ID) or ""), type(item).__name__,
+            ))
+            primary = selected[0]
+        bounds = item_snap_bounds(primary, self)
+        anchor = item_grid_anchor(primary)
+        if bounds is None or anchor is None:
+            self._active_snap_guides.clear()
+            self.viewport().update()
+            return
         snapped, active_guides = self.snap_scene_position(
             bounds.topLeft(),
             bounds.size(),
             exclude=tuple(selected),
+            grid_anchor=anchor,
         )
         delta = snapped - bounds.topLeft()
         self._active_snap_guides = active_guides
@@ -2345,9 +2462,134 @@ class CanvasView(QtWidgets.QGraphicsView):
             self._prune_empty_pages()
             self._update_scene_rect()
 
-    # --- Keyboard shortcut to delete selected items ---
+    def _copy_selected_items(self) -> bool:
+        items = [
+            item
+            for item in self.scene().items(QtCore.Qt.SortOrder.AscendingOrder)
+            if item.isSelected()
+            and item.parentItem() is None
+            and self._is_serializable_item(item)
+            and not SceneCodec.is_transient(item)
+        ]
+        if not items:
+            return False
+        try:
+            records = SceneCodec.serialize_items(items, self._serialize_item)
+            encoded = ClipboardService.encode(
+                records, assets=bitmap_assets_for_items(items, self.bitmap_assets())
+            )
+        except (ValueError, TypeError, KeyError, OverflowError) as error:
+            logging.getLogger(__name__).warning(
+                "Cannot copy scene items (%s)", type(error).__name__
+            )
+            return False
+        mime = QtCore.QMimeData()
+        mime.setData(CLIPBOARD_MIME_TYPE, encoded)
+        QtWidgets.QApplication.clipboard().setMimeData(mime)
+        return True
+
+    @_undo_transaction
+    def _paste_clipboard_items(self, scene_position: QtCore.QPointF) -> bool:
+        mime = QtWidgets.QApplication.clipboard().mimeData()
+        if mime is None or not mime.hasFormat(CLIPBOARD_MIME_TYPE):
+            return False
+
+        # Restore into a detached canvas first, so invalid shapes/assets cannot
+        # partially change the destination. Reuse the document's restore rules.
+        staging = CanvasView()
+        try:
+            try:
+                paste = ClipboardService.prepare_paste(
+                    bytes(mime.data(CLIPBOARD_MIME_TYPE)),
+                    existing_item_ids=(
+                        item.data(KEY_ITEM_ID)
+                        for item in self.scene().items()
+                        if item.data(KEY_ITEM_ID) is not None
+                    ),
+                    existing_assets=self.bitmap_assets(),
+                )
+                if not paste.items:
+                    return False
+                staging.set_bitmap_assets((*self.bitmap_assets(), *paste.assets_to_add))
+                staging._restore_scene_state({
+                    "items": list(paste.items),
+                    "layers": self._layer_manager.serialize_state(),
+                    "grid_visible": self._show_grid,
+                })
+            except (ValueError, TypeError, KeyError, OverflowError) as error:
+                logging.getLogger(__name__).warning(
+                    "Cannot paste scene items (%s)", type(error).__name__
+                )
+                return False
+
+            items = [
+                item
+                for item in staging.scene().items(QtCore.Qt.SortOrder.AscendingOrder)
+                if item.parentItem() is None and staging._is_serializable_item(item)
+            ]
+            if not items:
+                return False
+            bounds = QtCore.QRectF()
+            for item in items:
+                item_bounds = item_snap_bounds(item, self)
+                if item_bounds is not None:
+                    bounds = bounds.united(item_bounds)
+            if bounds.isNull():
+                bounds = items[0].sceneBoundingRect()
+            delta = scene_position - bounds.topLeft()
+            staging._connector_manager.reset()
+            staging._grid_size_min = 0
+            for item in items:
+                if isinstance(item, ConnectorItem):
+                    item.start_endpoint = replace(
+                        item.start_endpoint, position=item.start_endpoint.position + delta
+                    )
+                    item.end_endpoint = replace(
+                        item.end_endpoint, position=item.end_endpoint.position + delta
+                    )
+                else:
+                    item.moveBy(delta.x(), delta.y())
+
+            self._bitmap_assets = staging._bitmap_assets
+            self.scene().clearSelection()
+            for item in items:
+                staging.scene().removeItem(item)
+                self.scene().addItem(item)
+                self._layer_manager.register_item(item)
+                self._ensure_page_for_item(item, item.sceneBoundingRect().center())
+            self._connector_manager.rebuild_item_index()
+            for item in items:
+                if isinstance(item, ConnectorItem):
+                    self._connector_manager.register_connector(item)
+                item.setSelected(True)
+            self._connector_manager.resolve_bindings()
+            self._history.mark_dirty()
+            self._update_scene_rect()
+            return True
+        finally:
+            staging.close()
+            staging.deleteLater()
+
+    # --- Canvas keyboard commands; active text editors keep Qt copy/paste. ---
     @_undo_transaction
     def keyPressEvent(self, event: QtGui.QKeyEvent):
+        copy = event.matches(QtGui.QKeySequence.StandardKey.Copy)
+        paste = event.matches(QtGui.QKeySequence.StandardKey.Paste)
+        if copy or paste:
+            focus = self.scene().focusItem()
+            if isinstance(focus, QtWidgets.QGraphicsTextItem) and (
+                focus.textInteractionFlags() & QtCore.Qt.TextInteractionFlag.TextEditable
+            ):
+                super().keyPressEvent(event)
+                return
+            if copy:
+                self._copy_selected_items()
+            else:
+                position = self.viewport().mapFromGlobal(QtGui.QCursor.pos())
+                if self.viewport().rect().contains(position):
+                    self._paste_clipboard_items(self.mapToScene(position))
+            event.accept()
+            return
         if (
             self._connector_creation_enabled
             and event.key() == QtCore.Qt.Key.Key_Escape

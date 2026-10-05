@@ -93,6 +93,8 @@
     <addaction name="separator"/>
     <addaction name="actionClear_canvas"/>
     <addaction name="actionShow_grid"/>
+    <addaction name="separator"/>
+    <addaction name="actionExport_margins"/>
    </widget>
    <widget class="QMenu" name="menuAbout">
     <property name="title">
@@ -160,6 +162,11 @@
   <action name="actionExport_pdf">
    <property name="text">
     <string>Export PDF…</string>
+   </property>
+  </action>
+  <action name="actionExport_margins">
+   <property name="text">
+    <string>Export Margins…</string>
    </property>
   </action>
   <action name="actionQuit">

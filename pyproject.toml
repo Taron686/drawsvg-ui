@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "drawsvg-ui"
-version = "0.7.2"
+version = "0.7.3"
 description = "GUI for creating drawsvg scenes with PySide6"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -62,6 +62,11 @@ py-modules = [
   "document_io",
   "document_validator",
   "export_drawsvg",
+  "export_drawsvg_assets",
+  "export_drawsvg_styles",
+  "export_margins",
+  "export_margins_dialog",
+  "snap_geometry",
   "export_renderer",
   "hover_preview",
   "import_drawsvg",
@@ -88,7 +93,7 @@ include = ["items*", "ui*"]
 ui = ["*.ui"]
 
 [tool.bumpversion]
-current_version = "0.7.2"
+current_version = "0.7.3"
 commit = true
 tag = true
 

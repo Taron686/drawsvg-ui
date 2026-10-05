@@ -12,6 +12,7 @@ from ruler_widget import RulerWidget
 
 @pytest.mark.parametrize("zoom", (0.25, 1.0, 4.0))
 def test_manual_guide_threshold_is_six_screen_pixels(canvas_view, zoom: float) -> None:
+    canvas_view._grid_snap_enabled = False
     canvas_view.add_guide("vertical", 100.0)
     canvas_view.setTransform(QtGui.QTransform.fromScale(zoom, zoom))
 
@@ -29,6 +30,7 @@ def test_manual_guide_threshold_is_six_screen_pixels(canvas_view, zoom: float) -
 
 
 def test_manual_guides_take_priority_over_smart_guides_and_grid(canvas_view) -> None:
+    canvas_view._grid_snap_enabled = False
     other = RectItem(100.0, 40.0, 20.0, 20.0)
     other.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
     canvas_view.scene().addItem(other)
@@ -43,6 +45,7 @@ def test_manual_guides_take_priority_over_smart_guides_and_grid(canvas_view) -> 
 
 
 def test_smart_guides_precede_grid_when_no_manual_guide_exists(canvas_view) -> None:
+    canvas_view._grid_snap_enabled = False
     other = RectItem(100.0, 40.0, 20.0, 20.0)
     other.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
     canvas_view.scene().addItem(other)
@@ -56,6 +59,7 @@ def test_smart_guides_precede_grid_when_no_manual_guide_exists(canvas_view) -> N
 
 
 def test_dragging_selected_item_uses_manual_guide_before_grid(canvas_view) -> None:
+    canvas_view._grid_snap_enabled = False
     item = RectItem(100.0, 40.0, 20.0, 20.0)
     item.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
     canvas_view.scene().addItem(item)
@@ -364,6 +368,7 @@ def test_view_action_toggles_visible_rulers_and_guides(application, tmp_path) ->
     assert not window.canvas.guides_visible()
     assert window.horizontal_ruler.isHidden()
     assert window.vertical_ruler.isHidden()
+    window._force_close = True
     window.close()
 
 
@@ -379,6 +384,7 @@ def test_tools_action_toggles_connector_creation_mode(application) -> None:
     window.canvas.set_connector_creation_enabled(False)
     assert not window.actionCreate_connector.isChecked()
     assert window.actionCreate_connector.text() == "Create connector"
+    window._force_close = True
     window.close()
 
 

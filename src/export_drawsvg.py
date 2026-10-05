@@ -7,14 +7,26 @@
 # (at your option) any later version.
 
 import json
+import html
 
 import math
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from constants import PEN_STYLE_DASH_ARRAYS, DEFAULT_FONT_FAMILY
+from constants import DEFAULT_FONT_FAMILY
+from export_margins import ExportMargins, expand_export_rect
+from export_drawsvg_styles import (
+    STYLE_PRELUDE,
+    finish_styled_item as _finish_styled_item,
+    brush_attributes,
+    format_drawsvg_attributes,
+    item_style_attributes,
+    pen_attributes,
+    pen_dash_array_string,
+    split_style_attribute,
+)
 
 from items import (
 
@@ -41,6 +53,13 @@ from items import (
 )
 from shape_registry import SHAPE_REGISTRY
 from items.shapes.paths import FreePathItem
+from export_drawsvg_assets import (
+    ASSET_ITEM_TYPES,
+    export_asset_item,
+    export_item_bounds,
+    export_item_is_visible,
+    scene_item_parents,
+)
 
 def _format_item_attributes(
 
@@ -79,68 +98,21 @@ def _format_item_attributes(
     """
 
     attrs: list[str] = []
-
     if include_fill:
-
         brush_getter = getattr(item, "brush", None)
-
-        if callable(brush_getter):
-
-            brush = brush_getter()
-
-            if brush.style() == QtCore.Qt.BrushStyle.NoBrush:
-
-                attrs.append("fill='none'")
-
-            else:
-
-                color = brush.color()
-
-                attrs.append(f"fill='{color.name()}'")
-
-                attrs.append(f"fill_opacity={color.alphaF():.2f}")
-
-        else:
-
-            attrs.append("fill='none'")
-
+        attrs.extend(brush_attributes(brush_getter(), item) if callable(brush_getter) else ["fill='none'"])
     pen_getter = getattr(item, "pen", None)
-
     if callable(pen_getter):
-
-        pen = pen_getter()
-
-        attrs.append(f"stroke='{pen.color().name()}'")
-
-        attrs.append(f"stroke_width={pen.widthF():.2f}")
-
-        dash_str = _pen_dash_array_string(pen)
-
-        if dash_str:
-
-            attrs.append(f"stroke_dasharray='{dash_str}'")
-
+        attrs.extend(pen_attributes(pen_getter(), item))
+    attrs.extend(item_style_attributes(item))
     if extra_attrs:
-
         attrs.extend(extra_attrs)
+    # Adapter-specific attributes override defaults (e.g. rounded brackets).
+    return format_drawsvg_attributes(attrs)
 
-    return ", ".join(attrs)
 
 def _pen_dash_array_string(pen: QtGui.QPen) -> str | None:
-
-    dash_array = PEN_STYLE_DASH_ARRAYS.get(pen.style())
-
-    if dash_array:
-
-        return " ".join(f"{value:.2f}" for value in dash_array)
-
-    pattern = pen.dashPattern()
-
-    if pattern:
-
-        return " ".join(f"{value:.2f}" for value in pattern)
-
-    return None
+    return pen_dash_array_string(pen)
 
 
 def _item_transform_suffix(item: QtWidgets.QGraphicsItem) -> str:
@@ -232,11 +204,70 @@ def _visual_text_lines(item: QtWidgets.QGraphicsTextItem) -> list[str]:
 
                 start = line.textStart()
 
-                visual_lines.append(block_text[start : start + line.textLength()])
+                visual_lines.append(_qt_text_slice(block_text, start, line.textLength()))
 
         block = block.next()
 
     return visual_lines or [""]
+
+def _qt_text_slice(text: str, start: int, length: int) -> str:
+    """Qt layout offsets count UTF-16 units, whereas Python counts code points."""
+    return text.encode("utf-16-le")[start * 2:(start + length) * 2].decode("utf-16-le")
+
+
+def _xml_attribute_literal(value: str) -> str:
+    """Quote a Python literal that drawsvg can write verbatim into XML."""
+    escaped = html.escape(value, quote=True)
+    # XML normalizes literal whitespace in attributes; references preserve it.
+    escaped = escaped.replace("\r", "&#13;").replace("\n", "&#10;").replace("\t", "&#9;")
+    return repr(escaped)
+
+
+def _font_pixel_size(font: QtGui.QFont) -> float:
+    if font.pixelSize() > 0:
+        return float(font.pixelSize())
+    screen = QtGui.QGuiApplication.primaryScreen()
+    dpi = screen.logicalDotsPerInch() if screen else 96.0
+    if font.pointSizeF() > 0:
+        return font.pointSizeF() * dpi / 72.0
+    return QtGui.QFontMetricsF(font).height()
+
+
+def _text_font_attributes(font: QtGui.QFont) -> list[str]:
+    return [
+        f"font_family={_xml_attribute_literal(font.family())}",
+        f"font_weight={'bold' if font.bold() else 'normal'!r}",
+        f"font_style={'italic' if font.italic() else 'normal'!r}",
+        f"text_decoration={'underline' if font.underline() else 'none'!r}",
+        "data_xml_escaped='true'",
+    ]
+
+
+def _append_positioned_text_lines(
+    lines: list[str], var_name: str, item: QtWidgets.QGraphicsTextItem,
+) -> None:
+    """Bake Qt visual lines and baselines into portable SVG tspans."""
+    document = item.document()
+    document.documentLayout().documentSize()
+    offset = getattr(item, "_content_offset", QtCore.QPointF())
+    lines.append(f"    {var_name}.escaped_text = ''")
+    lines.append(f"    {var_name}.children.clear()")
+    block = document.begin()
+    while block.isValid():
+        layout = block.layout()
+        for index in range(layout.lineCount()):
+            line = layout.lineAt(index)
+            text = _qt_text_slice(block.text(), line.textStart(), line.textLength())
+            rect = line.naturalTextRect().translated(layout.position() + offset)
+            rtl = layout.textOption().textDirection() == QtCore.Qt.LayoutDirection.RightToLeft
+            x = rect.right() if rtl else rect.left()
+            y = layout.position().y() + line.y() + line.ascent() + offset.y()
+            lines.append(
+                f"    {var_name}.append_line({text!r}, x={x:.4f}, y={y:.4f}, "
+                f"direction={'rtl' if rtl else 'ltr'!r}, text_anchor='start')"
+            )
+        block = block.next()
+
 
 def _export_shape_label(
 
@@ -251,6 +282,8 @@ def _export_shape_label(
     var_name: str = "shape_label",
 
     label_kind: str | None = None,
+
+    parents: Mapping[QtWidgets.QGraphicsItem, QtWidgets.QGraphicsItem],
 
 ) -> None:
 
@@ -270,15 +303,11 @@ def _export_shape_label(
 
     label_item = getattr(item, "label_item", lambda: None)()
 
-    if label_item is None:
+    if label_item is None or not export_item_is_visible(label_item, parents):
 
         return
 
-    raw_lines = text_value.splitlines()
-
-    if text_value.endswith(("\r", "\n")):
-
-        raw_lines.append("")
+    raw_lines = _visual_text_lines(label_item)
 
     if not raw_lines:
 
@@ -359,8 +388,9 @@ def _export_shape_label(
     attrs = [
 
         f"fill='{color.name()}'",
+        f"opacity={label_item.effectiveOpacity():.6f}",
 
-        f"font_family='{font.family()}'",
+        *_text_font_attributes(font),
 
         f"text_anchor='{text_anchor}'",
 
@@ -379,6 +409,7 @@ def _export_shape_label(
         f"data_label_v='{v_align}'",
 
         f"data_font_px={pixel_size:.4f}",
+        f"data_raw_label={_xml_attribute_literal(text_value)}",
 
     ]
     if item.label_has_custom_color():
@@ -397,7 +428,7 @@ def _export_shape_label(
 
         attrs.append(f"fill_opacity={color.alphaF():.2f}")
 
-    attr_str = ", ".join(attrs)
+    attr_str = format_drawsvg_attributes(attrs)
 
     transform_suffix = _item_transform_suffix(label_item)
 
@@ -418,6 +449,8 @@ def _export_shape_label(
         f"    _{var_name} = draw.Text({text_literal}, {size:.2f}, {anchor_x:.2f}, {first_baseline_y:.2f}, {attr_str}{transform_suffix})"
 
     )
+
+    _append_positioned_text_lines(lines, f"_{var_name}", label_item)
 
     lines.append(f"    d.append(_{var_name})")
 
@@ -553,45 +586,51 @@ def _arrowhead_polygon(
 
     ]
 
-def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget | None = None):
+def export_drawsvg_py(
+    scene: QtWidgets.QGraphicsScene,
+    parent: QtWidgets.QWidget | None = None,
+    *,
+    margins: ExportMargins | None = None,
+):
 
+    scene_items = scene.items()
+    parents = scene_item_parents(scene_items)
     shape_items = [
         item
-        for item in scene.items()
-        if SHAPE_REGISTRY.definition_for_item(item) is not None
+        for item in scene_items
+        if export_item_is_visible(item, parents)
+        and (SHAPE_REGISTRY.definition_for_item(item) is not None
+             or isinstance(item, ASSET_ITEM_TYPES))
     ]
 
     if shape_items:
 
-        rect = shape_items[0].sceneBoundingRect()
+        rect = export_item_bounds(shape_items[0], parents)
 
         for it in shape_items[1:]:
 
-            rect = rect.united(it.sceneBoundingRect())
+            rect = rect.united(export_item_bounds(it, parents))
 
     else:
 
-        rect = scene.itemsBoundingRect()
+        rect = QtCore.QRectF()
 
-    padding = 5.0
-
-    rect = rect.adjusted(-padding, -padding, padding, padding)
-
-    left = math.floor(rect.left())
-
-    top = math.floor(rect.top())
-
-    right = math.ceil(rect.right())
-
-    bottom = math.ceil(rect.bottom())
-
-    width = max(1, int(right - left))
-
-    height = max(1, int(bottom - top))
-
-    ox = int(left)
-
-    oy = int(top)
+    if margins is None:
+        padding = 5.0
+        rect = rect.adjusted(-padding, -padding, padding, padding)
+        left = math.floor(rect.left())
+        top = math.floor(rect.top())
+        right = math.ceil(rect.right())
+        bottom = math.ceil(rect.bottom())
+        width = max(1, int(right - left))
+        height = max(1, int(bottom - top))
+        ox = int(left)
+        oy = int(top)
+    else:
+        if not shape_items:
+            raise ValueError("Cannot apply custom export margins to an empty scene")
+        rect = expand_export_rect(rect, margins)
+        ox, oy, width, height = rect.getRect()
 
     items = list(reversed(shape_items))
 
@@ -603,6 +642,9 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
     lines.append("import drawsvg as draw")
 
+    lines.append("")
+
+    lines.extend(STYLE_PRELUDE.strip().splitlines())
     lines.append("")
 
     lines.append("def build_drawing():")
@@ -617,12 +659,25 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
     lines.append("")
 
-    for it in items:
+    for instance, it in enumerate(items):
+
+        if isinstance(it, ASSET_ITEM_TYPES):
+            item_start = len(lines)
+            attrs = _format_item_attributes(it, include_fill=False, extra_attrs=["fill='none'"])
+            var_name = export_asset_item(
+                it, lines, attributes=attrs,
+                transform_suffix=_item_transform_suffix(it), instance=instance,
+            )
+            lines.append(f"    d.append({var_name})")
+            _finish_styled_item(lines, item_start, it)
+            lines.append("")
+            continue
 
         definition = SHAPE_REGISTRY.definition_for_item(it)
         if definition is None:
             continue
         adapter = definition.python_export_adapter
+        item_start = len(lines)
 
         if adapter == "rectangle" and isinstance(
 
@@ -688,6 +743,8 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
                     shape_id=label_id,
 
+                    parents=parents,
+
                     var_name="rect_label",
 
                     label_kind="rect",
@@ -697,139 +754,60 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             lines.append("")
 
         elif adapter == "split_rounded_rectangle" and isinstance(it, SplitRoundedRectItem):
-
             r = it.rect()
-
-            x = r.x()
-
-            y = r.y()
-
-            w = r.width()
-
-            h = r.height()
-
+            x, y, w, h = r.x(), r.y(), r.width(), r.height()
             transform_suffix = _item_transform_suffix(it)
-
             rx_raw = getattr(it, "rx", 0.0)
-
             ry_raw = getattr(it, "ry", rx_raw)
-
-            extra_attrs = []
-
+            extra_attrs = ["fill='none'", split_style_attribute(it), "data_xml_escaped='true'"]
             if rx_raw:
-
                 extra_attrs.append(f"rx={rx_raw:.2f}")
-
             if ry_raw:
-
                 extra_attrs.append(f"ry={ry_raw:.2f}")
-
             attr_str = _format_item_attributes(it, extra_attrs=extra_attrs)
-
             ratio = it.divider_ratio()
-
             top_brush = it.topBrush()
-
-            if top_brush.style() == QtCore.Qt.BrushStyle.NoBrush:
-
-                top_fill = "none"
-
-                top_opacity = 1.0
-
-            else:
-
-                top_color = top_brush.color()
-
-                top_fill = top_color.name()
-
-                top_opacity = top_color.alphaF()
-
-            lines.append(
-
-                f"    # SplitRoundedRect ratio={ratio:.6f} top_fill='{top_fill}' top_opacity={top_opacity:.3f}"
-
-            )
-
-            lines.append(
-
-                f"    _split_rect = draw.Rectangle({x:.2f}, {y:.2f}, {w:.2f}, {h:.2f}, {attr_str}{transform_suffix})"
-
-            )
-
-            lines.append("    d.append(_split_rect)")
-
-            rect_scene = QtCore.QRectF(x, y, w, h)
-
+            top_fill = "none" if top_brush.style() == QtCore.Qt.BrushStyle.NoBrush else top_brush.color().name()
+            top_opacity = top_brush.color().alphaF()
+            lines.append(f"    # SplitRoundedRect ratio={ratio:.6f} top_fill='{top_fill}' top_opacity={top_opacity:.3f}")
+            # Keep the border constructor before the fills for safe AST reimport;
+            # append it after the fills to match Qt's painter order.
+            lines.append(f"    _split_rect = draw.Rectangle({x:.2f}, {y:.2f}, {w:.2f}, {h:.2f}, {attr_str}{transform_suffix})")
             rx = max(0.0, min(rx_raw, w / 2.0, 50.0))
-
             ry = max(0.0, min(ry_raw, h / 2.0, 50.0))
-
             base_path = QtGui.QPainterPath()
-
             if rx > 0.0 or ry > 0.0:
-
-                base_path.addRoundedRect(rect_scene, rx, ry)
-
+                base_path.addRoundedRect(r, rx, ry)
             else:
-
-                base_path.addRect(rect_scene)
-
-            line_y = y + h * ratio
-
-            line_y = max(y, min(y + h, line_y))
-
-            top_height = max(0.0, line_y - y)
-
-            if top_height > 0.0 and top_brush.style() != QtCore.Qt.BrushStyle.NoBrush:
-
-                top_clip = QtGui.QPainterPath()
-
-                top_clip.addRect(x, y, w, top_height)
-
-                top_path = base_path.intersected(top_clip)
-
-                path_cmd = _painter_path_to_svg(top_path)
-
-                if path_cmd:
-
-                    top_attrs = [f"fill='{top_fill}'", "stroke='none'"]
-
-                    if top_fill != "none" and top_opacity < 1.0:
-
-                        top_attrs.append(f"fill_opacity={top_opacity:.2f}")
-
-                    attr = ", ".join(top_attrs)
-
-                    lines.append(
-
-                        f"    _split_top = draw.Path('{path_cmd}', {attr}{transform_suffix})"
-
-                    )
-
-                    lines.append("    d.append(_split_top)")
-
+                base_path.addRect(r)
+            line_y = max(y, min(y + h, y + h * ratio))
+            for var_name, brush, clip_y, clip_height in (
+                ("_split_top", top_brush, y, line_y-y),
+                ("_split_bottom", it.bottomBrush(), line_y, y+h-line_y),
+            ):
+                if clip_height <= 0 or brush.style() == QtCore.Qt.BrushStyle.NoBrush:
+                    continue
+                clip = QtGui.QPainterPath()
+                clip.addRect(x, clip_y, w, clip_height)
+                fill_path = base_path.intersected(clip)
+                path_cmd = _painter_path_to_svg(fill_path)
+                if not path_cmd:
+                    continue
+                fill_attrs = brush_attributes(brush, it, bounds=fill_path.boundingRect())
+                fill_attrs.append("stroke='none'")
+                if it.effectiveOpacity() < 1:
+                    fill_attrs.append(f"opacity={it.effectiveOpacity():.12g}")
+                attr = format_drawsvg_attributes(fill_attrs)
+                lines.append(f"    {var_name} = draw.Path('{path_cmd}', {attr}{transform_suffix})")
+                lines.append(f"    d.append({var_name})")
+            lines.append("    d.append(_split_rect)")
             divider_pen = getattr(it, "_divider_pen", it.pen())
-
-            divider_attrs = [
-
-                f"stroke='{divider_pen.color().name()}'",
-
-                f"stroke_width={divider_pen.widthF():.2f}",
-
-            ]
-
-            divider_attr = ", ".join(divider_attrs)
-
-            x2 = x + w
-
-            lines.append(
-
-                f"    _split_div = draw.Line({x:.2f}, {line_y:.2f}, {x2:.2f}, {line_y:.2f}, {divider_attr}{transform_suffix})"
-
-            )
-
+            divider_attrs = pen_attributes(divider_pen, it)
+            if it.effectiveOpacity() < 1:
+                divider_attrs.append(f"opacity={it.effectiveOpacity():.12g}")
+            divider_attr = format_drawsvg_attributes(divider_attrs)
+            lines.append(f"    _split_div = draw.Line({x:.2f}, {line_y:.2f}, {x+w:.2f}, {line_y:.2f}, {divider_attr}{transform_suffix})")
             lines.append("    d.append(_split_div)")
-
             lines.append("")
 
         elif adapter == "ellipse" and isinstance(it, QtWidgets.QGraphicsEllipseItem):
@@ -889,6 +867,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     shape_id=label_id,
 
                     var_name="ellipse_label",
+                    parents=parents,
 
                     label_kind="ellipse",
 
@@ -953,6 +932,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     shape_id=label_id,
 
                     var_name="circle_label",
+                    parents=parents,
 
                     label_kind="circle",
 
@@ -1038,6 +1018,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     shape_id=label_id,
 
                     var_name="diamond_label",
+                    parents=parents,
 
                     label_kind="diamond",
 
@@ -1103,7 +1084,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 separators=(",", ":"),
             )
 
-            extra_attrs = [f"data_diagram={payload!r}"]
+            extra_attrs = [f"data_diagram={_xml_attribute_literal(payload)}", "data_xml_escaped='true'"]
 
             if label_id:
 
@@ -1130,6 +1111,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                     shape_id=label_id,
 
                     var_name="diagram_label",
+                    parents=parents,
 
                     label_kind="diagram",
 
@@ -1197,21 +1179,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             path_cmd = "M " + " L ".join(f"{pt.x():.2f} {pt.y():.2f}" for pt in points)
 
-            attrs = [
-
-                f"stroke='{pen.color().name()}'",
-
-                f"stroke_width={pen.widthF():.2f}",
-
-                "fill='none'",
-
-            ]
-
-            dash_str = _pen_dash_array_string(pen)
-
-            if dash_str:
-
-                attrs.append(f"stroke_dasharray='{dash_str}'")
+            attrs = [_format_item_attributes(it, include_fill=False, extra_attrs=("fill='none'",))]
 
             arrow_start = getattr(it, "arrow_start", False)
             arrow_end = getattr(it, "arrow_end", False)
@@ -1228,7 +1196,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 attrs.append(f"data_arrow_head_length={arrow_length:.2f}")
                 attrs.append(f"data_arrow_head_width={arrow_width:.2f}")
 
-            attr_str = ", ".join(attrs)
+            attr_str = format_drawsvg_attributes(attrs)
 
             transform_suffix = _item_transform_suffix(it)
 
@@ -1273,25 +1241,14 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
                     )
 
-                color = pen.color()
+                arrow_pen = QtGui.QPen(pen)
+                arrow_pen.setStyle(QtCore.Qt.PenStyle.SolidLine)
+                arrow_pen.setJoinStyle(QtCore.Qt.PenJoinStyle.MiterJoin)
+                arrow_attrs = brush_attributes(QtGui.QBrush(pen.color()), it)
+                arrow_attrs.extend(pen_attributes(arrow_pen, it))
+                arrow_attrs.extend(item_style_attributes(it))
 
-                arrow_attrs = [
-
-                    f"fill='{color.name()}'",
-
-                    f"stroke='{color.name()}'",
-
-                    f"stroke_width={pen.widthF():.2f}",
-
-                ]
-
-                if color.alphaF() < 1.0:
-
-                    arrow_attrs.append(f"fill_opacity={color.alphaF():.2f}")
-
-                    arrow_attrs.append(f"stroke_opacity={color.alphaF():.2f}")
-
-                arrow_attr_str = ", ".join(arrow_attrs)
+                arrow_attr_str = format_drawsvg_attributes(arrow_attrs)
 
                 for poly in local_polys:
 
@@ -1328,24 +1285,13 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             path_cmd = _painter_path_to_svg(it.path())
             if not path_cmd:
                 continue
-            pen = it.pen()
-            brush = it.brush()
-            attrs = [
-                f"stroke='{pen.color().name()}'",
-                f"stroke_width={pen.widthF():.2f}",
-                f"fill='{brush.color().name() if brush.style() != QtCore.Qt.BrushStyle.NoBrush else 'none'}'",
-                f"data_free_path={json.dumps(it.path_payload(), separators=(',', ':'))!r}",
+            attrs = [_format_item_attributes(it, extra_attrs=(
+                f"data_free_path={_xml_attribute_literal(json.dumps(it.path_payload(), separators=(',', ':')))}",
+                "data_xml_escaped='true'",
                 f"data_free_path_type={str(it.data(0) or it.path_kind)!r}",
-            ]
-            if pen.color().alphaF() < 1.0:
-                attrs.append(f"stroke_opacity={pen.color().alphaF():.2f}")
-            if brush.style() != QtCore.Qt.BrushStyle.NoBrush and brush.color().alphaF() < 1.0:
-                attrs.append(f"fill_opacity={brush.color().alphaF():.2f}")
-            dash_str = _pen_dash_array_string(pen)
-            if dash_str:
-                attrs.append(f"stroke_dasharray='{dash_str}'")
+            ))]
             lines.append(
-                f"    _path = draw.Path('{path_cmd}', {', '.join(attrs)}{_item_transform_suffix(it)})"
+                f"    _path = draw.Path('{path_cmd}', {format_drawsvg_attributes(attrs)}{_item_transform_suffix(it)})"
             )
             lines.append("    d.append(_path)")
             lines.append("")
@@ -1405,26 +1351,21 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 except Exception:
                     text_dir = None
 
-            text_anchor = {"center": "middle", "right": "end"}.get(h_align, "start")
             text_x = x_top + doc_margin
-            if h_align == "center":
-                text_x = br.center().x()
-            elif h_align == "right":
-                text_x = br.right() - doc_margin
             text_y = y_top + doc_margin
 
             base_attrs = [
                 f"fill='{color.name()}'",
-                f"font_family='{font.family()}'",
-                f"text_anchor='{text_anchor}'",
-                "dominant_baseline='text-before-edge'",
-                "alignment_baseline='text-before-edge'",
+                f"opacity={it.effectiveOpacity():.6f}",
+                *_text_font_attributes(font),
+                "text_anchor='start'",
+                "dominant_baseline='alphabetic'",
                 f"line_height={line_ratio:.6f}",
                 "xml__space='preserve'",
                 f"data_doc_margin={doc_margin:.4f}",
                 f"data_font_px={pixel_size:.4f}",
                 "data_scale=1.000000",
-                f"data_raw_text={json.dumps(raw_text, ensure_ascii=False)}",
+                f"data_raw_text={_xml_attribute_literal(raw_text)}",
             ]
             base_attrs.append(f"data_box_w={br.width():.4f}")
             base_attrs.append(f"data_box_h={br.height():.4f}")
@@ -1436,9 +1377,11 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
                 base_attrs.append(f"data_text_v='{v_align}'")
             if text_dir:
                 base_attrs.append(f"data_text_dir='{text_dir}'")
+                base_attrs.append(f"direction='{text_dir}'")
+                base_attrs.append("unicode_bidi='embed'")
             if color.alphaF() < 1.0:
                 base_attrs.append(f"fill_opacity={color.alphaF():.2f}")
-            base_attr_str = ", ".join(base_attrs)
+            base_attr_str = format_drawsvg_attributes(base_attrs)
 
             json_lines = [line if line else "\u00A0" for line in text_lines]
             if len(json_lines) == 1:
@@ -1451,6 +1394,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
             lines.append(
                 f"    _text = draw.Text({text_literal}, {size:.2f}, {text_x:.2f}, {text_y:.2f}, {base_attr_str}{transform_suffix})"
             )
+            _append_positioned_text_lines(lines, "_text", it)
             lines.append("    d.append(_text)")
             lines.append("")
 
@@ -1478,7 +1422,9 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             )
 
-            lines.append(f"    _folder_tree = draw.Group(transform='{matrix}')")
+            group_attrs = format_drawsvg_attributes(item_style_attributes(it))
+            group_suffix = f", {group_attrs}" if group_attrs else ""
+            lines.append(f"    _folder_tree = draw.Group(transform='{matrix}'{group_suffix})")
 
             line_pen = getattr(it, "_line_pen", QtGui.QPen(QtGui.QColor("#7a7a7a")))
 
@@ -1498,11 +1444,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
             info_map = getattr(it, "_node_info", {})
 
-            line_attr = (
-
-                f"stroke='{line_pen.color().name()}', stroke_width={line_pen.widthF():.2f}"
-
-            )
+            line_attr = format_drawsvg_attributes(pen_attributes(line_pen, it))
 
             for node in order:
 
@@ -1568,7 +1510,7 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
                 label = it._node_label(node)
 
-                text = repr(label)[1:-1]
+                text = repr(label)
 
                 text_x = text_rect.left()
 
@@ -1580,17 +1522,13 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
                 color = pen.color()
 
-                font_size = font.pointSizeF()
-
-                if font_size <= 0.0:
-
-                    font_size = float(font.pixelSize())
+                font_size = _font_pixel_size(font)
 
                 attrs = [
 
                     f"fill='{color.name()}'",
 
-                    f"font_family='{font.family()}'",
+                    *_text_font_attributes(font),
 
                 ]
 
@@ -1598,17 +1536,19 @@ def export_drawsvg_py(scene: QtWidgets.QGraphicsScene, parent: QtWidgets.QWidget
 
                     attrs.append(f"fill_opacity={color.alphaF():.2f}")
 
-                attr_str = ", ".join(attrs)
+                attr_str = format_drawsvg_attributes(attrs)
 
                 lines.append(
 
-                    f"    _folder_tree.append(draw.Text('{text}', {font_size:.2f}, {text_x:.2f}, {baseline:.2f}, {attr_str}))"
+                    f"    _folder_tree.append(draw.Text({text}, {font_size:.2f}, {text_x:.2f}, {baseline:.2f}, {attr_str}))"
 
                 )
 
             lines.append("    d.append(_folder_tree)")
 
             lines.append("")
+
+        _finish_styled_item(lines, item_start, it)
 
     lines.append("    return d")
 

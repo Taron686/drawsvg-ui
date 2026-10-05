@@ -12,7 +12,7 @@ SRC_ROOT = PROJECT_ROOT / "src"
 sys.path.insert(0, str(SRC_ROOT))
 
 import pytest
-from PySide6 import QtWidgets
+from PySide6 import QtCore, QtWidgets
 
 from canvas_view import CanvasView
 
@@ -20,6 +20,25 @@ from canvas_view import CanvasView
 @pytest.fixture(scope="session")
 def application() -> QtWidgets.QApplication:
     return QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+
+@pytest.fixture(autouse=True)
+def dispose_test_widgets() -> Iterator[None]:
+    """Release each test's Qt roots before later global style changes reach them."""
+    app = QtWidgets.QApplication.instance()
+    existing = (
+        {widget for widget in app.topLevelWidgets() if widget.parent() is None}
+        if app is not None
+        else set()
+    )
+    yield
+    app = QtWidgets.QApplication.instance()
+    if app is None:
+        return
+    for widget in app.topLevelWidgets():
+        if widget.parent() is None and widget not in existing:
+            widget.deleteLater()
+    QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
 
 
 @pytest.fixture

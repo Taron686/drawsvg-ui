@@ -1,3 +1,11 @@
+# drawsvg-ui
+# Copyright (C) 2025 Andreas Wambold
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 2 of the License, or
+# (at your option) any later version.
+
 """Shared Qt painter export path for SVG, PNG, and PDF output.
 
 The renderer deliberately has no dependency on the editor view.  Callers supply
@@ -19,6 +27,8 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from PySide6 import QtCore, QtGui, QtSvg, QtWidgets
+
+from export_margins import ExportMargins, expand_export_rect
 
 PNG_BASE_DPI = 96  # Scene units per inch, matching the editor's page geometry.
 
@@ -85,6 +95,7 @@ class ExportRequest:
     text_strategy: TextStrategy = TextStrategy.KEEP_TEXT
     font_fallback_reporter: Callable[[str, str], None] | None = None
     shadow: ExportShadow | None = None
+    margins: ExportMargins | None = None
 
 
 @dataclass(frozen=True)
@@ -108,18 +119,25 @@ class ExportRenderer:
         """Write one SVG per requested scene rectangle."""
 
         source_rects = self._source_rects(request)
+        output_rects = self.output_rects(request)
         output_paths = self._output_paths(path, len(source_rects), request.area)
+        background = request.background if request.margins is None else None
         self._report_font_fallbacks(request)
         with self._temporary_export_state(request.hidden_items):
-            for output_path, source_rect in zip(output_paths, source_rects, strict=True):
+            for output_path, source_rect, output_rect in zip(
+                output_paths, source_rects, output_rects, strict=True
+            ):
                 if request.text_strategy is TextStrategy.CONVERT_TO_PATHS:
                     svg = self._svg_with_background(
                         self._scene_svg_with_text_paths(source_rect, request.scale),
                         source_rect,
-                        request.background,
+                        background,
+                        request.scale,
                     )
                 else:
                     generator = QtSvg.QSvgGenerator()
+                    # Match Qt's default text layout DPI, including platform scaling.
+                    generator.setResolution(round(QtGui.QFontMetricsF(QtGui.QFont()).fontDpi()))
                     generator.setFileName(str(output_path))
                     generator.setSize(self._pixel_size(source_rect, request.scale))
                     generator.setViewBox(
@@ -138,7 +156,7 @@ class ExportRenderer:
                     finally:
                         painter.end()
                     svg = self._svg_with_background(
-                        output_path.read_bytes(), source_rect, request.background
+                        output_path.read_bytes(), source_rect, background, request.scale
                     )
                 if request.shadow is not None:
                     if request.shadow.style is ShadowStyle.HARD_VECTOR:
@@ -147,11 +165,15 @@ class ExportRenderer:
                         svg = self._svg_with_raster_shadow(
                             svg,
                             source_rect,
-                            request.background,
+                            background,
                             request.text_strategy,
                             request.shadow,
                             request.scale,
                         )
+                if request.margins is not None:
+                    svg = self._svg_with_margins(
+                        svg, source_rect, output_rect, request.background, request.scale
+                    )
                 output_path.write_bytes(svg)
         return output_paths
 
@@ -159,27 +181,43 @@ class ExportRenderer:
         """Write one PNG per requested scene rectangle."""
 
         source_rects = self._source_rects(request)
+        output_rects = self.output_rects(request)
         output_paths = self._output_paths(path, len(source_rects), request.area)
         self._report_font_fallbacks(request)
         with self._temporary_export_state(request.hidden_items):
-            for output_path, source_rect in zip(output_paths, source_rects, strict=True):
+            for output_path, source_rect, output_rect in zip(
+                output_paths, source_rects, output_rects, strict=True
+            ):
                 image = QtGui.QImage(
-                    self._pixel_size(source_rect, request.scale),
+                    self._pixel_size(output_rect, request.scale),
                     QtGui.QImage.Format.Format_ARGB32_Premultiplied,
                 )
                 dots_per_meter = round(PNG_BASE_DPI * request.scale / 0.0254)
                 image.setDotsPerMeterX(dots_per_meter)
                 image.setDotsPerMeterY(dots_per_meter)
                 image.fill(QtCore.Qt.GlobalColor.transparent)
+                target_rect = QtCore.QRectF(image.rect())
+                background = request.background
+                if request.margins is not None:
+                    # Round allocation only: pixel rounding must not stretch artwork.
+                    target_rect = QtCore.QRectF(
+                        0.0, 0.0,
+                        output_rect.width() * request.scale,
+                        output_rect.height() * request.scale,
+                    )
+                    if background is not None:
+                        image.fill(background)
+                    background = None
                 painter = QtGui.QPainter(image)
                 try:
                     self._paint(
                         painter,
                         source_rect,
-                        request.background,
+                        background,
                         request.text_strategy,
-                        QtCore.QRectF(image.rect()),
+                        target_rect,
                         request.shadow,
+                        output_rect=output_rect,
                     )
                 finally:
                     painter.end()
@@ -204,10 +242,11 @@ class ExportRenderer:
         """Write every requested rectangle as one page of a PDF file."""
 
         source_rects = self._source_rects(request)
+        output_rects = self.output_rects(request)
         output_path = Path(path)
         writer = QtGui.QPdfWriter(str(output_path))
         writer.setResolution(72)
-        writer.setPageSize(self._pdf_page_size(source_rects[0]))
+        writer.setPageSize(self._pdf_page_size(output_rects[0]))
         # The page already matches the content; Qt's default margins shift and clip it.
         writer.setPageMargins(QtCore.QMarginsF(0.0, 0.0, 0.0, 0.0))
         self._report_font_fallbacks(request)
@@ -216,9 +255,11 @@ class ExportRenderer:
             if not painter.isActive():
                 raise RuntimeError(f"Could not open PDF output: {output_path}")
             try:
-                for index, source_rect in enumerate(source_rects):
+                for index, (source_rect, output_rect) in enumerate(
+                    zip(source_rects, output_rects, strict=True)
+                ):
                     if index:
-                        writer.setPageSize(self._pdf_page_size(source_rect))
+                        writer.setPageSize(self._pdf_page_size(output_rect))
                         writer.newPage()
                     self._paint(
                         painter,
@@ -226,10 +267,19 @@ class ExportRenderer:
                         request.background,
                         request.text_strategy,
                         shadow=request.shadow,
+                        output_rect=output_rect,
                     )
             finally:
                 painter.end()
         return output_path
+
+    def output_rects(self, request: ExportRequest) -> tuple[QtCore.QRectF, ...]:
+        """Return output bounds including margins without enlarging scene crops."""
+
+        source_rects = self._source_rects(request)
+        if request.margins is None:
+            return source_rects
+        return tuple(expand_export_rect(rect, request.margins) for rect in source_rects)
 
     def _source_rects(self, request: ExportRequest) -> tuple[QtCore.QRectF, ...]:
         if request.scale <= 0.0:
@@ -312,15 +362,31 @@ class ExportRenderer:
         text_strategy: TextStrategy,
         target_rect: QtCore.QRectF | None = None,
         shadow: ExportShadow | None = None,
+        *,
+        output_rect: QtCore.QRectF | None = None,
     ) -> None:
+        if output_rect is None:
+            output_rect = source_rect
         if target_rect is None:
             target_rect = QtCore.QRectF(
-                0.0, 0.0, source_rect.width(), source_rect.height()
+                0.0, 0.0, output_rect.width(), output_rect.height()
             )
         painter.save()
         try:
             if background is not None:
                 painter.fillRect(target_rect, background)
+            if output_rect != source_rect:
+                scale_x = target_rect.width() / output_rect.width()
+                scale_y = target_rect.height() / output_rect.height()
+                painter.translate(
+                    target_rect.left() + (source_rect.left() - output_rect.left()) * scale_x,
+                    target_rect.top() + (source_rect.top() - output_rect.top()) * scale_y,
+                )
+                target_rect = QtCore.QRectF(
+                    0.0, 0.0, source_rect.width() * scale_x, source_rect.height() * scale_y
+                )
+                # Keep the original page/selection crop, including shadow clipping.
+                painter.setClipRect(target_rect, QtCore.Qt.ClipOperation.IntersectClip)
             if shadow is not None and shadow.style is ShadowStyle.HARD_VECTOR:
                 self._paint_hard_shadow(painter, source_rect, target_rect, text_strategy, shadow)
                 return
@@ -344,6 +410,46 @@ class ExportRenderer:
                 )
         finally:
             painter.restore()
+
+    @staticmethod
+    def _svg_with_margins(
+        svg: bytes,
+        source_rect: QtCore.QRectF,
+        output_rect: QtCore.QRectF,
+        background: QtGui.QColor | None,
+        scale: float,
+    ) -> bytes:
+        """Place the original vector viewport inside a larger output canvas."""
+
+        root = ElementTree.fromstring(svg)
+        namespace = root.tag.partition("}")[0].removeprefix("{")
+        tag = lambda name: f"{{{namespace}}}{name}" if namespace else name
+        if output_rect != source_rect:
+            group = ElementTree.Element(tag("g"), {
+                "transform": (
+                    f"translate({source_rect.left() - output_rect.left():.12g} "
+                    f"{source_rect.top() - output_rect.top():.12g})"
+                ),
+                "clip-path": "url(#export-content-clip)",
+            })
+            for child in list(root):
+                if not child.tag.endswith("defs"):
+                    root.remove(child)
+                    group.append(child)
+            definitions = ElementTree.SubElement(root, tag("defs"))
+            clip = ElementTree.SubElement(definitions, tag("clipPath"), {
+                "id": "export-content-clip", "clipPathUnits": "userSpaceOnUse",
+            })
+            ElementTree.SubElement(clip, tag("rect"), {
+                "x": "0", "y": "0",
+                "width": f"{source_rect.width():.12g}",
+                "height": f"{source_rect.height():.12g}",
+            })
+            root.append(group)
+        root.set("viewBox", f"0 0 {output_rect.width():.12g} {output_rect.height():.12g}")
+        return ExportRenderer._svg_with_background(
+            ElementTree.tostring(root), output_rect, background, scale, round_size=False
+        )
 
     def _shadow_raster(
         self,
@@ -541,6 +647,8 @@ class ExportRenderer:
             raise RuntimeError("Could not create text-path export buffer")
 
         generator = QtSvg.QSvgGenerator()
+        # Point fonts must occupy the same scene units as in the editor.
+        generator.setResolution(round(QtGui.QFontMetricsF(QtGui.QFont()).fontDpi()))
         generator.setOutputDevice(buffer)
         generator.setSize(self._pixel_size(source_rect, scale))
         generator.setViewBox(
@@ -567,8 +675,17 @@ class ExportRenderer:
         svg: QtCore.QByteArray,
         source_rect: QtCore.QRectF,
         background: QtGui.QColor | None,
+        scale: float = 1.0,
+        *,
+        round_size: bool = True,
     ) -> bytes:
         root = ElementTree.fromstring(bytes(svg))
+        # Canvas geometry uses 96 units/inch regardless of the font layout DPI.
+        size = ExportRenderer._pixel_size(source_rect, scale)
+        width = size.width() if round_size else source_rect.width() * scale
+        height = size.height() if round_size else source_rect.height() * scale
+        root.set("width", f"{width * 25.4 / PNG_BASE_DPI:.6g}mm")
+        root.set("height", f"{height * 25.4 / PNG_BASE_DPI:.6g}mm")
         namespace = root.tag.partition("}")[0].removeprefix("{")
         rect_tag = f"{{{namespace}}}rect" if namespace else "rect"
         if background is not None:

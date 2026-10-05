@@ -57,7 +57,7 @@ def test_multiple_selected_items_enable_transform_properties(
     window._handle_selection_snapshot(window.canvas._build_selection_snapshot())
 
     assert window.properties_panel._spin_pos_x.isEnabled()
-    window.close()
+    _force_close(window._window_registry)
 
 
 def test_locked_layer_disables_transform_properties_for_multi_selection(
@@ -75,7 +75,7 @@ def test_locked_layer_disables_transform_properties_for_multi_selection(
     )
 
     assert not window.properties_panel._spin_pos_x.isEnabled()
-    window.close()
+    _force_close(window._window_registry)
 
 
 def test_file_menu_exposes_native_document_actions_and_shortcuts(
@@ -141,7 +141,7 @@ def test_new_windows_keep_uuid_history_and_dirty_state_separate(
     store = RecoveryStore(tmp_path / "recovery")
     first = _window(tmp_path, registry=registry, store=store)
     try:
-        second = first.new_document_window()
+        second = _window(tmp_path, registry=registry, store=store)
         _dirty(first)
 
         assert registry.windows() == (first, second)
@@ -154,7 +154,7 @@ def test_new_windows_keep_uuid_history_and_dirty_state_separate(
         _force_close(registry)
 
 
-def test_open_uses_a_new_window_and_focuses_an_already_open_project(
+def test_open_reuses_window_and_focuses_an_already_open_project(
     application: QtWidgets.QApplication, tmp_path: Path
 ) -> None:
     registry = DocumentWindowRegistry()
@@ -167,14 +167,14 @@ def test_open_uses_a_new_window_and_focuses_an_already_open_project(
     )
     try:
         opened = root._open_project_path(project_path)
-        assert opened is not None and opened is not root
-        assert len(registry.windows()) == 2
-        assert opened.document_controller.path == project_path.resolve()
-        assert not opened.document_controller.dirty
+        assert opened.name == "OPENED"
+        assert registry.windows() == (root,)
+        assert root.document_controller.path == project_path.resolve()
+        assert not root.document_controller.dirty
 
         duplicate = root._open_project_path(project_path)
         assert duplicate is opened
-        assert len(registry.windows()) == 2
+        assert registry.windows() == (root,)
     finally:
         _force_close(registry)
 
@@ -197,7 +197,7 @@ def test_failed_open_keeps_current_document_and_registry_unchanged(
         lambda _parent, _title, message: errors.append(message),
     )
     try:
-        assert window._open_project_path(broken_path) is None
+        assert window._open_project_path(broken_path).name == "FAILED"
         assert registry.windows() == (window,)
         assert window.canvas._serialize_scene_state() == before
         assert window.document_controller.path is None
@@ -233,7 +233,7 @@ def test_save_as_rejects_a_path_owned_by_another_window(
 ) -> None:
     registry = DocumentWindowRegistry()
     first = _window(tmp_path, registry=registry)
-    second = first.new_document_window()
+    second = _window(tmp_path, registry=registry)
     destination = tmp_path / "shared.drawsvg"
     warnings: list[str] = []
     monkeypatch.setattr(
@@ -258,7 +258,7 @@ def test_recovery_is_uuid_scoped_and_skips_duplicate_snapshots(
     registry = DocumentWindowRegistry()
     store = RecoveryStore(tmp_path / "recovery")
     first = _window(tmp_path, registry=registry, store=store)
-    second = first.new_document_window()
+    second = _window(tmp_path, registry=registry, store=store)
     try:
         _dirty(first)
         _dirty(second)
@@ -289,7 +289,7 @@ def test_disabled_recovery_neither_runs_nor_writes_in_new_windows(
         recovery_enabled=False,
         check_startup_recovery=True,
     )
-    second = first.new_document_window()
+    second = _window(tmp_path, registry=registry, store=store, recovery_enabled=False)
     try:
         _dirty(first)
         _dirty(second)
@@ -339,7 +339,7 @@ def test_recovery_restore_is_dirty_and_preserves_document_identity(
         assert source.document_controller.write_recovery_if_needed()
         candidate = store.candidates()[0]
 
-        restored = source.new_document_window()
+        restored = _window(tmp_path, registry=registry, store=store)
         restored.document_controller.restore_recovery(candidate)
         assert restored.document_controller.document_id == document_id
         assert restored.document_controller.dirty
@@ -349,7 +349,7 @@ def test_recovery_restore_is_dirty_and_preserves_document_identity(
         _force_close(registry)
 
 
-def test_startup_recovery_offers_every_candidate(
+def test_startup_recovery_recovers_one_candidate_per_start(
     application: QtWidgets.QApplication,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -357,11 +357,18 @@ def test_startup_recovery_offers_every_candidate(
     store = RecoveryStore(tmp_path / "recovery")
     writer_registry = DocumentWindowRegistry()
     first = _window(tmp_path, registry=writer_registry, store=store)
-    second = first.new_document_window()
+    second = _window(tmp_path, registry=writer_registry, store=store)
     _dirty(first)
     _dirty(second)
     assert first.document_controller.write_recovery_if_needed()
     assert second.document_controller.write_recovery_if_needed()
+    candidates = store.candidates()
+    preserved = {
+        candidate.document_id: (
+            candidate.archive_path.read_bytes(), candidate.metadata_path.read_bytes()
+        )
+        for candidate in candidates
+    }
     _force_close(writer_registry)
 
     registry = DocumentWindowRegistry()
@@ -374,12 +381,28 @@ def test_startup_recovery_offers_every_candidate(
     )
     try:
         startup._offer_recovery_candidates()
-        assert set(offered) == {
-            first.document_controller.document_id,
-            second.document_controller.document_id,
-        }
-        assert len(registry.windows()) == 2
-        assert all(window.document_controller.dirty for window in registry.windows())
+        assert offered == [candidates[0].document_id]
+        assert registry.windows() == (startup,)
+        assert startup.document_controller.document_id == candidates[0].document_id
+        assert startup.document_controller.dirty
+        for candidate in candidates:
+            assert (
+                candidate.archive_path.read_bytes(), candidate.metadata_path.read_bytes()
+            ) == preserved[candidate.document_id]
+        assert startup._save_document_to(tmp_path / "recovered.drawsvg")
+        _force_close(registry)
+
+        next_start = _window(tmp_path, registry=registry, store=store)
+        monkeypatch.setattr(
+            next_start,
+            "_ask_recovery_candidate",
+            lambda candidate: offered.append(candidate.document_id) or "recover",
+        )
+        next_start._offer_recovery_candidates()
+        assert offered == [candidates[0].document_id, candidates[1].document_id]
+        assert registry.windows() == (next_start,)
+        assert next_start.document_controller.document_id == candidates[1].document_id
+        assert candidates[1].archive_path.read_bytes() == preserved[candidates[1].document_id][0]
     finally:
         _force_close(registry)
 
@@ -437,7 +460,7 @@ def test_quit_cancel_closes_none_of_the_document_windows(
 ) -> None:
     registry = DocumentWindowRegistry()
     first = _window(tmp_path, registry=registry)
-    second = first.new_document_window()
+    second = _window(tmp_path, registry=registry)
     _dirty(first)
     _dirty(second)
     monkeypatch.setattr(first, "_ask_unsaved_changes", lambda: "discard")
@@ -456,7 +479,7 @@ def test_quit_discard_closes_all_document_windows(
 ) -> None:
     registry = DocumentWindowRegistry()
     first = _window(tmp_path, registry=registry)
-    second = first.new_document_window()
+    second = _window(tmp_path, registry=registry)
     _dirty(first)
     _dirty(second)
     monkeypatch.setattr(first, "_ask_unsaved_changes", lambda: "discard")
@@ -481,9 +504,10 @@ def test_python_import_opens_an_unsaved_dirty_document_window(
 
     monkeypatch.setattr(main_window, "import_drawsvg_py", import_fixture)
     try:
-        assert root._open_python_document(source) == source.resolve()
+        assert root._open_python_document(source).name == "OPENED"
         imported = registry.windows()[-1]
-        assert imported is not root
+        assert imported is root
+        assert registry.windows() == (root,)
         assert imported.document_controller.path is None
         assert imported.document_controller.dirty
         assert imported.windowTitle() == "Untitled * — DrawSVG UI"

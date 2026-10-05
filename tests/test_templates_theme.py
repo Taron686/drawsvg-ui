@@ -10,6 +10,7 @@ from PySide6 import QtCore, QtGui, QtTest, QtWidgets
 
 from document_controller import DocumentWindowRegistry
 from export_renderer import ExportRenderer, ExportRequest
+import main_window
 from main_window import MainWindow
 
 
@@ -19,6 +20,74 @@ def _window(tmp_path, registry, settings):
         window_registry=registry,
         settings=settings,
     )
+
+
+@pytest.mark.parametrize("grid,alignment", [(False, False), (False, True), (True, False), (True, True)])
+def test_snap_actions_persist_independently_of_display_and_theme(application, tmp_path, grid, alignment):
+    registry = DocumentWindowRegistry()
+    settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
+    window = _window(tmp_path, registry, settings)
+    try:
+        actions = {action.text(): action for action in window.menuView.actions()}
+        assert "Snap to grid" in actions
+        assert "Snap to guides and objects" in actions
+        grid_action = actions["Snap to grid"]
+        alignment_action = actions["Snap to guides and objects"]
+        assert grid_action.isCheckable() and grid_action.isChecked()
+        assert alignment_action.isCheckable() and alignment_action.isChecked()
+        item = window.canvas.add_shape("Rectangle", QtCore.QPointF(103, 107), snap_to_grid=False)
+        window._set_theme("dark")
+        window.canvas.history().capture_initial_state()
+        before = window.canvas._serialize_scene_state()
+        grid_action.setChecked(grid)
+        alignment_action.setChecked(alignment)
+        assert window.canvas.grid_snap_enabled() is grid
+        assert window.canvas.alignment_snap_enabled() is alignment
+        assert window.canvas._serialize_scene_state() == before
+        assert item.pos() == QtCore.QPointF(103, 107)
+        assert not window.canvas.history().can_undo()
+        assert window.actionShow_grid.isChecked()
+        assert window.actionShow_guides.isChecked()
+        window._save_view_settings()
+        settings.sync()
+        assert settings.value("view/snap_grid", None, bool) is grid
+        assert settings.value("view/snap_alignment", None, bool) is alignment
+        restored = _window(tmp_path, registry, settings)
+        assert restored.canvas.grid_snap_enabled() is grid
+        assert restored.canvas.alignment_snap_enabled() is alignment
+        assert restored.actionSnap_grid.isChecked() is grid
+        assert restored.actionSnap_alignment.isChecked() is alignment
+        assert settings.value("view/theme", "light", str) == "dark"
+        assert restored.canvas.backgroundBrush().color() == QtGui.QColor("#2d2d30")
+        window.actionShow_grid.setChecked(False)
+        window.actionShow_guides.setChecked(False)
+        assert window.canvas.grid_snap_enabled() is grid
+        assert window.canvas.alignment_snap_enabled() is alignment
+    finally:
+        for candidate in registry.windows():
+            candidate._force_close = True
+            candidate.close()
+
+
+def test_old_view_settings_default_missing_snap_keys_to_enabled(application, tmp_path):
+    registry = DocumentWindowRegistry()
+    settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
+    settings.setValue("view/settings_version", 1)
+    settings.setValue("view/grid", False)
+    settings.setValue("view/guides", False)
+    settings.setValue("view/theme", "dark")
+    window = _window(tmp_path, registry, settings)
+    try:
+        assert window.canvas.grid_snap_enabled()
+        assert window.canvas.alignment_snap_enabled()
+        assert window.actionSnap_grid.isChecked()
+        assert window.actionSnap_alignment.isChecked()
+        assert not window.actionShow_grid.isChecked()
+        assert not window.actionShow_guides.isChecked()
+        assert settings.value("view/theme", "light", str) == "dark"
+    finally:
+        window._force_close = True
+        window.close()
 
 
 def test_about_menu_is_last_in_menu_bar(application, tmp_path) -> None:
@@ -41,10 +110,23 @@ def test_template_opens_an_unsaved_document(application, tmp_path) -> None:
     settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
     window = _window(tmp_path, registry, settings)
     try:
-        template = window.new_document_from_template("Flowchart")
-        assert template.document_controller.path is None
-        assert template.document_controller.dirty
-        assert len(template.canvas.scene().items()) > 1
+        document_id = window.document_controller.document_id
+        window._set_theme("dark")
+        window.actionSnap_grid.setChecked(False)
+        window.actionShow_guides.setChecked(False)
+        result = window.new_document_from_template("Flowchart")
+        assert registry.windows() == (window,)
+        assert result is main_window.OpenResult.OPENED
+        assert window.document_controller.path is None
+        assert window.document_controller.document_id != document_id
+        assert window.document_controller.dirty
+        assert window.document_controller.revision == 1
+        assert len(window.canvas.scene().items()) > 1
+        assert not window.canvas.history().can_undo()
+        assert not window.canvas.history().can_redo()
+        assert not window.actionSnap_grid.isChecked()
+        assert not window.actionShow_guides.isChecked()
+        assert window.canvas.backgroundBrush().color() == QtGui.QColor("#2d2d30")
     finally:
         for candidate in registry.windows():
             candidate._force_close = True

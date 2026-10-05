@@ -34,3 +34,4 @@ def test_wheel_contains_runtime_logging_module(tmp_path: Path) -> None:
     assert len(wheels) == 1
     with zipfile.ZipFile(wheels[0]) as archive:
         assert "app_logging.py" in archive.namelist()
+        assert "snap_geometry.py" in archive.namelist()

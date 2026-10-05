@@ -89,7 +89,7 @@ def test_failed_recent_file_is_removed(
         json.dumps([str(missing_path.resolve())]),
         encoding="utf-8",
     )
-    monkeypatch.setattr(main_window, "import_drawsvg_py", lambda *_args: None)
+    monkeypatch.setattr(QtWidgets.QMessageBox, "critical", lambda *_args: None)
     window = MainWindow(recent_files_path=history_path)
 
     window._open_recent_file(str(missing_path))
@@ -105,11 +105,12 @@ def test_successful_load_updates_recently_opened_menu(
 ) -> None:
     history_path = tmp_path / "recent_files.json"
     drawing_path = tmp_path / "drawing.py"
+    drawing_path.write_text("d = draw.Drawing(320, 240)\n", encoding="utf-8")
     window = MainWindow(recent_files_path=history_path)
     monkeypatch.setattr(
-        main_window,
-        "import_drawsvg_py",
-        lambda *_args: drawing_path.resolve(),
+        QtWidgets.QFileDialog,
+        "getOpenFileName",
+        lambda *_args: (str(drawing_path), "Python (*.py)"),
     )
 
     window.load_drawsvg_py()
@@ -125,21 +126,24 @@ def test_recent_file_action_loads_selected_path(
 ) -> None:
     history_path = tmp_path / "recent_files.json"
     drawing_path = tmp_path / "drawing.py"
+    drawing_path.write_text(
+        "d = draw.Drawing(320, 240)\n"
+        "_rect = draw.Rectangle(10, 20, 80, 40)\n"
+        "d.append(_rect)\n",
+        encoding="utf-8",
+    )
     history_path.write_text(
         json.dumps([str(drawing_path.resolve())]),
         encoding="utf-8",
-    )
-    loaded_paths: list[Path] = []
-    monkeypatch.setattr(
-        main_window,
-        "import_drawsvg_py",
-        lambda _scene, _parent, path: loaded_paths.append(Path(path)) or Path(path),
     )
     window = MainWindow(recent_files_path=history_path)
 
     window.recent_files_menu.actions()[0].trigger()
 
-    assert loaded_paths == [drawing_path.resolve()]
+    assert window._window_registry.windows() == (window,)
+    assert any(item.data(0) == "Rectangle" for item in window.canvas.scene().items())
+    assert window.document_controller.path is None
+    assert window.document_controller.dirty
 
 
 def test_import_accepts_explicit_recent_file_path(tmp_path: Path) -> None:

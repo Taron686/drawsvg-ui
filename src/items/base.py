@@ -53,12 +53,21 @@ def _snap_component(value: float, spacing: float, origin: float) -> float:
     return round((value - origin) / spacing) * spacing + origin
 
 
+def _grid_snap_enabled(view: QtWidgets.QGraphicsView) -> bool:
+    getter = getattr(view, "grid_snap_enabled", None)
+    if callable(getter):
+        return bool(getter())
+    return bool(getattr(view, "_grid_snap_enabled", True))
+
+
 def snap_to_grid(item: QtWidgets.QGraphicsItem, pos: QtCore.QPointF) -> QtCore.QPointF:
     scene = item.scene()
     if scene:
         views = scene.views()
         if views:
             view = views[0]
+            if not _grid_snap_enabled(view):
+                return pos
             spacing = float(getattr(view, "_grid_size_min", 10.0))
             ox, oy = _grid_origin(view)
             x = _snap_component(pos.x(), spacing, ox)
@@ -290,6 +299,9 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
         parent = self.parentItem()
         scene_pos = event.scenePos()
         snap_scene = not (event.modifiers() & QtCore.Qt.KeyboardModifier.AltModifier)
+        scene = parent.scene()
+        if scene and scene.views():
+            snap_scene = snap_scene and _grid_snap_enabled(scene.views()[0])
         if snap_scene:
             scene_pos = snap_to_grid(self, scene_pos)
 

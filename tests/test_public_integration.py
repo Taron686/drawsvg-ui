@@ -62,8 +62,8 @@ def test_hover_handles_deleted_item(canvas_view):
     assert canvas_view._valid_hover_preview() is None
 
 
-@pytest.mark.parametrize("alignment,anchor", [("left", "start"), ("center", "middle"), ("right", "end")])
-def test_aligned_text_export_and_roundtrip(canvas_view, monkeypatch, tmp_path: Path, alignment, anchor):
+@pytest.mark.parametrize("alignment", ["left", "center", "right"])
+def test_aligned_text_export_and_roundtrip(canvas_view, monkeypatch, tmp_path: Path, alignment):
     item = canvas_view.add_shape("Text", QtCore.QPointF(70, 90), snap_to_grid=False)
     item.setPlainText("Alignment")
     item.set_text_alignment(horizontal=alignment)
@@ -79,11 +79,18 @@ def test_aligned_text_export_and_roundtrip(canvas_view, monkeypatch, tmp_path: P
     text_calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "Text"]
     call = text_calls[0]
     attributes = {kw.arg: ast.literal_eval(kw.value) for kw in call.keywords}
-    assert attributes["text_anchor"] == anchor
+    assert attributes["text_anchor"] == "start"
     text_x = ast.literal_eval(call.args[2])
     bounds = item.boundingRect()
-    expected = {"left": bounds.left() + item.document().documentMargin(), "center": bounds.center().x(), "right": bounds.right() - item.document().documentMargin()}[alignment]
+    expected = bounds.left() + item.document().documentMargin()
     assert text_x == pytest.approx(expected, abs=0.01)
+    # Alignment is now encoded in the positioned visual lines, including wrapping.
+    line_calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "append_line"]
+    assert len(line_calls) == 1
+    line_attributes = {kw.arg: ast.literal_eval(kw.value) for kw in line_calls[0].keywords}
+    layout = item.document().begin().layout()
+    line_rect = layout.lineAt(0).naturalTextRect().translated(layout.position() + item._content_offset)
+    assert line_attributes["x"] == pytest.approx(line_rect.left(), abs=0.001)
     import_drawsvg.import_drawsvg_py(canvas_view.scene())
     restored = [it for it in canvas_view.scene().items() if it.data(0) == "Text"][0]
     assert restored.text_alignment()[0] == alignment

@@ -35,10 +35,12 @@ def test_load_dialog_fits_imported_canvas_after_show(
     try:
         root.show()
         application.processEvents()
+        root.canvas.scale(0.01, 0.01)
         root.load_drawsvg_py()
         for _ in range(3):
             application.processEvents()
-        imported = next(w for w in root._window_registry.windows() if w is not root)
+        assert root._window_registry.windows() == (root,)
+        imported = root
         imported.grab()
         assert imported.canvas.transform().m11() > 0.1
         assert not any("QPainter::" in message for message in messages)

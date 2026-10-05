@@ -9,10 +9,13 @@
 from __future__ import annotations
 
 import ast
+import base64
+import html
 from contextlib import nullcontext
 import math
 import json
 import re
+from xml.etree import ElementTree
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -36,6 +39,12 @@ from items import (
 from items.shapes.paths import FreePathItem
 
 from shape_registry import SHAPE_REGISTRY
+from asset_service import BitmapAssetService
+from bitmap_item import BitmapItem
+from connectors import ConnectorItem
+from items.svg import SvgItem
+from items.svg_assets import SvgAssetParser
+from style_presets import apply_style_data
 
 from constants import DEFAULTS, PEN_STYLE_DASH_ARRAYS
 
@@ -64,13 +73,26 @@ def _parse_call(line: str) -> tuple[list[Any], dict[str, Any]]:
         v = kw.value
         if isinstance(v, ast.Name):
             kwargs[kw.arg] = v.id
+        elif (
+            kw.arg in {"fill", "stroke"} and isinstance(v, ast.Call)
+            and isinstance(v.func, ast.Name) and v.func.id == "_drawsvg_gradient"
+            and len(v.args) == 4 and not v.keywords
+        ):
+            # Only accept the exporter's literal gradient descriptor.  Never
+            # evaluate code; data_qt_brush below restores the editor brush.
+            for argument in v.args:
+                ast.literal_eval(argument)
+            kwargs[kw.arg] = "none"
         else:
             kwargs[kw.arg] = ast.literal_eval(v)
+    if kwargs.get("data_xml_escaped") == "true":
+        kwargs = {key: html.unescape(value) if isinstance(value, str) else value
+                  for key, value in kwargs.items()}
     return args, kwargs
 
 
 def _apply_style(item: QtWidgets.QGraphicsItem, kwargs: dict[str, Any]) -> None:
-    if isinstance(item, (QtWidgets.QGraphicsRectItem, QtWidgets.QGraphicsEllipseItem, LineItem, FreePathItem, TriangleItem, DiamondItem, BlockArrowItem, CurvyBracketItem, DiagramItem)):
+    if isinstance(item, (QtWidgets.QGraphicsRectItem, QtWidgets.QGraphicsEllipseItem, LineItem, FreePathItem, TriangleItem, DiamondItem, BlockArrowItem, CurvyBracketItem, DiagramItem, ConnectorItem)):
         if kwargs.get("fill") == "none":
             item.setBrush(QtCore.Qt.BrushStyle.NoBrush)
         elif "fill" in kwargs:
@@ -87,6 +109,21 @@ def _apply_style(item: QtWidgets.QGraphicsItem, kwargs: dict[str, Any]) -> None:
                 pen.setColor(color)
         if "stroke_width" in kwargs:
             pen.setWidthF(float(kwargs["stroke_width"]))
+        if "data_qt_pen_width" in kwargs:
+            width = kwargs["data_qt_pen_width"]
+            if isinstance(width, bool) or not isinstance(width, (int, float)) or not math.isfinite(width) or width < 0:
+                raise ValueError("Exported pen width must be a finite nonnegative number")
+            pen.setWidthF(width)
+        if kwargs.get("vector_effect") == "non-scaling-stroke":
+            pen.setCosmetic(True)
+        if kwargs.get("stroke") == "none" and "data_qt_pen_brush" not in kwargs:
+            pen.setStyle(QtCore.Qt.PenStyle.NoPen)
+        cap = {"butt": QtCore.Qt.PenCapStyle.FlatCap, "round": QtCore.Qt.PenCapStyle.RoundCap, "square": QtCore.Qt.PenCapStyle.SquareCap}.get(kwargs.get("stroke_linecap"))
+        join = {"miter": QtCore.Qt.PenJoinStyle.MiterJoin, "round": QtCore.Qt.PenJoinStyle.RoundJoin, "bevel": QtCore.Qt.PenJoinStyle.BevelJoin}.get(kwargs.get("stroke_linejoin"))
+        if cap is not None:
+            pen.setCapStyle(cap)
+        if join is not None:
+            pen.setJoinStyle(join)
         dash_pattern = None
         dash_value = kwargs.get("stroke_dasharray")
         if dash_value is not None:
@@ -98,6 +135,9 @@ def _apply_style(item: QtWidgets.QGraphicsItem, kwargs: dict[str, Any]) -> None:
                     dash_pattern = [float(part) for part in parts]
                 except ValueError:
                     dash_pattern = []
+            if kwargs.get("data_pen_units") == "svg":
+                unit = pen.widthF() if pen.widthF() > 0 else 1.0
+                dash_pattern = [value / unit for value in dash_pattern]
         style_to_apply: QtCore.Qt.PenStyle | None = None
         if dash_pattern is not None:
             if not dash_pattern:
@@ -110,8 +150,17 @@ def _apply_style(item: QtWidgets.QGraphicsItem, kwargs: dict[str, Any]) -> None:
         elif dash_pattern:
             pen.setStyle(QtCore.Qt.PenStyle.CustomDashLine)
             pen.setDashPattern(dash_pattern)
+        if "stroke_dashoffset" in kwargs:
+            unit = pen.widthF() if kwargs.get("data_pen_units") == "svg" and pen.widthF() > 0 else 1.0
+            pen.setDashOffset(float(kwargs["stroke_dashoffset"]) / unit)
+        if "data_qt_pen_style" in kwargs:
+            pen.setStyle(QtCore.Qt.PenStyle(int(kwargs["data_qt_pen_style"])))
+            if pen.style() == QtCore.Qt.PenStyle.CustomDashLine and dash_pattern:
+                pen.setDashPattern(dash_pattern)
+        if kwargs.get("stroke") == "none" and "data_qt_pen_brush" not in kwargs:
+            pen.setStyle(QtCore.Qt.PenStyle.NoPen)
         item.setPen(pen)
-        if isinstance(item, LineItem) and style_to_apply is not None:
+        if isinstance(item, LineItem) and style_to_apply is not None and "data_qt_pen_style" not in kwargs:
             item.set_pen_style(style_to_apply)
     elif isinstance(item, TextItem):
         if "fill" in kwargs:
@@ -119,10 +168,103 @@ def _apply_style(item: QtWidgets.QGraphicsItem, kwargs: dict[str, Any]) -> None:
             if "fill_opacity" in kwargs:
                 color.setAlphaF(float(kwargs["fill_opacity"]))
             item.setDefaultTextColor(color)
+        font = item.font()
         if "font_family" in kwargs:
-            font = item.font()
             font.setFamily(str(kwargs["font_family"]))
-            item.setFont(font)
+        _apply_text_font_style(font, kwargs)
+        item.setFont(font)
+    _apply_exported_item_style(item, kwargs)
+
+
+def _apply_exported_item_style(item: QtWidgets.QGraphicsItem, kwargs: dict[str, Any]) -> None:
+    brush_value = kwargs.get("data_qt_brush")
+    if brush_value is not None and hasattr(item, "setBrush"):
+        item.setBrush(_brush_from_exported_data(json.loads(str(brush_value))))
+    pen_brush_value = kwargs.get("data_qt_pen_brush")
+    if pen_brush_value is not None and hasattr(item, "setPen"):
+        pen = item.pen()
+        pen.setBrush(_brush_from_exported_data(json.loads(str(pen_brush_value))))
+        item.setPen(pen)
+    style_value = kwargs.get("data_item_style")
+    if style_value is not None:
+        data = json.loads(str(style_value))
+        if not isinstance(data, dict):
+            raise ValueError("Exported item style must be an object")
+        if "opacity" in data:
+            opacity = data["opacity"]
+            if isinstance(opacity, bool) or not isinstance(opacity, (int, float)) or not math.isfinite(opacity) or not 0 <= opacity <= 1:
+                raise ValueError("Exported opacity must be a finite number between zero and one")
+        shadow = data.get("shadow")
+        if shadow is not None:
+            if not isinstance(shadow, dict):
+                raise ValueError("Exported shadow must be an object")
+            for name in ("offset_x", "offset_y", "blur_radius"):
+                value = shadow.get(name, 0.0)
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                    raise ValueError("Exported shadow values must be finite numbers")
+            if shadow.get("blur_radius", 0.0) < 0 or not QtGui.QColor(str(shadow.get("color", "#00000000"))).isValid():
+                raise ValueError("Exported shadow has invalid blur or color")
+        apply_style_data(item, data)
+        if "opacity" in data:
+            item.setOpacity(float(data["opacity"]))
+    elif "opacity" in kwargs:
+        item.setOpacity(float(kwargs["opacity"]))
+
+
+def _brush_from_exported_data(data: dict[str, Any]) -> QtGui.QBrush:
+    if data["kind"] == "solid":
+        brush = QtGui.QBrush(QtCore.Qt.BrushStyle(int(data["style"])))
+        color = QtGui.QColor(data["color"])
+        color.setAlphaF(float(data["alpha"]))
+        brush.setColor(color)
+        return brush
+    coords = [float(value) for value in data["coords"]]
+    if data["kind"] == "linear" and len(coords) == 4:
+        gradient = QtGui.QLinearGradient(*coords)
+    elif data["kind"] == "radial" and len(coords) == 6:
+        gradient = QtGui.QRadialGradient(*coords)
+    else:
+        raise ValueError("Unsupported exported gradient")
+    gradient.setCoordinateMode(QtGui.QGradient.CoordinateMode(int(data["coordinate_mode"])))
+    gradient.setSpread(QtGui.QGradient.Spread(int(data["spread"])))
+    for position, color_name, alpha in data["stops"]:
+        color = QtGui.QColor(color_name)
+        color.setAlphaF(float(alpha))
+        gradient.setColorAt(float(position), color)
+    brush = QtGui.QBrush(gradient)
+    brush.setTransform(QtGui.QTransform(*[float(value) for value in data["transform"]]))
+    return brush
+
+
+def _restore_exported_split(item: SplitRoundedRectItem, value: str) -> None:
+    data = json.loads(value)
+    item.setTopBrush(_brush_from_exported_data(data["top"]))
+    item.setBottomBrush(_brush_from_exported_data(data["bottom"]))
+    divider = data["divider_pen"]
+    color = QtGui.QColor(divider["color"])
+    color.setAlphaF(float(divider["alpha"]))
+    pen = QtGui.QPen(color)
+    pen.setWidthF(float(divider["width"]))
+    pen.setCosmetic(bool(divider["cosmetic"]))
+    pen.setCapStyle(QtCore.Qt.PenCapStyle(int(divider["cap"])))
+    pen.setJoinStyle(QtCore.Qt.PenJoinStyle(int(divider["join"])))
+    pen.setMiterLimit(float(divider["miter"]))
+    style = QtCore.Qt.PenStyle(int(divider["style"]))
+    if style == QtCore.Qt.PenStyle.CustomDashLine and divider["dash"]:
+        pen.setDashPattern([float(value) for value in divider["dash"]])
+        pen.setDashOffset(float(divider["offset"]))
+    else:
+        pen.setStyle(style)
+    item._divider_pen = pen
+
+
+def _apply_text_font_style(font: QtGui.QFont, kwargs: dict[str, Any]) -> None:
+    if "font_weight" in kwargs:
+        font.setBold(kwargs["font_weight"] == "bold")
+    if "font_style" in kwargs:
+        font.setItalic(kwargs["font_style"] == "italic")
+    if "text_decoration" in kwargs:
+        font.setUnderline("underline" in str(kwargs["text_decoration"]))
 
 
 def _parse_rotate(val: str) -> float:
@@ -205,13 +347,19 @@ def import_drawsvg_py(
             Unterstützt sowohl 'text' (alt) als auch 'lines' (neu, mehrere Zeilen).
             NBSP (U+00A0) wird als leere Zeile interpretiert.
             """
-            if "lines" in data and isinstance(data["lines"], list):
+            if "raw_label" in data:
+                text_value = str(data["raw_label"])
+            elif "lines" in data and isinstance(data["lines"], list):
                 norm = [("" if (s == "\u00A0" or s == "&#160;") else str(s)) for s in data["lines"]]
                 text_value = "\n".join(norm)
             else:
                 text_value = str(data.get("text", ""))
 
-            target.set_label_text(text_value)
+            label_font = target.label_item().font()
+            if "font_family" in data:
+                label_font.setFamily(str(data["font_family"]))
+            _apply_text_font_style(label_font, data)
+            target.label_item().setFont(label_font)
             target.set_label_alignment(
                 horizontal=str(data.get("h")) if data.get("h") else None,
                 vertical=str(data.get("v")) if data.get("v") else None,
@@ -222,6 +370,7 @@ def import_drawsvg_py(
                     target.set_label_font_pixel_size(float(font_px))
                 except (TypeError, ValueError):
                     pass
+            target.set_label_text(text_value)
             color_value = data.get("color")
             if color_value is not None:
                 color = QtGui.QColor(str(color_value))
@@ -382,11 +531,52 @@ def import_drawsvg_py(
                     pending_folder_tree.setRotation(0.0)
                     pending_folder_tree.setScale(1.0)
                     _apply_transform(pending_folder_tree, kwargs["transform"])
+                    _apply_exported_item_style(pending_folder_tree, kwargs)
                 pending_folder_tree = None
                 continue
 
             elif line.startswith("_folder_tree"):
                 continue
+
+            elif line.startswith("_bitmap = draw.Image("):
+                args, kwargs = _parse_call(line)
+                uri = str(kwargs.get("path", ""))
+                match = re.fullmatch(r"data:(image/(?:png|jpeg|webp));base64,(.*)", uri)
+                if match is None:
+                    raise ValueError("Bitmap export must contain an embedded image")
+                data = base64.b64decode(match.group(2), validate=True)
+                asset = BitmapAssetService().import_bytes(data, media_type=match.group(1)).asset
+                item = BitmapItem(asset, width=float(args[2]), height=float(args[3]))
+                if "transform" in kwargs:
+                    _apply_transform(item, kwargs["transform"])
+                _apply_exported_item_style(item, kwargs)
+                parsed_scene.addItem(item)
+
+            elif line.startswith("_svg = draw.Raw("):
+                args, _kwargs = _parse_call(line)
+                wrapper = ElementTree.fromstring(str(args[0]))
+                if wrapper.tag not in {"g", "{http://www.w3.org/2000/svg}g"}:
+                    raise ValueError("SVG asset export must contain a group")
+                data = base64.b64decode(wrapper.attrib["data-asset-svg"], validate=True)
+                asset = SvgAssetParser().parse(data)
+                item = SvgItem(asset, width=float(wrapper.attrib["data-asset-width"]), height=float(wrapper.attrib["data-asset-height"]))
+                if "transform" in wrapper.attrib:
+                    _apply_transform(item, wrapper.attrib["transform"])
+                _apply_exported_item_style(item, {key.replace("-", "_"): value for key, value in wrapper.attrib.items()})
+                parsed_scene.addItem(item)
+
+            elif line.startswith("_connector = draw.Path("):
+                _args, kwargs = _parse_call(line)
+                payload = json.loads(str(kwargs["data_connector"]))
+                item = ConnectorItem.from_data(payload)
+                points = [QtCore.QPointF(float(x), float(y)) for x, y in payload["route_points"]]
+                if len(points) < 2 or any(not math.isfinite(value) for point in points for value in (point.x(), point.y())):
+                    raise ValueError("Connector route must contain finite points")
+                item.set_route_points(points)
+                _apply_style(item, kwargs)
+                if "transform" in kwargs:
+                    _apply_transform(item, kwargs["transform"])
+                parsed_scene.addItem(item)
 
             elif line.startswith("_split_rect = draw.Rectangle("):
                 args, kwargs = _parse_call(line)
@@ -418,6 +608,8 @@ def import_drawsvg_py(
                             except (TypeError, ValueError):
                                 pass
                         item.setTopBrush(color)
+                if "data_qt_split" in kwargs:
+                    _restore_exported_split(item, str(kwargs["data_qt_split"]))
                 if "transform" in kwargs:
                     _apply_transform(item, kwargs["transform"])
                 item.setData(0, "Split Rounded Rectangle")
@@ -784,6 +976,11 @@ def import_drawsvg_py(
                         )
                         if "data_label_h" in kwargs:
                             data["h"] = kwargs.get("data_label_h")
+                        if "data_raw_label" in kwargs:
+                            data["raw_label"] = kwargs["data_raw_label"]
+                        for font_key in ("font_family", "font_weight", "font_style", "text_decoration"):
+                            if font_key in kwargs:
+                                data[font_key] = kwargs[font_key]
                         if "data_label_v" in kwargs:
                             data["v"] = kwargs.get("data_label_v")
                         if "data_font_px" in kwargs:
@@ -926,8 +1123,7 @@ def import_drawsvg_py(
 
                 doc_margin_scene = doc_margin * scale_factor
                 x_pos = text_x - doc_margin_scene
-                # Old files used start anchors even for aligned text; honor the
-                # exported anchor, not just the saved editor alignment metadata.
+                # Preserve the anchors used by older public Python exports.
                 anchor = kwargs.get("text_anchor", "start")
                 box_width = item.boundingRect().width() * scale_factor
                 if anchor == "end":
@@ -984,8 +1180,6 @@ def import_drawsvg_py(
                 if callable(ensure_pages):
                     ensure_pages()
 
-        if parent is not None:
-            parent.statusBar().showMessage(f"Loaded: {path}", 5000)
         return path
     except Exception as e:
         QtWidgets.QMessageBox.critical(parent, "Error loading file", str(e))

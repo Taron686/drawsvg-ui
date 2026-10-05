@@ -98,6 +98,13 @@ def test_drag_selection_preserves_relative_positions(
             expected = view.mapToScene(point) - view.mapToScene(start)
             assert deltas[0].x() == pytest.approx(expected.x())
             assert deltas[0].y() == pytest.approx(expected.y())
+        else:
+            from snap_geometry import item_grid_anchor
+            anchor = item_grid_anchor(items[grabbed])
+            origin = view._master_origin
+            for value, base in ((anchor.x(), origin.x()), (anchor.y(), origin.y())):
+                units = (value - base) / view._grid_size_min
+                assert units == pytest.approx(round(units))
     QTest.mouseRelease(
         view.viewport(), QtCore.Qt.MouseButton.LeftButton, modifiers, start + offset
     )

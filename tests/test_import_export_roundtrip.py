@@ -513,3 +513,39 @@ def test_failed_import_preserves_existing_scene(
 
     assert view._serialize_scene_state() == state_before
     assert errors
+
+
+def test_prepared_import_scene_codec_preserves_representative_content(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = CanvasView()
+    shapes = (
+        "Text", "Rectangle", "Split Rounded Rectangle", "Curvy Left Bracket",
+        "Folder Tree",
+    )
+    originals = {}
+    for index, shape in enumerate(shapes):
+        originals[shape] = source.add_shape(
+            shape, QtCore.QPointF(50 + index * 250, 60), snap_to_grid=False
+        )
+    originals["Text"].setPlainText("Standalone\nsecond line")
+    originals["Rectangle"].set_label_text("First label\nsecond line")
+    source.add_connector(QtCore.QPointF(20, 400), QtCore.QPointF(300, 450))
+
+    direct = _roundtrip(monkeypatch, tmp_path, source)
+    prepared_state = direct._serialize_scene_state()
+    restored = CanvasView()
+    restored._restore_scene_state(prepared_state)
+
+    assert set(_shape_items(restored)) == set(shapes)
+    assert _shape_items(restored)["Text"].toPlainText() == "Standalone\nsecond line"
+    assert _shape_items(restored)["Rectangle"].label_text() == "First label\nsecond line"
+    assert sum(item.data(0) == "Connector" for item in restored.scene().items()) == 1
+    assert restored._serialize_scene_state() == prepared_state
+    for shape, item in _shape_items(direct).items():
+        copy = _shape_items(restored)[shape]
+        assert _matrix_values(copy) == pytest.approx(_matrix_values(item), abs=1e-4)
+    source.close()
+    direct.close()
+    restored.close()

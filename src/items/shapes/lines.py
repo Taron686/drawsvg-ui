@@ -342,7 +342,10 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         polygon = QtGui.QPolygonF([tip, left_point, right_point])
         return polygon, base_center
 
-    def paint(self, painter, option, widget=None):
+    def _paint_geometry(
+        self,
+    ) -> tuple[QtGui.QPainterPath, tuple[QtGui.QPolygonF, ...]]:
+        """Return the visible shaft and heads, without the enlarged hit area."""
         points = self._points
 
         arrow_polygons: list[QtGui.QPolygonF] = []
@@ -369,6 +372,10 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         else:
             shaft_path = QtGui.QPainterPath(self.path())
 
+        return shaft_path, tuple(arrow_polygons)
+
+    def paint(self, painter, option, widget=None):
+        shaft_path, arrow_polygons = self._paint_geometry()
         painter.save()
         painter.setPen(self.pen())
         painter.setBrush(self.brush())
