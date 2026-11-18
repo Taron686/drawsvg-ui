@@ -25,7 +25,9 @@ class ExportMargins:
         for side in ("left", "top", "right", "bottom"):
             value = getattr(self, side)
             if not math.isfinite(value) or not 0 <= value <= 10000:
-                raise ValueError(f"{side} margin must be finite and between 0 and 10000")
+                raise ValueError(
+                    f"{side} margin must be finite and between 0 and 10000"
+                )
 
 
 def expand_export_rect(
@@ -34,7 +36,15 @@ def expand_export_rect(
     """Add margins without changing content coordinates or rounding its bounds."""
     if content_rect.isEmpty() or not all(
         math.isfinite(value)
-        for value in (*content_rect.getRect(), content_rect.right(), content_rect.bottom())
+        for value in (
+            *content_rect.getRect(),
+            content_rect.right(),
+            content_rect.bottom(),
+        )
     ):
-        raise ValueError("Export content rectangle must be finite with positive width and height")
-    return content_rect.adjusted(-margins.left, -margins.top, margins.right, margins.bottom)
+        raise ValueError(
+            "Export content rectangle must be finite with positive width and height"
+        )
+    return content_rect.adjusted(
+        -margins.left, -margins.top, margins.right, margins.bottom
+    )

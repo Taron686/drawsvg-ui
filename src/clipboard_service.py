@@ -13,7 +13,7 @@ import binascii
 import json
 import math
 import re
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from hashlib import sha256
@@ -21,6 +21,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from document_format import ProjectAsset
+from document_validator import _finite_float
 
 CLIPBOARD_MIME_TYPE = "application/vnd.drawsvg-ui.items+json;version=1"
 CLIPBOARD_FORMAT = "drawsvg-ui-clipboard"
@@ -230,13 +231,6 @@ def _object_without_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, An
     return result
 
 
-def _finite_float(value: str) -> float:
-    parsed = float(value)
-    if not math.isfinite(parsed):
-        raise ValueError("JSON number is not finite")
-    return parsed
-
-
 def _validate_payload(payload: Any, limits: ClipboardLimits) -> None:
     if not isinstance(payload, dict) or set(payload) != _TOP_LEVEL_KEYS:
         raise ClipboardValidationError(
@@ -438,7 +432,7 @@ def _scene_item_ids(items: list[dict[str, Any]]) -> list[str]:
     return [_normalize_uuid(item["id"], "item ID") for item in _iter_scene_items(items)]
 
 
-def _iter_scene_items(items: list[dict[str, Any]]):
+def _iter_scene_items(items: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
     pending = list(reversed(items))
     while pending:
         item = pending.pop()

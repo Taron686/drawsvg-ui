@@ -12,8 +12,8 @@ import hashlib
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
+from collections.abc import Mapping
 
 
 SVG_MEDIA_TYPE = "image/svg+xml"
@@ -24,7 +24,7 @@ _SVG_NAMESPACE = "http://www.w3.org/2000/svg"
 _XLINK_NAMESPACE = "http://www.w3.org/1999/xlink"
 _XML_NAMESPACE = "http://www.w3.org/XML/1998/namespace"
 _FORBIDDEN_DECLARATION_RE = re.compile(
-    br"<!\s*(?:DOCTYPE|ENTITY)\b|<\?\s*xml-stylesheet\b", re.IGNORECASE
+    rb"<!\s*(?:DOCTYPE|ENTITY)\b|<\?\s*xml-stylesheet\b", re.IGNORECASE
 )
 _URL_RE = re.compile(r"url\(\s*(['\"]?)(.*?)\1\s*\)", re.IGNORECASE)
 _DATA_IMAGE_RE = re.compile(
@@ -101,7 +101,7 @@ class SvgAsset:
 class SvgAssetParser:
     """Parse self-contained SVG with bounded structure and ``use`` expansion."""
 
-    def __init__(self, limits: SvgLimits | None = None):
+    def __init__(self, limits: SvgLimits | None = None) -> None:
         self.limits = limits or SvgLimits()
 
     def parse(self, source: bytes | bytearray | memoryview | str) -> SvgAsset:
@@ -113,10 +113,14 @@ class SvgAssetParser:
         if b"\x00" in data:
             raise SvgAssetError("SVG asset contains a NUL byte")
         if _FORBIDDEN_DECLARATION_RE.search(data):
-            raise SvgAssetError("DTD, entity, and external stylesheet declarations are forbidden")
+            raise SvgAssetError(
+                "DTD, entity, and external stylesheet declarations are forbidden"
+            )
 
         root = self._parse_bounded_tree(data)
-        if _split_name(root.tag) != (_SVG_NAMESPACE, "svg") and _split_name(root.tag) != (
+        if _split_name(root.tag) != (_SVG_NAMESPACE, "svg") and _split_name(
+            root.tag
+        ) != (
             "",
             "svg",
         ):
@@ -130,19 +134,6 @@ class SvgAssetParser:
 
         digest = hashlib.sha256(data).hexdigest()
         return SvgAsset(data=data, digest=digest)
-
-    def parse_file(self, path: str | Path) -> SvgAsset:
-        asset_path = Path(path)
-        try:
-            size = asset_path.stat().st_size
-        except OSError as exc:
-            raise SvgAssetError(f"Cannot read SVG asset: {exc}") from exc
-        if size > self.limits.max_bytes:
-            raise SvgAssetError("SVG asset exceeds the byte limit")
-        try:
-            return self.parse(asset_path.read_bytes())
-        except OSError as exc:
-            raise SvgAssetError(f"Cannot read SVG asset: {exc}") from exc
 
     def restore(
         self, record: Mapping[str, Any], data: bytes | bytearray | memoryview
@@ -171,9 +162,7 @@ class SvgAssetParser:
         _validate_metadata(payload, asset)
         return asset
 
-    def _coerce_source(
-        self, source: bytes | bytearray | memoryview | str
-    ) -> bytes:
+    def _coerce_source(self, source: bytes | bytearray | memoryview | str) -> bytes:
         if isinstance(source, str):
             return source.encode("utf-8")
         if isinstance(source, (bytes, bytearray, memoryview)):
@@ -216,7 +205,9 @@ class SvgAssetParser:
         for element in root.iter():
             namespace, local_name = _split_name(element.tag)
             if namespace not in ("", _SVG_NAMESPACE):
-                raise SvgAssetError(f"Foreign element namespace is forbidden: {namespace}")
+                raise SvgAssetError(
+                    f"Foreign element namespace is forbidden: {namespace}"
+                )
             if local_name in _FORBIDDEN_ELEMENTS:
                 raise SvgAssetError(f"Forbidden SVG element: {local_name}")
             if len(element.attrib) > self.limits.max_attributes_per_element:
@@ -228,23 +219,7 @@ class SvgAssetParser:
                     raise SvgAssetError(f"Duplicate SVG id: {element_id}")
                 id_map[element_id] = element
 
-            for raw_name, value in element.attrib.items():
-                attr_namespace, attr_name = _split_name(raw_name)
-                if attr_namespace not in ("", _XLINK_NAMESPACE, _XML_NAMESPACE):
-                    raise SvgAssetError(
-                        f"Foreign attribute namespace is forbidden: {attr_namespace}"
-                    )
-                if attr_namespace == _XML_NAMESPACE and attr_name == "base":
-                    raise SvgAssetError("xml:base is forbidden in embedded SVG")
-                if len(value) > self.limits.max_attribute_chars:
-                    raise SvgAssetError("SVG attribute exceeds the character limit")
-                if attr_name.lower().startswith("on"):
-                    raise SvgAssetError("SVG event handler attributes are forbidden")
-                if attr_name in ("href", "src"):
-                    self._validate_href(local_name, value)
-                local_urls.update(_local_url_references(value))
-                if _has_external_url(value):
-                    raise SvgAssetError("External URL references are forbidden")
+            self._validate_element_attributes(element, local_name, local_urls)
 
             if local_name == "style":
                 css = element.text or ""
@@ -258,13 +233,36 @@ class SvgAssetParser:
 
         return id_map, uses, local_urls
 
+    def _validate_element_attributes(
+        self, element: ET.Element, local_name: str, local_urls: set[str]
+    ) -> None:
+        for raw_name, value in element.attrib.items():
+            attr_namespace, attr_name = _split_name(raw_name)
+            if attr_namespace not in ("", _XLINK_NAMESPACE, _XML_NAMESPACE):
+                raise SvgAssetError(
+                    f"Foreign attribute namespace is forbidden: {attr_namespace}"
+                )
+            if attr_namespace == _XML_NAMESPACE and attr_name == "base":
+                raise SvgAssetError("xml:base is forbidden in embedded SVG")
+            if len(value) > self.limits.max_attribute_chars:
+                raise SvgAssetError("SVG attribute exceeds the character limit")
+            if attr_name.lower().startswith("on"):
+                raise SvgAssetError("SVG event handler attributes are forbidden")
+            if attr_name in ("href", "src"):
+                self._validate_href(local_name, value)
+            local_urls.update(_local_url_references(value))
+            if _has_external_url(value):
+                raise SvgAssetError("External URL references are forbidden")
+
     def _validate_href(self, element_name: str, value: str) -> None:
         value = value.strip()
         if element_name == "use" and value.startswith("#") and len(value) > 1:
             return
         if element_name == "image" and _DATA_IMAGE_RE.fullmatch(value):
             return
-        raise SvgAssetError("Only local use references and embedded raster images are allowed")
+        raise SvgAssetError(
+            "Only local use references and embedded raster images are allowed"
+        )
 
     def _validate_use_expansion(
         self, uses: list[ET.Element], id_map: Mapping[str, ET.Element]

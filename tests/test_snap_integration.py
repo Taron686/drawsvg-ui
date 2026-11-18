@@ -21,7 +21,9 @@ def mode_driver(request, canvas_view, application, tmp_path):
         window = MainWindow(
             recent_files_path=tmp_path / "recent.json",
             window_registry=DocumentWindowRegistry(),
-            settings=QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat),
+            settings=QtCore.QSettings(
+                str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat
+            ),
         )
         window.setAttribute(QtCore.Qt.WidgetAttribute.WA_DontShowOnScreen)
         window.resize(1100, 800)
@@ -44,10 +46,12 @@ def mode_driver(request, canvas_view, application, tmp_path):
             view.set_grid_visible(False)
             view.set_guides_visible(False)
         else:
-            for action, enabled in ((window.actionSnap_grid, grid),
-                                    (window.actionSnap_alignment, alignment),
-                                    (window.actionShow_grid, False),
-                                    (window.actionShow_guides, False)):
+            for action, enabled in (
+                (window.actionSnap_grid, grid),
+                (window.actionSnap_alignment, alignment),
+                (window.actionShow_grid, False),
+                (window.actionShow_guides, False),
+            ):
                 if action.isChecked() != enabled:
                     action.trigger()
         assert view.grid_snap_enabled() is grid
@@ -66,27 +70,42 @@ def _drag(view, item, application, delta, *, alt=False):
     item.setSelected(True)
     view.centerOn(item.sceneBoundingRect().center())
     application.processEvents()
-    grab = (item.mapToScene(item._points[0] * .75 + item._points[1] * .25)
-            if isinstance(item, LineItem) else item.sceneBoundingRect().center())
+    grab = (
+        item.mapToScene(item._points[0] * 0.75 + item._points[1] * 0.25)
+        if isinstance(item, LineItem)
+        else item.sceneBoundingRect().center()
+    )
     start = view.mapFromScene(grab)
     end = start + delta
-    modifiers = (QtCore.Qt.KeyboardModifier.AltModifier if alt
-                 else QtCore.Qt.KeyboardModifier.NoModifier)
-    QtTest.QTest.mousePress(view.viewport(), QtCore.Qt.MouseButton.LeftButton, modifiers, start)
+    modifiers = (
+        QtCore.Qt.KeyboardModifier.AltModifier
+        if alt
+        else QtCore.Qt.KeyboardModifier.NoModifier
+    )
+    QtTest.QTest.mousePress(
+        view.viewport(), QtCore.Qt.MouseButton.LeftButton, modifiers, start
+    )
     assert view.scene().mouseGrabberItem() is item
     event = QtGui.QMouseEvent(
-        QtCore.QEvent.Type.MouseMove, QtCore.QPointF(end),
+        QtCore.QEvent.Type.MouseMove,
+        QtCore.QPointF(end),
         QtCore.QPointF(view.viewport().mapToGlobal(end)),
-        QtCore.Qt.MouseButton.NoButton, QtCore.Qt.MouseButton.LeftButton, modifiers,
+        QtCore.Qt.MouseButton.NoButton,
+        QtCore.Qt.MouseButton.LeftButton,
+        modifiers,
     )
     QtWidgets.QApplication.sendEvent(view.viewport(), event)
     active = dict(view._active_snap_guides)
-    QtTest.QTest.mouseRelease(view.viewport(), QtCore.Qt.MouseButton.LeftButton, modifiers, end)
+    QtTest.QTest.mouseRelease(
+        view.viewport(), QtCore.Qt.MouseButton.LeftButton, modifiers, end
+    )
     return active
 
 
 @pytest.mark.parametrize("grid,alignment", MODES)
-@pytest.mark.parametrize("path", ["policy", "insert", "drop", "drag", "point", "resize"])
+@pytest.mark.parametrize(
+    "path", ["policy", "insert", "drop", "drag", "point", "resize"]
+)
 def test_public_modes_drive_policy_insertion_drop_and_drag(
     mode_driver, application, grid, alignment, path
 ):
@@ -106,12 +125,18 @@ def test_public_modes_drive_policy_insertion_drop_and_drag(
         assert view.mapToScene(point) == position
         mime = QtCore.QMimeData()
         mime.setData(PALETTE_MIME, b"Rectangle")
-        event = QtGui.QDropEvent(QtCore.QPointF(point), QtCore.Qt.DropAction.CopyAction,
-                                mime, QtCore.Qt.MouseButton.LeftButton,
-                                QtCore.Qt.KeyboardModifier.NoModifier)
+        event = QtGui.QDropEvent(
+            QtCore.QPointF(point),
+            QtCore.Qt.DropAction.CopyAction,
+            mime,
+            QtCore.Qt.MouseButton.LeftButton,
+            QtCore.Qt.KeyboardModifier.NoModifier,
+        )
         view.dropEvent(event)
         assert event.isAccepted()
-        result = item_grid_anchor(next(item for item in view.scene().items() if isinstance(item, RectItem)))
+        result = item_grid_anchor(
+            next(item for item in view.scene().items() if isinstance(item, RectItem))
+        )
     else:
         item = RectItem(100, 100, 100, 100)
         item.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
@@ -123,21 +148,30 @@ def test_public_modes_drive_policy_insertion_drop_and_drag(
             result = snap_to_grid(item, position)
         else:
             handle = ResizeHandle(item, "bottom_right")
-            for event_type, point in [(QtCore.QEvent.Type.GraphicsSceneMousePress, QtCore.QPointF(200, 200)),
-                                      (QtCore.QEvent.Type.GraphicsSceneMouseMove, QtCore.QPointF(203, 207)),
-                                      (QtCore.QEvent.Type.GraphicsSceneMouseRelease, QtCore.QPointF(203, 207))]:
+            for event_type, point in [
+                (QtCore.QEvent.Type.GraphicsSceneMousePress, QtCore.QPointF(200, 200)),
+                (QtCore.QEvent.Type.GraphicsSceneMouseMove, QtCore.QPointF(203, 207)),
+                (
+                    QtCore.QEvent.Type.GraphicsSceneMouseRelease,
+                    QtCore.QPointF(203, 207),
+                ),
+            ]:
                 event = QtWidgets.QGraphicsSceneMouseEvent(event_type)
                 event.setScenePos(point)
-                handle_event = {QtCore.QEvent.Type.GraphicsSceneMousePress: handle.mousePressEvent,
-                                QtCore.QEvent.Type.GraphicsSceneMouseMove: handle.mouseMoveEvent,
-                                QtCore.QEvent.Type.GraphicsSceneMouseRelease: handle.mouseReleaseEvent}[event_type]
+                handle_event = {
+                    QtCore.QEvent.Type.GraphicsSceneMousePress: handle.mousePressEvent,
+                    QtCore.QEvent.Type.GraphicsSceneMouseMove: handle.mouseMoveEvent,
+                    QtCore.QEvent.Type.GraphicsSceneMouseRelease: handle.mouseReleaseEvent,
+                }[event_type]
                 handle_event(event)
             result = QtCore.QPointF(item.rect().width(), item.rect().height())
     assert result == expected
 
 
 @pytest.mark.parametrize("grid,alignment", MODES)
-def test_public_modes_keep_grid_binding_manual_priority_and_reached_feedback(mode_driver, grid, alignment):
+def test_public_modes_keep_grid_binding_manual_priority_and_reached_feedback(
+    mode_driver, grid, alignment
+):
     view, configure = mode_driver
     configure(grid, alignment)
     target = RectItem(104, 104, 60, 60)
@@ -146,15 +180,29 @@ def test_public_modes_keep_grid_binding_manual_priority_and_reached_feedback(mod
     view.add_guide("vertical", 107)
     view.add_guide("horizontal", 107)
     result, active = view.snap_scene_position(QtCore.QPointF(103, 107))
-    assert result == (QtCore.QPointF(100, 110) if grid else
-                      QtCore.QPointF(107, 107) if alignment else QtCore.QPointF(103, 107))
-    assert active == ({"vertical": 107, "horizontal": 107} if alignment and not grid else {})
+    assert result == (
+        QtCore.QPointF(100, 110)
+        if grid
+        else QtCore.QPointF(107, 107)
+        if alignment
+        else QtCore.QPointF(103, 107)
+    )
+    assert active == (
+        {"vertical": 107, "horizontal": 107} if alignment and not grid else {}
+    )
     for orientation, position in view.guides():
         view.remove_guide(orientation, position)
     result, active = view.snap_scene_position(QtCore.QPointF(103, 107))
-    assert result == (QtCore.QPointF(100, 110) if grid else
-                      QtCore.QPointF(104, 104) if alignment else QtCore.QPointF(103, 107))
-    assert active == ({"vertical": 104, "horizontal": 104} if alignment and not grid else {})
+    assert result == (
+        QtCore.QPointF(100, 110)
+        if grid
+        else QtCore.QPointF(104, 104)
+        if alignment
+        else QtCore.QPointF(103, 107)
+    )
+    assert active == (
+        {"vertical": 104, "horizontal": 104} if alignment and not grid else {}
+    )
     view.add_guide("horizontal", 110)
     result, active = view.snap_scene_position(QtCore.QPointF(103, 107))
     if grid:
@@ -192,8 +240,11 @@ def test_real_window_actions_and_pointer_keep_three_line_pattern_and_text_on_gri
     application, tmp_path, width
 ):
     window = MainWindow(
-        recent_files_path=tmp_path / "recent.json", window_registry=DocumentWindowRegistry(),
-        settings=QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat),
+        recent_files_path=tmp_path / "recent.json",
+        window_registry=DocumentWindowRegistry(),
+        settings=QtCore.QSettings(
+            str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat
+        ),
     )
     try:
         window.setAttribute(QtCore.Qt.WidgetAttribute.WA_DontShowOnScreen)
@@ -208,9 +259,14 @@ def test_real_window_actions_and_pointer_keep_three_line_pattern_and_text_on_gri
         application.processEvents()
         view.setTransform(QtGui.QTransform())
         lines = []
-        for first, last in [((100, 100), (200, 100)), ((100, 200), (200, 200)),
-                            ((200, 100), (200, 200))]:
-            line = LineItem(0, 0, points=[QtCore.QPointF(*first), QtCore.QPointF(*last)])
+        for first, last in [
+            ((100, 100), (200, 100)),
+            ((100, 200), (200, 200)),
+            ((200, 100), (200, 200)),
+        ]:
+            line = LineItem(
+                0, 0, points=[QtCore.QPointF(*first), QtCore.QPointF(*last)]
+            )
             line.setPen(QtGui.QPen(QtCore.Qt.GlobalColor.black, width))
             view.scene().addItem(line)
             lines.append(line)

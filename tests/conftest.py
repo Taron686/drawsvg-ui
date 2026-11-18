@@ -17,6 +17,16 @@ from PySide6 import QtCore, QtWidgets
 from canvas_view import CanvasView
 
 
+@pytest.fixture(scope="session", autouse=True)
+def isolated_user_settings(tmp_path_factory: pytest.TempPathFactory) -> None:
+    """Keep tests from reading or writing the developer's real preferences."""
+    QtCore.QSettings.setPath(
+        QtCore.QSettings.Format.IniFormat,
+        QtCore.QSettings.Scope.UserScope,
+        str(tmp_path_factory.mktemp("settings")),
+    )
+
+
 @pytest.fixture(scope="session")
 def application() -> QtWidgets.QApplication:
     return QtWidgets.QApplication.instance() or QtWidgets.QApplication([])

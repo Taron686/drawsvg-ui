@@ -50,12 +50,8 @@ def test_timer_remains_a_fallback_without_transaction(canvas_view) -> None:
 
 def test_undo_keeps_redo_branch_after_deferred_scene_change(canvas_view) -> None:
     history = canvas_view.history()
-    canvas_view.add_shape(
-        "Rectangle", QtCore.QPointF(10.0, 10.0), snap_to_grid=False
-    )
-    canvas_view.add_shape(
-        "Ellipse", QtCore.QPointF(200.0, 10.0), snap_to_grid=False
-    )
+    canvas_view.add_shape("Rectangle", QtCore.QPointF(10.0, 10.0), snap_to_grid=False)
+    canvas_view.add_shape("Ellipse", QtCore.QPointF(200.0, 10.0), snap_to_grid=False)
 
     history.undo()
     QTest.qWait(history._timer.interval() + 50)

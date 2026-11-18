@@ -88,7 +88,9 @@ class RecoveryStore:
             document_id=document_id,
             archive_path=archive_path,
             metadata_path=metadata_path,
-            source_path=Path(normalized_source) if normalized_source is not None else None,
+            source_path=Path(normalized_source)
+            if normalized_source is not None
+            else None,
             revision=int(revision),
             fingerprint=str(fingerprint),
             recovered_at_ns=recovered_at_ns,

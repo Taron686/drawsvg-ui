@@ -190,7 +190,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--warmups", type=int, default=DEFAULT_WARMUPS)
     parser.add_argument("--history-states", type=int, default=DEFAULT_HISTORY_STATES)
     parser.add_argument("--history-bytes", type=int, default=DEFAULT_HISTORY_BYTES)
-    parser.add_argument("--output", type=Path, help="Write the JSON report to this path.")
+    parser.add_argument(
+        "--output", type=Path, help="Write the JSON report to this path."
+    )
     args = parser.parse_args()
     if any(count <= 0 for count in args.counts):
         parser.error("--counts values must be positive")
@@ -208,7 +210,9 @@ def _parse_args() -> argparse.Namespace:
 def main() -> int:
     args = _parse_args()
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    del app  # Keep the application alive through this function without reconfiguring it.
+    del (
+        app
+    )  # Keep the application alive through this function without reconfiguring it.
 
     gc_enabled = gc.isenabled()
     gc.disable()

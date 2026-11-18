@@ -28,7 +28,7 @@ class SvgItem(QtWidgets.QGraphicsObject):
         width: float | None = None,
         height: float | None = None,
         parent: QtWidgets.QGraphicsItem | None = None,
-    ):
+    ) -> None:
         super().__init__(parent)
         self._asset = asset
         self._renderer = QtSvg.QSvgRenderer(QtCore.QByteArray(asset.data), self)
@@ -36,8 +36,12 @@ class SvgItem(QtWidgets.QGraphicsObject):
             raise SvgAssetError("Qt cannot render the validated SVG asset")
 
         default_size = self._renderer.defaultSize()
-        natural_width = float(default_size.width()) if default_size.width() > 0 else 100.0
-        natural_height = float(default_size.height()) if default_size.height() > 0 else 100.0
+        natural_width = (
+            float(default_size.width()) if default_size.width() > 0 else 100.0
+        )
+        natural_height = (
+            float(default_size.height()) if default_size.height() > 0 else 100.0
+        )
         self._size = QtCore.QSizeF(
             self._validated_dimension(width, natural_width),
             self._validated_dimension(height, natural_height),
@@ -59,10 +63,18 @@ class SvgItem(QtWidgets.QGraphicsObject):
     def asset_id(self) -> str:
         return self._asset.asset_id
 
+    def view_box(self) -> QtCore.QRectF:
+        return self._renderer.viewBoxF()
+
     def boundingRect(self) -> QtCore.QRectF:  # type: ignore[override]
         return QtCore.QRectF(0.0, 0.0, self._size.width(), self._size.height())
 
-    def paint(self, painter, option, widget=None):  # type: ignore[override]
+    def paint(
+        self,
+        painter: QtGui.QPainter,
+        option: QtWidgets.QStyleOptionGraphicsItem,
+        widget: QtWidgets.QWidget | None = None,
+    ) -> None:  # type: ignore[override]
         self._renderer.render(painter, self.boundingRect())
         if self.isSelected():
             painter.save()

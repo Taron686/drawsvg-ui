@@ -79,9 +79,7 @@ def test_rubber_band_selection_preserves_off_grid_item_positions(
     view.resize(800, 600)
     view.show()
     application.processEvents()
-    text = view.add_shape(
-        "Text", QtCore.QPointF(-43.7, -26.4), snap_to_grid=False
-    )
+    text = view.add_shape("Text", QtCore.QPointF(-43.7, -26.4), snap_to_grid=False)
     rectangle = view.add_shape(
         "Rectangle", QtCore.QPointF(38.6, 31.3), snap_to_grid=False
     )
@@ -293,9 +291,7 @@ def test_right_handle_resizes_curvy_bracket_from_its_logical_width(
     if rotation == 0.0:
         assert bracket.pos() == before_position
     assert bracket.width() == pytest.approx(expected_width)
-    assert bracket.transformOriginPoint() == QtCore.QPointF(
-        expected_width / 2.0, 80.0
-    )
+    assert bracket.transformOriginPoint() == QtCore.QPointF(expected_width / 2.0, 80.0)
     after_left_anchor = bracket.mapToScene(QtCore.QPointF(0.0, 80.0))
     assert after_left_anchor.x() == pytest.approx(before_left_anchor.x())
     assert after_left_anchor.y() == pytest.approx(before_left_anchor.y())

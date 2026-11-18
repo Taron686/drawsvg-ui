@@ -17,7 +17,9 @@ def test_registry_has_one_stable_definition_for_each_existing_shape() -> None:
 
     assert SHAPE_REGISTRY.type_ids() == SHAPES
     all_definitions = definitions + SHAPE_REGISTRY.extension_definitions()
-    assert len({definition.type_id for definition in all_definitions}) == len(all_definitions)
+    assert len({definition.type_id for definition in all_definitions}) == len(
+        all_definitions
+    )
     assert all(definition.python_export_adapter for definition in definitions)
 
 

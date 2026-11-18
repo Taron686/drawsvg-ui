@@ -35,12 +35,26 @@ def _target(view, kind):
         group.setSelected(False)
         return group
     if kind == "line":
-        target = LineItem(0, 0, points=[
-            QtCore.QPointF(65, -250), QtCore.QPointF(65, 170), QtCore.QPointF(350, 170)])
+        target = LineItem(
+            0,
+            0,
+            points=[
+                QtCore.QPointF(65, -250),
+                QtCore.QPointF(65, 170),
+                QtCore.QPointF(350, 170),
+            ],
+        )
         target.setData(0, "Line")
     else:
-        target = FreePathItem(0, 0, start=(65, -250), segments=[
-            {"kind": "line", "end": (65, 170)}, {"kind": "line", "end": (350, 170)}])
+        target = FreePathItem(
+            0,
+            0,
+            start=(65, -250),
+            segments=[
+                {"kind": "line", "end": (65, 170)},
+                {"kind": "line", "end": (350, 170)},
+            ],
+        )
     target.setPen(QtGui.QPen(QtCore.Qt.GlobalColor.black, 8))
     view.scene().addItem(target)
     return target
@@ -58,15 +72,23 @@ def _drag(view, text, app, modifiers=QtCore.Qt.KeyboardModifier.NoModifier):
     view.centerOn(text.sceneBoundingRect().center())
     app.processEvents()
     start = view.mapFromScene(text.sceneBoundingRect().center())
-    QTest.mousePress(view.viewport(), QtCore.Qt.MouseButton.LeftButton, modifiers, start)
+    QTest.mousePress(
+        view.viewport(), QtCore.Qt.MouseButton.LeftButton, modifiers, start
+    )
     end = start + QtCore.QPoint(0, 2)
     event = QtGui.QMouseEvent(
-        QtCore.QEvent.Type.MouseMove, QtCore.QPointF(end),
+        QtCore.QEvent.Type.MouseMove,
+        QtCore.QPointF(end),
         QtCore.QPointF(view.viewport().mapToGlobal(end)),
-        QtCore.Qt.MouseButton.NoButton, QtCore.Qt.MouseButton.LeftButton, modifiers)
+        QtCore.Qt.MouseButton.NoButton,
+        QtCore.Qt.MouseButton.LeftButton,
+        modifiers,
+    )
     QtWidgets.QApplication.sendEvent(view.viewport(), event)
     active = dict(view._active_snap_guides)
-    QTest.mouseRelease(view.viewport(), QtCore.Qt.MouseButton.LeftButton, modifiers, end)
+    QTest.mouseRelease(
+        view.viewport(), QtCore.Qt.MouseButton.LeftButton, modifiers, end
+    )
     return active
 
 
@@ -87,13 +109,17 @@ def test_alt_drag_bypasses_object_manual_guides_and_grid(canvas_view, applicatio
     target = _target(canvas_view, "line")
     canvas_view.add_guide("horizontal", 172)
     text = _text(canvas_view)
-    active = _drag(canvas_view, text, application, QtCore.Qt.KeyboardModifier.AltModifier)
+    active = _drag(
+        canvas_view, text, application, QtCore.Qt.KeyboardModifier.AltModifier
+    )
     assert text.pos() == QtCore.QPointF(90, 92)
     assert active == {}
 
 
 @pytest.mark.parametrize("visible", [False, True])
-def test_guide_visibility_does_not_change_snap_priority(canvas_view, application, visible):
+def test_guide_visibility_does_not_change_snap_priority(
+    canvas_view, application, visible
+):
     _show(canvas_view, application)
     canvas_view._grid_snap_enabled = False
     target = _target(canvas_view, "line")
@@ -105,7 +131,7 @@ def test_guide_visibility_does_not_change_snap_priority(canvas_view, application
     assert active["horizontal"] == pytest.approx(172)
 
 
-@pytest.mark.parametrize("zoom", [.25, 1, 4])
+@pytest.mark.parametrize("zoom", [0.25, 1, 4])
 def test_object_snap_radius_is_six_view_pixels(canvas_view, zoom):
     canvas_view._grid_snap_enabled = False
     canvas_view._master_origin = QtCore.QPointF()
@@ -113,8 +139,12 @@ def test_object_snap_radius_is_six_view_pixels(canvas_view, zoom):
     target.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
     canvas_view.scene().addItem(target)
     canvas_view.setTransform(QtGui.QTransform.fromScale(zoom, zoom))
-    inside, active = canvas_view.snap_scene_position(QtCore.QPointF(300, 170 + 6 / zoom))
-    outside, inactive = canvas_view.snap_scene_position(QtCore.QPointF(300, 170 + 7 / zoom))
+    inside, active = canvas_view.snap_scene_position(
+        QtCore.QPointF(300, 170 + 6 / zoom)
+    )
+    outside, inactive = canvas_view.snap_scene_position(
+        QtCore.QPointF(300, 170 + 7 / zoom)
+    )
     assert inside.y() == pytest.approx(170)
     assert active["horizontal"] == pytest.approx(170)
     assert "horizontal" not in inactive
@@ -122,7 +152,9 @@ def test_object_snap_radius_is_six_view_pixels(canvas_view, zoom):
 
 @pytest.mark.parametrize("hidden", [False, True])
 @pytest.mark.parametrize("free", [False, True])
-def test_palette_drop_uses_correct_targets_and_alt(canvas_view, application, hidden, free):
+def test_palette_drop_uses_correct_targets_and_alt(
+    canvas_view, application, hidden, free
+):
     _show(canvas_view, application)
     target = _target(canvas_view, "line")
     target.setVisible(not hidden)
@@ -130,13 +162,22 @@ def test_palette_drop_uses_correct_targets_and_alt(canvas_view, application, hid
     point = canvas_view.mapFromScene(QtCore.QPointF(300, 173))
     mime = QtCore.QMimeData()
     mime.setData(PALETTE_MIME, b"Rectangle")
-    modifiers = (QtCore.Qt.KeyboardModifier.AltModifier if free
-                 else QtCore.Qt.KeyboardModifier.NoModifier)
+    modifiers = (
+        QtCore.Qt.KeyboardModifier.AltModifier
+        if free
+        else QtCore.Qt.KeyboardModifier.NoModifier
+    )
     event = QtGui.QDropEvent(
-        QtCore.QPointF(point), QtCore.Qt.DropAction.CopyAction, mime,
-        QtCore.Qt.MouseButton.LeftButton, modifiers)
+        QtCore.QPointF(point),
+        QtCore.Qt.DropAction.CopyAction,
+        mime,
+        QtCore.Qt.MouseButton.LeftButton,
+        modifiers,
+    )
     canvas_view.dropEvent(event)
-    created = [item for item in canvas_view.scene().items() if isinstance(item, RectItem)]
+    created = [
+        item for item in canvas_view.scene().items() if isinstance(item, RectItem)
+    ]
     assert len(created) == 1
     assert event.isAccepted()
     assert created[0].y() == pytest.approx(173 if free else 150)
@@ -159,8 +200,11 @@ def test_real_snap_drag_can_undo_and_redo(canvas_view, application):
     assert canvas_view._serialize_scene_state() == before
     canvas_view.history().redo()
     assert canvas_view._serialize_scene_state() == after
-    restored = next(item for item in canvas_view.scene().items()
-                    if item.data(KEY_ITEM_ID) == item_id)
+    restored = next(
+        item
+        for item in canvas_view.scene().items()
+        if item.data(KEY_ITEM_ID) == item_id
+    )
     assert restored.sceneBoundingRect().bottom() == pytest.approx(174)
 
 
@@ -216,20 +260,23 @@ def test_nested_group_snap_tracks_current_visible_child(canvas_view):
 
 
 @pytest.mark.parametrize("kind", ["line", "path"])
-@pytest.mark.parametrize("rotation,skew,reflection", [(35, 0, 1), (90, 0, 1), (35, .4, -1)])
+@pytest.mark.parametrize(
+    "rotation,skew,reflection", [(35, 0, 1), (90, 0, 1), (35, 0.4, -1)]
+)
 def test_transformed_path_envelope_matches_painted_pixels(
     canvas_view, kind, rotation, skew, reflection
 ):
     if kind == "line":
         item = LineItem(0, 0, length=100)
     else:
-        item = FreePathItem(0, 0, start=(0, 0), segments=[
-            {"kind": "line", "end": (100, 0)}])
+        item = FreePathItem(
+            0, 0, start=(0, 0), segments=[{"kind": "line", "end": (100, 0)}]
+        )
     item.setPen(QtGui.QPen(QtCore.Qt.GlobalColor.black, 8))
     item.setRotation(rotation)
     transform = QtGui.QTransform()
-    transform.scale(reflection * 1.5, .75)
-    transform.shear(skew, .2 if skew else 0)
+    transform.scale(reflection * 1.5, 0.75)
+    transform.shear(skew, 0.2 if skew else 0)
     item.setTransform(transform)
     canvas_view.scene().addItem(item)
     bounds = item_snap_bounds(item, canvas_view)
@@ -241,12 +288,19 @@ def test_transformed_path_envelope_matches_painted_pixels(
     painter.setWorldTransform(item.sceneTransform(), combine=True)
     item.paint(painter, QtWidgets.QStyleOptionGraphicsItem())
     painter.end()
-    pixels = [(x - 300, y - 300) for y in range(600) for x in range(600)
-              if image.pixelColor(x, y).alpha() > 128]
+    pixels = [
+        (x - 300, y - 300)
+        for y in range(600)
+        for x in range(600)
+        if image.pixelColor(x, y).alpha() > 128
+    ]
     assert pixels
-    painted = QtCore.QRectF(min(x for x, _ in pixels), min(y for _, y in pixels),
-                           max(x for x, _ in pixels) - min(x for x, _ in pixels) + 1,
-                           max(y for _, y in pixels) - min(y for _, y in pixels) + 1)
+    painted = QtCore.QRectF(
+        min(x for x, _ in pixels),
+        min(y for _, y in pixels),
+        max(x for x, _ in pixels) - min(x for x, _ in pixels) + 1,
+        max(y for _, y in pixels) - min(y for _, y in pixels) + 1,
+    )
     assert bounds.adjusted(-1, -1, 1, 1).contains(painted)
     assert abs(bounds.left() - painted.left()) <= 2
     assert abs(bounds.right() - painted.right()) <= 2
@@ -257,11 +311,14 @@ def test_transformed_path_envelope_matches_painted_pixels(
 @pytest.mark.parametrize("width", [2, 8, 18])
 def test_whole_line_grid_snap_uses_geometry_in_connected_layout(canvas_view, width):
     from snap_geometry import item_grid_anchor
+
     canvas_view._master_origin = QtCore.QPointF()
     canvas_view._grid_size_min = 10
-    for first, last in [(QtCore.QPointF(100, 100), QtCore.QPointF(200, 100)),
-                        (QtCore.QPointF(100, 200), QtCore.QPointF(200, 200)),
-                        (QtCore.QPointF(200, 100), QtCore.QPointF(200, 200))]:
+    for first, last in [
+        (QtCore.QPointF(100, 100), QtCore.QPointF(200, 100)),
+        (QtCore.QPointF(100, 200), QtCore.QPointF(200, 200)),
+        (QtCore.QPointF(200, 100), QtCore.QPointF(200, 200)),
+    ]:
         line = LineItem(0, 0, points=[first, last])
         line.setPen(QtGui.QPen(QtCore.Qt.GlobalColor.black, width))
         canvas_view.scene().addItem(line)
@@ -275,7 +332,9 @@ def test_whole_line_grid_snap_uses_geometry_in_connected_layout(canvas_view, wid
 
 @pytest.mark.parametrize("guide,feedback", [(172, False), (173, True)])
 @pytest.mark.parametrize("visible", [False, True])
-def test_grid_bound_text_only_reports_reached_guide(canvas_view, application, guide, feedback, visible):
+def test_grid_bound_text_only_reports_reached_guide(
+    canvas_view, application, guide, feedback, visible
+):
     _show(canvas_view, application)
     canvas_view._grid_size_min = 10
     canvas_view.add_guide("horizontal", guide)
@@ -287,10 +346,15 @@ def test_grid_bound_text_only_reports_reached_guide(canvas_view, application, gu
     assert active.get("horizontal") == (173 if feedback else None)
 
 
-@pytest.mark.parametrize("grid,alignment,want_x,want_guide", [
-    (True, True, -29, False), (True, False, -29, False),
-    (False, True, -30, True), (False, False, -31, False),
-])
+@pytest.mark.parametrize(
+    "grid,alignment,want_x,want_guide",
+    [
+        (True, True, -29, False),
+        (True, False, -29, False),
+        (False, True, -30, True),
+        (False, False, -31, False),
+    ],
+)
 def test_snap_modes_respect_origin_and_explicit_geometry_anchor(
     canvas_view, grid, alignment, want_x, want_guide
 ):
@@ -299,7 +363,8 @@ def test_snap_modes_respect_origin_and_explicit_geometry_anchor(
     canvas_view._alignment_snap_enabled = alignment
     canvas_view.add_guide("vertical", -30)
     result, active = canvas_view.snap_scene_position(
-        QtCore.QPointF(-31, -22), grid_anchor=QtCore.QPointF(-29, -20), grid_spacing=10)
+        QtCore.QPointF(-31, -22), grid_anchor=QtCore.QPointF(-29, -20), grid_spacing=10
+    )
     assert result == QtCore.QPointF(want_x, -19 if grid else -22)
     assert ("vertical" in active) is want_guide
 
@@ -307,6 +372,7 @@ def test_snap_modes_respect_origin_and_explicit_geometry_anchor(
 @pytest.mark.parametrize("shape", ["Text", "Line", "Arrow"])
 def test_toolbar_add_uses_main_grid_and_scene_origin(canvas_view, application, shape):
     from snap_geometry import item_grid_anchor
+
     _show(canvas_view, application)
     canvas_view._master_origin = QtCore.QPointF(3, -7)
     canvas_view._grid_size = 50
@@ -319,35 +385,46 @@ def test_toolbar_add_uses_main_grid_and_scene_origin(canvas_view, application, s
 
 def test_disabling_grid_keeps_new_line_default_length(canvas_view):
     from shape_registry import SHAPE_REGISTRY
+
     canvas_view._grid_snap_enabled = False
     canvas_view._alignment_snap_enabled = False
     canvas_view._grid_size = 40
     item = canvas_view.add_shape("Line", QtCore.QPointF(83, 77))
     assert item.pos() == QtCore.QPointF(83, 77)
-    assert item.path().boundingRect().width() == SHAPE_REGISTRY.get("Line").default_size[0]
+    assert (
+        item.path().boundingRect().width() == SHAPE_REGISTRY.get("Line").default_size[0]
+    )
 
 
-@pytest.mark.parametrize("shape,axis,guide", [("Line", "vertical", 100),
-                                           ("Text", "horizontal", 150)])
+@pytest.mark.parametrize(
+    "shape,axis,guide", [("Line", "vertical", 100), ("Text", "horizontal", 150)]
+)
 def test_insert_grid_feedback_rejects_registry_edges_absent_from_actual_bounds(
     canvas_view, shape, axis, guide
 ):
     from snap_geometry import item_grid_anchor
+
     canvas_view._master_origin = QtCore.QPointF()
     canvas_view._grid_size = 50
     canvas_view.add_guide(axis, guide)
     item = canvas_view.add_shape(shape, QtCore.QPointF(100, 100))
     bounds = item_snap_bounds(item, canvas_view)
-    values = (bounds.left(), bounds.center().x(), bounds.right()) if axis == "vertical" else (
-        bounds.top(), bounds.center().y(), bounds.bottom())
+    values = (
+        (bounds.left(), bounds.center().x(), bounds.right())
+        if axis == "vertical"
+        else (bounds.top(), bounds.center().y(), bounds.bottom())
+    )
     assert all(abs(value - guide) > 1e-6 for value in values)
     assert axis not in canvas_view._active_snap_guides
     assert item_grid_anchor(item) == QtCore.QPointF(100, 100)
 
 
 @pytest.mark.parametrize("shape,axis", [("Line", "vertical"), ("Text", "horizontal")])
-def test_insert_grid_feedback_reports_actual_off_grid_painted_edge(canvas_view, shape, axis):
+def test_insert_grid_feedback_reports_actual_off_grid_painted_edge(
+    canvas_view, shape, axis
+):
     from shape_registry import SHAPE_REGISTRY
+
     canvas_view._master_origin = QtCore.QPointF()
     canvas_view._grid_size = 50
     definition = SHAPE_REGISTRY.get(shape)
@@ -360,9 +437,12 @@ def test_insert_grid_feedback_reports_actual_off_grid_painted_edge(canvas_view, 
     assert canvas_view._active_snap_guides[axis] == pytest.approx(guide)
 
 
-@pytest.mark.parametrize("shape", ["Line", "Arrow", "Text", "Rectangle", "Block Arrow", "Free Polyline"])
+@pytest.mark.parametrize(
+    "shape", ["Line", "Arrow", "Text", "Rectangle", "Block Arrow", "Free Polyline"]
+)
 def test_helper_only_insertion_aligns_actual_painted_bounds(canvas_view, shape):
     from shape_registry import SHAPE_REGISTRY
+
     canvas_view._master_origin = QtCore.QPointF()
     canvas_view._grid_snap_enabled = False
     definition = SHAPE_REGISTRY.get(shape)
@@ -374,12 +454,15 @@ def test_helper_only_insertion_aligns_actual_painted_bounds(canvas_view, shape):
     assert canvas_view._active_snap_guides["vertical"] == pytest.approx(guide)
 
 
-@pytest.mark.parametrize("kind", ["line", "text", "arrow_start", "arrow_end", "arrow_both", "group"])
+@pytest.mark.parametrize(
+    "kind", ["line", "text", "arrow_start", "arrow_end", "arrow_both", "group"]
+)
 @pytest.mark.parametrize("free", [False, True])
 def test_real_drag_snaps_one_geometry_reference_without_deforming(
     canvas_view, application, kind, free
 ):
     from snap_geometry import item_grid_anchor
+
     _show(canvas_view, application)
     canvas_view._master_origin = QtCore.QPointF(3, -7)
     canvas_view._grid_size_min = 10
@@ -390,33 +473,48 @@ def test_real_drag_snaps_one_geometry_reference_without_deforming(
         samples = [QtCore.QPointF(), QtCore.QPointF(124, 83)]
         grab = QtCore.QPointF(62, 41)
     else:
-        item = LineItem(0, 0, points=[QtCore.QPointF(157.3, 87.4), QtCore.QPointF(43.7, 81.4)],
-                        arrow_start=kind in ("arrow_start", "arrow_both"),
-                        arrow_end=kind in ("arrow_end", "arrow_both"))
+        item = LineItem(
+            0,
+            0,
+            points=[QtCore.QPointF(157.3, 87.4), QtCore.QPointF(43.7, 81.4)],
+            arrow_start=kind in ("arrow_start", "arrow_both"),
+            arrow_end=kind in ("arrow_end", "arrow_both"),
+        )
         item.setPen(QtGui.QPen(QtCore.Qt.GlobalColor.black, 18))
         canvas_view.scene().addItem(item)
         samples = list(item._points)
-        grab = samples[0] * .75 + samples[1] * .25
+        grab = samples[0] * 0.75 + samples[1] * 0.25
         if kind == "group":
             child = item
             item = GroupItem()
             canvas_view.scene().addItem(item)
             item.addToGroup(child)
             samples = [item.mapFromScene(child.mapToScene(p)) for p in samples]
-            grab = samples[0] * .75 + samples[1] * .25
+            grab = samples[0] * 0.75 + samples[1] * 0.25
     item.setSelected(True)
     canvas_view.centerOn(item.sceneBoundingRect().center())
     application.processEvents()
     original = [item.mapToScene(p) for p in samples]
     start = canvas_view.mapFromScene(item.mapToScene(grab))
     end = start + QtCore.QPoint(13, 7)
-    mods = QtCore.Qt.KeyboardModifier.AltModifier if free else QtCore.Qt.KeyboardModifier.NoModifier
-    QTest.mousePress(canvas_view.viewport(), QtCore.Qt.MouseButton.LeftButton, mods, start)
+    mods = (
+        QtCore.Qt.KeyboardModifier.AltModifier
+        if free
+        else QtCore.Qt.KeyboardModifier.NoModifier
+    )
+    QTest.mousePress(
+        canvas_view.viewport(), QtCore.Qt.MouseButton.LeftButton, mods, start
+    )
     grabber = canvas_view.scene().mouseGrabberItem()
     assert grabber is item or grabber.parentItem() is item
-    event = QtGui.QMouseEvent(QtCore.QEvent.Type.MouseMove, QtCore.QPointF(end),
-        QtCore.QPointF(canvas_view.viewport().mapToGlobal(end)), QtCore.Qt.MouseButton.NoButton,
-        QtCore.Qt.MouseButton.LeftButton, mods)
+    event = QtGui.QMouseEvent(
+        QtCore.QEvent.Type.MouseMove,
+        QtCore.QPointF(end),
+        QtCore.QPointF(canvas_view.viewport().mapToGlobal(end)),
+        QtCore.Qt.MouseButton.NoButton,
+        QtCore.Qt.MouseButton.LeftButton,
+        mods,
+    )
     QtWidgets.QApplication.sendEvent(canvas_view.viewport(), event)
     moved = [item.mapToScene(p) for p in samples]
     deltas = [point - previous for point, previous in zip(moved, original)]
@@ -428,4 +526,6 @@ def test_real_drag_snaps_one_geometry_reference_without_deforming(
         anchor = item_grid_anchor(item)
         assert (anchor.x() - 3) / 10 == pytest.approx(round((anchor.x() - 3) / 10))
         assert (anchor.y() + 7) / 10 == pytest.approx(round((anchor.y() + 7) / 10))
-    QTest.mouseRelease(canvas_view.viewport(), QtCore.Qt.MouseButton.LeftButton, mods, end)
+    QTest.mouseRelease(
+        canvas_view.viewport(), QtCore.Qt.MouseButton.LeftButton, mods, end
+    )

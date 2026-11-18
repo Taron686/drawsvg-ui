@@ -14,7 +14,12 @@ from export_margins import ExportMargins
 
 
 class ExportMarginsDialog(QtWidgets.QDialog):
-    def __init__(self, margins: ExportMargins | None, linked: bool, parent=None):
+    def __init__(
+        self,
+        margins: ExportMargins | None,
+        linked: bool,
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Export Margins")
         layout = QtWidgets.QVBoxLayout(self)
@@ -36,8 +41,10 @@ class ExportMarginsDialog(QtWidgets.QDialog):
             field.setRange(0, 10000)
             field.setValue(getattr(initial, name))
         for label, field in (
-            ("Top", self.top), ("Right", self.right),
-            ("Bottom", self.bottom), ("Left", self.left),
+            ("Top", self.top),
+            ("Right", self.right),
+            ("Bottom", self.bottom),
+            ("Left", self.left),
         ):
             form.addRow(label, field)
 
@@ -52,7 +59,9 @@ class ExportMarginsDialog(QtWidgets.QDialog):
         layout.addWidget(self.buttons)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
-        self.buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Reset).clicked.connect(self._reset)
+        self.buttons.button(
+            QtWidgets.QDialogButtonBox.StandardButton.Reset
+        ).clicked.connect(self._reset)
         self.custom_margins.toggled.connect(self._update_enabled)
         self.link_sides.toggled.connect(self._link_toggled)
         for field in self._fields:

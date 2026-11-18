@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from importlib import metadata
 from pathlib import Path
-from typing import Optional
 
 PACKAGE_NAME = "drawsvg-ui"
 GITHUB_URL = "https://github.com/Taron686/drawsvg-ui"
@@ -30,7 +29,7 @@ def get_version() -> str:
     return version or "0.0.0"
 
 
-def _read_version_from_pyproject() -> Optional[str]:
+def _read_version_from_pyproject() -> str | None:
     """Best-effort lookup of the version field in pyproject.toml when running from source."""
     pyproject_path = Path(__file__).resolve().parent.parent / "pyproject.toml"
     if not pyproject_path.is_file():
@@ -54,7 +53,7 @@ def _read_version_from_pyproject() -> Optional[str]:
             version = project.get("version")
             if version:
                 return str(version)
-        except Exception:
+        except (tomllib.TOMLDecodeError, AttributeError):
             pass
 
     for line in content.splitlines():

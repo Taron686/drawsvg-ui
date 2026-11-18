@@ -25,7 +25,7 @@ from ..labels import ShapeLabelMixin
 class SplitDividerHandle(QtWidgets.QGraphicsEllipseItem):
     """Drag handle for the horizontal split in :class:`SplitRoundedRectItem`."""
 
-    def __init__(self, parent: "SplitRoundedRectItem"):
+    def __init__(self, parent: SplitRoundedRectItem) -> None:
         radius = DIVIDER_HANDLE_DIAMETER / 2.0
         super().__init__(
             -radius,
@@ -38,10 +38,12 @@ class SplitDividerHandle(QtWidgets.QGraphicsEllipseItem):
         self.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
         self.setCursor(QtCore.Qt.CursorShape.SizeVerCursor)
-        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+        self.setFlag(
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
+        )
         self._parent_was_movable = False
 
-    def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
+    def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
         parent = self.parentItem()
         if parent is not None:
             flags = parent.flags()
@@ -55,13 +57,13 @@ class SplitDividerHandle(QtWidgets.QGraphicsEllipseItem):
                 )
         event.accept()
 
-    def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
+    def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
         parent = self.parentItem()
         if parent is not None:
-            parent._set_divider_from_scene_pos(event.scenePos())  # type: ignore[attr-defined]
+            parent._set_divider_from_scene_pos(event.scenePos())  # type: ignore[attr-defined]  # noqa: SLF001 - paired helper and item
         event.accept()
 
-    def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
+    def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
         parent = self.parentItem()
         if parent is not None and self._parent_was_movable:
             parent.setFlag(
@@ -73,7 +75,9 @@ class SplitDividerHandle(QtWidgets.QGraphicsEllipseItem):
 
 
 class RectItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsRectItem):
-    def __init__(self, x, y, w, h, rx: float = 0.0, ry: float = 0.0):
+    def __init__(
+        self, x: float, y: float, w: float, h: float, rx: float = 0.0, ry: float = 0.0
+    ) -> None:
         QtWidgets.QGraphicsRectItem.__init__(self, 0, 0, w, h)
         ResizableItem.__init__(self)
         self.setPos(x, y)
@@ -97,20 +101,23 @@ class RectItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsRectItem):
         QtWidgets.QGraphicsRectItem.setRect(self, x, y, w, h)
         self._update_label_geometry()
 
-    def setPen(self, pen):  # type: ignore[override]
+    def setPen(self, pen: QtGui.QPen) -> None:  # type: ignore[override]
         super().setPen(pen)
         self._update_label_color()
 
-    def mouseDoubleClickEvent(
-        self, event: QtWidgets.QGraphicsSceneMouseEvent
-    ) -> None:  # type: ignore[override]
+    def mouseDoubleClickEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:  # type: ignore[override]
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
             self._begin_label_edit()
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
 
-    def paint(self, painter, option, widget=None):
+    def paint(
+        self,
+        painter: QtGui.QPainter,
+        option: QtWidgets.QStyleOptionGraphicsItem,
+        widget: QtWidgets.QWidget | None = None,
+    ) -> None:
         opt = QtWidgets.QStyleOptionGraphicsItem(option)
         opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
         if self.rx or self.ry:
@@ -136,7 +143,7 @@ class SplitRoundedRectItem(ResizableItem, QtWidgets.QGraphicsRectItem):
         h: float,
         rx: float = 15.0,
         ry: float | None = None,
-    ):
+    ) -> None:
         QtWidgets.QGraphicsRectItem.__init__(self, 0, 0, w, h)
         ResizableItem.__init__(self)
         self.setPos(x, y)
@@ -170,6 +177,12 @@ class SplitRoundedRectItem(ResizableItem, QtWidgets.QGraphicsRectItem):
     def _line_y(self) -> float:
         rect = self.rect()
         return rect.top() + rect.height() * self._split_ratio
+
+    def divider_pen(self) -> QtGui.QPen:
+        return QtGui.QPen(self._divider_pen)
+
+    def set_divider_pen(self, pen: QtGui.QPen) -> None:
+        self._divider_pen = pen
 
     def divider_ratio(self) -> float:
         return self._split_ratio
@@ -235,16 +248,16 @@ class SplitRoundedRectItem(ResizableItem, QtWidgets.QGraphicsRectItem):
         self._divider_pen.setCosmetic(True)
         self.update()
 
-    def show_handles(self):  # type: ignore[override]
+    def show_handles(self) -> None:  # type: ignore[override]
         super().show_handles()
         self._divider_handle.show()
         self._update_divider_handle()
 
-    def hide_handles(self):  # type: ignore[override]
+    def hide_handles(self) -> None:  # type: ignore[override]
         super().hide_handles()
         self._divider_handle.hide()
 
-    def update_handles(self):  # type: ignore[override]
+    def update_handles(self) -> None:  # type: ignore[override]
         super().update_handles()
         self._update_divider_handle()
 
@@ -252,7 +265,12 @@ class SplitRoundedRectItem(ResizableItem, QtWidgets.QGraphicsRectItem):
         QtWidgets.QGraphicsRectItem.setRect(self, x, y, w, h)
         self._update_divider_handle()
 
-    def paint(self, painter, option, widget=None):  # type: ignore[override]
+    def paint(
+        self,
+        painter: QtGui.QPainter,
+        option: QtWidgets.QStyleOptionGraphicsItem,
+        widget: QtWidgets.QWidget | None = None,
+    ) -> None:  # type: ignore[override]
         rect = self.rect()
         painter.save()
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
@@ -269,7 +287,9 @@ class SplitRoundedRectItem(ResizableItem, QtWidgets.QGraphicsRectItem):
         line_y = self._line_y()
 
         top_clip = QtGui.QPainterPath()
-        top_clip.addRect(rect.left(), rect.top(), rect.width(), max(0.0, line_y - rect.top()))
+        top_clip.addRect(
+            rect.left(), rect.top(), rect.width(), max(0.0, line_y - rect.top())
+        )
         top_path = base_path.intersected(top_clip)
         if not top_path.isEmpty():
             painter.fillPath(top_path, self._top_brush)

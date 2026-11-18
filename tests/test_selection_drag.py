@@ -9,9 +9,7 @@ from items import GroupItem
     "shape",
     ("Arrow", "Line", "Free Polyline", "Free Polygon", "Bezier Path", "Rectangle"),
 )
-def test_grouping_hides_child_handles_until_ungrouped(
-    application, canvas_view, shape
-):
+def test_grouping_hides_child_handles_until_ungrouped(application, canvas_view, shape):
     rectangle = canvas_view.add_shape(
         "Rectangle", QtCore.QPointF(100.0, 100.0), snap_to_grid=False
     )
@@ -73,7 +71,8 @@ def test_drag_selection_preserves_relative_positions(
     start = view.mapFromScene(items[grabbed].sceneBoundingRect().center())
     modifiers = (
         QtCore.Qt.KeyboardModifier.AltModifier
-        if free_move else QtCore.Qt.KeyboardModifier.NoModifier
+        if free_move
+        else QtCore.Qt.KeyboardModifier.NoModifier
     )
     QTest.mousePress(
         view.viewport(), QtCore.Qt.MouseButton.LeftButton, modifiers, start
@@ -100,6 +99,7 @@ def test_drag_selection_preserves_relative_positions(
             assert deltas[0].y() == pytest.approx(expected.y())
         else:
             from snap_geometry import item_grid_anchor
+
             anchor = item_grid_anchor(items[grabbed])
             origin = view._master_origin
             for value, base in ((anchor.x(), origin.x()), (anchor.y(), origin.y())):

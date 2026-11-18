@@ -9,7 +9,12 @@ from export_renderer import ExportRenderer, PNG_BASE_DPI
 
 
 class PngExportDialog(QtWidgets.QDialog):
-    def __init__(self, content_rect: QtCore.QRectF, initial_path: Path, parent=None):
+    def __init__(
+        self,
+        content_rect: QtCore.QRectF,
+        initial_path: Path,
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Export PNG")
         self.setMinimumWidth(520)
@@ -59,9 +64,13 @@ class PngExportDialog(QtWidgets.QDialog):
     def output_path(self) -> Path:
         name = self.filename.text().strip()
         if (
-            not name or name in {".", ".."} or name.endswith((".", " "))
+            not name
+            or name in {".", ".."}
+            or name.endswith((".", " "))
             or re.search(r'[<>:"/\\|?*\x00-\x1f]', name)
-            or re.fullmatch(r"(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])", name.split(".")[0])
+            or re.fullmatch(
+                r"(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])", name.split(".")[0]
+            )
         ):
             raise ValueError("Enter a valid file name without folder separators.")
         if not name.casefold().endswith(".png"):
@@ -86,14 +95,16 @@ class PngExportDialog(QtWidgets.QDialog):
         self.full_path.clear()
         self.pixel_size.clear()
         try:
-            size = ExportRenderer._pixel_size(self._content_rect, self.scale())
+            size = ExportRenderer.pixel_size(self._content_rect, self.scale())
             self.pixel_size.setText(f"{size.width():,} × {size.height():,} pixels")
             self.full_path.setText(str(self.output_path()))
             message = ""
         except (OSError, ValueError) as error:
             message = str(error)
         self.error.setText(message)
-        self.buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Save).setEnabled(not message)
+        self.buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Save).setEnabled(
+            not message
+        )
 
     def _browse(self) -> None:
         folder = QtWidgets.QFileDialog.getExistingDirectory(
@@ -107,10 +118,17 @@ class PngExportDialog(QtWidgets.QDialog):
         if self.error.text():
             return
         path = self.output_path()
-        if path.exists() and QtWidgets.QMessageBox.question(
-            self, "Replace file?", f"Replace the existing file?\n{path}",
-            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
-            QtWidgets.QMessageBox.StandardButton.No,
-        ) != QtWidgets.QMessageBox.StandardButton.Yes:
+        if (
+            path.exists()
+            and QtWidgets.QMessageBox.question(
+                self,
+                "Replace file?",
+                f"Replace the existing file?\n{path}",
+                QtWidgets.QMessageBox.StandardButton.Yes
+                | QtWidgets.QMessageBox.StandardButton.No,
+                QtWidgets.QMessageBox.StandardButton.No,
+            )
+            != QtWidgets.QMessageBox.StandardButton.Yes
+        ):
             return
         super().accept()

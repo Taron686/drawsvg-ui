@@ -12,6 +12,7 @@ from document_format import PROJECT_JSON_PATH, ProjectDocument
 from document_validator import (
     DEFAULT_LIMITS,
     ValidationLimits,
+    ValidatedProject,
     encode_project_json,
     validate_project_archive,
     validate_project_document,
@@ -68,7 +69,9 @@ def load_project(
     )
 
 
-def _write_archive(path: Path, project_json: bytes, validated) -> None:
+def _write_archive(
+    path: Path, project_json: bytes, validated: ValidatedProject
+) -> None:
     with zipfile.ZipFile(
         path,
         "w",

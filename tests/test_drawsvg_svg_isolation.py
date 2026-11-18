@@ -15,7 +15,9 @@ def _pixel(image, bounds, x, y):
     return image.pixelColor(round(x - bounds.left()), round(y - bounds.top()))
 
 
-def test_percentage_svg_dimensions_keep_the_asset_viewport(application, monkeypatch, tmp_path):
+def test_percentage_svg_dimensions_keep_the_asset_viewport(
+    application, monkeypatch, tmp_path
+):
     source = b'<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="100%" height="100%" fill="red"/></svg>'
     scene = QtWidgets.QGraphicsScene()
     scene.addItem(SvgItem(SvgAssetParser().parse(source), 0, 0, 20, 20))
@@ -29,14 +31,19 @@ def test_percentage_svg_dimensions_keep_the_asset_viewport(application, monkeypa
     assert uri.startswith("data:image/svg+xml;base64,")
     document = ET.fromstring(base64.b64decode(uri.split(",", 1)[1]))
     assert document.tag.endswith("svg")
-    assert next(node for node in document if node.tag.endswith("rect")).get("width") == "100%"
+    assert (
+        next(node for node in document if node.tag.endswith("rect")).get("width")
+        == "100%"
+    )
 
 
-def test_offset_viewbox_stretches_under_a_scene_affine_transform(application, monkeypatch, tmp_path):
+def test_offset_viewbox_stretches_under_a_scene_affine_transform(
+    application, monkeypatch, tmp_path
+):
     source = b'<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="10 20 20 10" preserveAspectRatio="xMidYMid meet"><rect x="10" y="20" width="20" height="10" fill="red"/></svg>'
     scene = QtWidgets.QGraphicsScene()
     item = SvgItem(SvgAssetParser().parse(source), 40, 30, 60, 50)
-    item.setTransform(QtGui.QTransform(1, .2, .3, 1, 0, 0))
+    item.setTransform(QtGui.QTransform(1, 0.2, 0.3, 1, 0, 0))
     scene.addItem(item)
     _, bounds, image, _ = _export(scene, monkeypatch, tmp_path)
     for local in (QtCore.QPointF(30, 3), QtCore.QPointF(30, 47)):
@@ -45,7 +52,9 @@ def test_offset_viewbox_stretches_under_a_scene_affine_transform(application, mo
 
 
 @pytest.mark.parametrize("selector", ["rect", ".painted", "svg rect", "svg > rect"])
-def test_svg_styles_are_confined_to_each_instance(application, monkeypatch, tmp_path, selector):
+def test_svg_styles_are_confined_to_each_instance(
+    application, monkeypatch, tmp_path, selector
+):
     scene = QtWidgets.QGraphicsScene()
     for x, color in ((0, "#2040e0"), (40, "#20e040")):
         source = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><style>{selector} {{fill: {color};}}</style><rect class="painted" width="20" height="20"/></svg>'.encode()
@@ -58,12 +67,14 @@ def test_svg_styles_are_confined_to_each_instance(application, monkeypatch, tmp_
         assert _pixel(image, bounds, x, 10) == QtGui.QColor(color)
 
 
-def test_root_styles_and_gradient_references_survive_embedding(application, monkeypatch, tmp_path):
-    source = b'''<svg xmlns="http://www.w3.org/2000/svg" id="root" viewBox="0 0 20 20">
+def test_root_styles_and_gradient_references_survive_embedding(
+    application, monkeypatch, tmp_path
+):
+    source = b"""<svg xmlns="http://www.w3.org/2000/svg" id="root" viewBox="0 0 20 20">
       <style>svg rect {fill: url(#paint);} #root > rect {stroke: #2040e0; stroke-width: 2;}</style>
       <defs><linearGradient id="paint"><stop stop-color="#20e040"/></linearGradient></defs>
       <rect width="20" height="20"/>
-    </svg>'''
+    </svg>"""
     scene = QtWidgets.QGraphicsScene()
     scene.addItem(SvgItem(SvgAssetParser().parse(source), 0, 0, 20, 20))
     _, bounds, image, _ = _export(scene, monkeypatch, tmp_path)
@@ -72,14 +83,16 @@ def test_root_styles_and_gradient_references_survive_embedding(application, monk
 
 
 @pytest.mark.parametrize("aspect", ["none", "xMidYMid meet", "xMaxYMax slice"])
-def test_embedded_vector_matches_the_source_renderer(application, monkeypatch, tmp_path, aspect):
+def test_embedded_vector_matches_the_source_renderer(
+    application, monkeypatch, tmp_path, aspect
+):
     source = f'''<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="10 20 20 10" preserveAspectRatio="{aspect}">
       <rect x="10" y="20" width="10" height="10" fill="#2040e0"/>
       <rect x="20" y="20" width="10" height="10" fill="#20e040"/>
     </svg>'''.encode()
     scene = QtWidgets.QGraphicsScene()
     item = SvgItem(SvgAssetParser().parse(source), 40, 30, 60, 50)
-    item.setTransform(QtGui.QTransform(1, .2, .3, 1, 0, 0))
+    item.setTransform(QtGui.QTransform(1, 0.2, 0.3, 1, 0, 0))
     scene.addItem(item)
     _, bounds, image, _ = _export(scene, monkeypatch, tmp_path)
     expected = QtGui.QImage(image.size(), image.format())
@@ -92,10 +105,14 @@ def test_embedded_vector_matches_the_source_renderer(application, monkeypatch, t
     for x in (8, 20, 40, 52):
         for y in (3, 25, 47):
             point = item.mapToScene(QtCore.QPointF(x, y))
-            assert _pixel(image, bounds, point.x(), point.y()) == _pixel(expected, bounds, point.x(), point.y())
+            assert _pixel(image, bounds, point.x(), point.y()) == _pixel(
+                expected, bounds, point.x(), point.y()
+            )
 
 
-def test_embedded_vector_clips_content_at_its_own_viewport(application, monkeypatch, tmp_path):
+def test_embedded_vector_clips_content_at_its_own_viewport(
+    application, monkeypatch, tmp_path
+):
     source = b'<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="100" height="100" fill="red"/></svg>'
     scene = QtWidgets.QGraphicsScene()
     scene.addItem(SvgItem(SvgAssetParser().parse(source), 0, 0, 20, 20))
@@ -106,7 +123,9 @@ def test_embedded_vector_clips_content_at_its_own_viewport(application, monkeypa
         assert _pixel(image, bounds, x, 10) == QtGui.QColor("white")
 
 
-def test_separate_vectors_preserve_same_named_gradient_references(application, monkeypatch, tmp_path):
+def test_separate_vectors_preserve_same_named_gradient_references(
+    application, monkeypatch, tmp_path
+):
     scene = QtWidgets.QGraphicsScene()
     for x, color in ((0, "#2040e0"), (40, "#20e040")):
         source = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
@@ -121,7 +140,9 @@ def test_separate_vectors_preserve_same_named_gradient_references(application, m
 
 
 @pytest.mark.parametrize("scale, rotation", [(1, 0), (2, 23)])
-def test_scaled_vector_keeps_sharp_edges_in_qt(application, monkeypatch, tmp_path, scale, rotation):
+def test_scaled_vector_keeps_sharp_edges_in_qt(
+    application, monkeypatch, tmp_path, scale, rotation
+):
     source = b'<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><circle cx="10" cy="10" r="8" fill="red"/><path d="M 1 1 L 19 19" stroke="blue" stroke-width=".5"/></svg>'
     scene = QtWidgets.QGraphicsScene()
     item = SvgItem(SvgAssetParser().parse(source), 0, 0, 300, 300)
@@ -139,4 +160,6 @@ def test_scaled_vector_keeps_sharp_edges_in_qt(application, monkeypatch, tmp_pat
     # Native 20px decoding introduces a broad blurred fringe when enlarged.
     for x in (45, 50, 55, 60):
         point = item.mapToScene(QtCore.QPointF(x, 80))
-        assert _pixel(image, bounds, point.x(), point.y()) == _pixel(expected, bounds, point.x(), point.y())
+        assert _pixel(image, bounds, point.x(), point.y()) == _pixel(
+            expected, bounds, point.x(), point.y()
+        )

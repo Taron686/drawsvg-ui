@@ -7,9 +7,7 @@ from scene_codec import KEY_ITEM_ID
 
 def _make_group(view, x=100.0):
     view.scene().clearSelection()
-    arrow = view.add_shape(
-        "Arrow", QtCore.QPointF(x, 100.0), snap_to_grid=False
-    )
+    arrow = view.add_shape("Arrow", QtCore.QPointF(x, 100.0), snap_to_grid=False)
     rectangle = view.add_shape(
         "Rectangle", QtCore.QPointF(x, 250.0), snap_to_grid=False
     )
@@ -38,7 +36,8 @@ def test_legacy_group_without_saved_pivot_restores_geometry(canvas_view):
 
     restored = {
         obj.data(KEY_ITEM_ID): obj
-        for obj in view.scene().items() if obj.data(KEY_ITEM_ID)
+        for obj in view.scene().items()
+        if obj.data(KEY_ITEM_ID)
     }
     for item_id, point in expected.items():
         actual = restored[item_id].mapToScene(QtCore.QPointF())
@@ -105,9 +104,7 @@ def test_group_context_menu_counts_independent_objects(
     if extra == "Group":
         other, _, _ = _make_group(view, 400.0)
     elif extra:
-        other = view.add_shape(
-            extra, QtCore.QPointF(400.0, 250.0), snap_to_grid=False
-        )
+        other = view.add_shape(extra, QtCore.QPointF(400.0, 250.0), snap_to_grid=False)
     group, _, rectangle = _make_group(view)
     if extra:
         other.setSelected(True)
@@ -141,9 +138,7 @@ def test_context_menu_grouping_preserves_existing_group_children(
     if extra == "Group":
         other, other_arrow, other_rectangle = _make_group(view, 400.0)
     else:
-        other = view.add_shape(
-            extra, QtCore.QPointF(400.0, 250.0), snap_to_grid=False
-        )
+        other = view.add_shape(extra, QtCore.QPointF(400.0, 250.0), snap_to_grid=False)
     group, arrow, rectangle = _make_group(view)
     other.setSelected(True)
     items = [arrow, rectangle, other]
@@ -183,7 +178,8 @@ def test_ungrouping_releases_all_nested_objects(
             group.setTransform(QtGui.QTransform().shear(0.1, 0.05))
         if level < depth - 1:
             other = view.add_shape(
-                "Rectangle", QtCore.QPointF(300.0 + level * 150.0, 300.0),
+                "Rectangle",
+                QtCore.QPointF(300.0 + level * 150.0, 300.0),
                 snap_to_grid=False,
             )
             objects.append(other)
@@ -196,14 +192,17 @@ def test_ungrouping_releases_all_nested_objects(
     sample_points = (QtCore.QPointF(), QtCore.QPointF(30, 5), QtCore.QPointF(0, 20))
     positions = [[obj.mapToScene(point) for point in sample_points] for obj in objects]
     view.history().capture_now()
-    original_parents = {obj.data(KEY_ITEM_ID): obj.parentItem().data(KEY_ITEM_ID) for obj in objects}
+    original_parents = {
+        obj.data(KEY_ITEM_ID): obj.parentItem().data(KEY_ITEM_ID) for obj in objects
+    }
     history_count = len(view.history()._states)
 
     if command == "menu":
         _open_menu(view, rectangle, monkeypatch, "Ungroup")
     else:
         event = QtGui.QKeyEvent(
-            QtCore.QEvent.Type.KeyPress, QtCore.Qt.Key.Key_G,
+            QtCore.QEvent.Type.KeyPress,
+            QtCore.Qt.Key.Key_G,
             QtCore.Qt.KeyboardModifier.ControlModifier
             | QtCore.Qt.KeyboardModifier.ShiftModifier,
         )
@@ -216,26 +215,43 @@ def test_ungrouping_releases_all_nested_objects(
             actual = obj.mapToScene(point)
             assert actual.x() == pytest.approx(expected.x())
             assert actual.y() == pytest.approx(expected.y())
-        assert bool(obj.flags() & QtWidgets.QGraphicsItem.ItemIsSelectable) is (obj is not arrow)
-        assert bool(obj.flags() & QtWidgets.QGraphicsItem.ItemIsMovable) is (obj is not arrow)
-    assert {obj for obj in view.scene().items() if isinstance(obj, GroupItem)} == {unrelated}
+        assert bool(obj.flags() & QtWidgets.QGraphicsItem.ItemIsSelectable) is (
+            obj is not arrow
+        )
+        assert bool(obj.flags() & QtWidgets.QGraphicsItem.ItemIsMovable) is (
+            obj is not arrow
+        )
+    assert {obj for obj in view.scene().items() if isinstance(obj, GroupItem)} == {
+        unrelated
+    }
     assert unrelated_arrow.parentItem() is unrelated
     assert unrelated_rectangle.parentItem() is unrelated
     assert not view.scene().selectedItems()
     assert len(view.history()._states) == history_count + 1
     view.undo()
     assert sum(isinstance(obj, GroupItem) for obj in view.scene().items()) == depth + 1
-    restored = {obj.data(KEY_ITEM_ID): obj for obj in view.scene().items() if obj.data(KEY_ITEM_ID)}
+    restored = {
+        obj.data(KEY_ITEM_ID): obj
+        for obj in view.scene().items()
+        if obj.data(KEY_ITEM_ID)
+    }
     for original, expected_points in zip(objects, positions):
         obj = restored[original.data(KEY_ITEM_ID)]
-        assert obj.parentItem().data(KEY_ITEM_ID) == original_parents[original.data(KEY_ITEM_ID)]
+        assert (
+            obj.parentItem().data(KEY_ITEM_ID)
+            == original_parents[original.data(KEY_ITEM_ID)]
+        )
         for point, expected in zip(sample_points, expected_points):
             actual = obj.mapToScene(point)
             assert actual.x() == pytest.approx(expected.x())
             assert actual.y() == pytest.approx(expected.y())
     view.redo()
     assert sum(isinstance(obj, GroupItem) for obj in view.scene().items()) == 1
-    restored = {obj.data(KEY_ITEM_ID): obj for obj in view.scene().items() if obj.data(KEY_ITEM_ID)}
+    restored = {
+        obj.data(KEY_ITEM_ID): obj
+        for obj in view.scene().items()
+        if obj.data(KEY_ITEM_ID)
+    }
     for original, expected_points in zip(objects, positions):
         obj = restored[original.data(KEY_ITEM_ID)]
         assert obj.parentItem() is None

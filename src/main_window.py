@@ -170,7 +170,11 @@ QToolTip {
 """.strip()
 _TEMPLATES = {
     "Blank": (),
-    "Flowchart": (("Rounded Rectangle", 80.0, 80.0), ("Diamond", 320.0, 80.0), ("Arrow", 190.0, 130.0)),
+    "Flowchart": (
+        ("Rounded Rectangle", 80.0, 80.0),
+        ("Diamond", 320.0, 80.0),
+        ("Arrow", 190.0, 130.0),
+    ),
     "Swimlane": (("Swimlane", 80.0, 80.0),),
 }
 
@@ -212,7 +216,7 @@ class MainWindow(QtWidgets.QMainWindow):
         settings: QtCore.QSettings | None = None,
         recovery_enabled: bool = True,
         check_startup_recovery: bool = False,
-    ):
+    ) -> None:
         super().__init__()
 
         self._window_registry = window_registry or DocumentWindowRegistry()
@@ -227,8 +231,10 @@ class MainWindow(QtWidgets.QMainWindow):
         layer_manager = self.canvas.layer_manager()
         self._property_command_service = PropertyCommandService(
             self.canvas.history(),
-            is_locked=lambda item: layer_manager.layer_for_item(item).locked
-            or layer_manager.item_locked(item),
+            is_locked=lambda item: (
+                layer_manager.layer_for_item(item).locked
+                or layer_manager.item_locked(item)
+            ),
         )
         self._recent_files_path = recent_files_path or _default_recent_files_path()
         self._recent_files = self._load_recent_files()
@@ -291,13 +297,27 @@ class MainWindow(QtWidgets.QMainWindow):
         self.resize(form.size())
         self.setWindowTitle(form.windowTitle())
 
-        self.mainSplitter = self._require_widget(central, QtWidgets.QSplitter, "mainSplitter")
-        self.paletteContainer = self._require_widget(central, QtWidgets.QWidget, "paletteContainer")
-        self.palettePlaceholder = self._require_widget(central, QtWidgets.QWidget, "palettePlaceholder")
-        self.canvasContainer = self._require_widget(central, QtWidgets.QWidget, "canvasContainer")
-        self.canvasPlaceholder = self._require_widget(central, QtWidgets.QGraphicsView, "canvasPlaceholder")
-        self.propertiesContainer = self._require_widget(central, QtWidgets.QWidget, "propertiesContainer")
-        self.propertiesPlaceholder = self._require_widget(central, QtWidgets.QWidget, "propertiesPlaceholder")
+        self.mainSplitter = self._require_widget(
+            central, QtWidgets.QSplitter, "mainSplitter"
+        )
+        self.paletteContainer = self._require_widget(
+            central, QtWidgets.QWidget, "paletteContainer"
+        )
+        self.palettePlaceholder = self._require_widget(
+            central, QtWidgets.QWidget, "palettePlaceholder"
+        )
+        self.canvasContainer = self._require_widget(
+            central, QtWidgets.QWidget, "canvasContainer"
+        )
+        self.canvasPlaceholder = self._require_widget(
+            central, QtWidgets.QGraphicsView, "canvasPlaceholder"
+        )
+        self.propertiesContainer = self._require_widget(
+            central, QtWidgets.QWidget, "propertiesContainer"
+        )
+        self.propertiesPlaceholder = self._require_widget(
+            central, QtWidgets.QWidget, "propertiesPlaceholder"
+        )
 
         layouts = [
             central.layout(),
@@ -401,8 +421,12 @@ class MainWindow(QtWidgets.QMainWindow):
         properties_min_width = 260
         properties_container.setMinimumWidth(properties_min_width)
 
-        self._replace_placeholder(palette_container, self.palettePlaceholder, self.palette)
-        self._replace_placeholder(canvas_container, self.canvasPlaceholder, self.canvas_frame)
+        self._replace_placeholder(
+            palette_container, self.palettePlaceholder, self.palette
+        )
+        self._replace_placeholder(
+            canvas_container, self.canvasPlaceholder, self.canvas_frame
+        )
         self._replace_placeholder(
             properties_container, self.propertiesPlaceholder, self.right_panel_tabs
         )
@@ -475,6 +499,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.canvas.gridVisibilityChanged.connect(self.actionShow_grid.setChecked)
 
         self.menuView = self.menuBar().addMenu("&View")
+        self.menuView.addAction(self.actionShow_grid)
         self.actionShow_guides = QtGui.QAction("Show guides", self, checkable=True)
         self.actionShow_guides.setChecked(True)
         self.menuView.addAction(self.actionShow_guides)
@@ -491,7 +516,9 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self.actionSnap_alignment.setChecked(self.canvas.alignment_snap_enabled())
         self.menuView.addAction(self.actionSnap_alignment)
-        self.actionSnap_alignment.toggled.connect(self.canvas.set_alignment_snap_enabled)
+        self.actionSnap_alignment.toggled.connect(
+            self.canvas.set_alignment_snap_enabled
+        )
 
         file_menu = self.menuBar().findChild(QtWidgets.QMenu, "menuFile")
         if file_menu is None:
@@ -507,11 +534,17 @@ class MainWindow(QtWidgets.QMainWindow):
             action.setCheckable(True)
             action.setData(name.lower())
             self._theme_actions.addAction(action)
-        self._theme_actions.triggered.connect(lambda action: self._set_theme(str(action.data())))
+        self._theme_actions.triggered.connect(
+            lambda action: self._set_theme(str(action.data()))
+        )
         self.actionShow_grid.toggled.connect(lambda _value: self._save_view_settings())
-        self.actionShow_guides.toggled.connect(lambda _value: self._save_view_settings())
+        self.actionShow_guides.toggled.connect(
+            lambda _value: self._save_view_settings()
+        )
         self.actionSnap_grid.toggled.connect(lambda _value: self._save_view_settings())
-        self.actionSnap_alignment.toggled.connect(lambda _value: self._save_view_settings())
+        self.actionSnap_alignment.toggled.connect(
+            lambda _value: self._save_view_settings()
+        )
 
         self.menuTools = self.menuBar().addMenu("&Tools")
         self.actionCreate_connector = QtGui.QAction(
@@ -588,33 +621,49 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog.exec()
 
     def new_document(self, _checked: bool = False) -> OpenResult:
-        document = ProjectDocument(scene=SceneCodec.normalize_state({
-            "items": [],
-            "guides": [],
-            "layers": [{
-                "id": DEFAULT_LAYER_ID, "name": "Layer 1",
-                "visible": True, "locked": False,
-            }],
-            "grid_visible": self.actionShow_grid.isChecked(),
-        }))
-        return self._replace_current_document(document, source_path=None, baseline="blank")
+        document = ProjectDocument(
+            scene=SceneCodec.normalize_state(
+                {
+                    "items": [],
+                    "guides": [],
+                    "layers": [
+                        {
+                            "id": DEFAULT_LAYER_ID,
+                            "name": "Layer 1",
+                            "visible": True,
+                            "locked": False,
+                        }
+                    ],
+                    "grid_visible": self.actionShow_grid.isChecked(),
+                }
+            )
+        )
+        return self._replace_current_document(
+            document, source_path=None, baseline="blank"
+        )
 
     def new_document_from_template(self, template: str) -> OpenResult:
         try:
             if template not in _TEMPLATES:
                 raise ValueError(f"Unknown template: {template}")
-            with _temporary_canvas(grid_visible=self.actionShow_grid.isChecked()) as canvas:
+            with _temporary_canvas(
+                grid_visible=self.actionShow_grid.isChecked()
+            ) as canvas:
                 for shape, x, y in _TEMPLATES[template]:
-                    item = canvas.add_shape(shape, QtCore.QPointF(x, y), snap_to_grid=False)
+                    item = canvas.add_shape(
+                        shape, QtCore.QPointF(x, y), snap_to_grid=False
+                    )
                     if item is None:
                         raise ValueError(f"Could not create template element: {shape}")
                 document = ProjectDocument(
-                    scene=canvas._serialize_scene_state(), assets=canvas.bitmap_assets()
+                    scene=canvas.serialize_scene_state(), assets=canvas.bitmap_assets()
                 )
         except Exception as error:
             self._show_document_error("New from template failed", error)
             return OpenResult.FAILED
-        return self._replace_current_document(document, source_path=None, baseline="unsaved")
+        return self._replace_current_document(
+            document, source_path=None, baseline="unsaved"
+        )
 
     def show_template_dialog(self, _checked: bool = False) -> OpenResult:
         template, accepted = QtWidgets.QInputDialog.getItem(
@@ -640,29 +689,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._export_margins: ExportMargins | None = None
         self._export_margins_linked = True
         settings = self._settings()
-
-        def read_bool(key: str, default: bool) -> bool:
-            value = settings.value(f"export/margins/{key}", default)
-            if value is True or value is False:
-                return value
-            normalized = str(value).strip().lower()
-            if normalized in {"true", "1"}:
-                return True
-            if normalized in {"false", "0"}:
-                return False
-            raise ValueError("Invalid export margin setting")
-
         try:
-            enabled = read_bool("enabled", False)
-            linked = read_bool("linked", True)
-            if enabled:
-                margins = ExportMargins(**{
-                    side: float(settings.value(f"export/margins/{side}"))
-                    for side in ("left", "top", "right", "bottom")
-                })
-                # Preserve the stored values if an inconsistent linked flag was saved.
-                linked = linked and margins.left == margins.top == margins.right == margins.bottom
-                self._export_margins = margins
+            linked = settings.value("export/margins/linked", True, bool)
+            if settings.value("export/margins/enabled", False, bool):
+                self._export_margins = ExportMargins(
+                    **{
+                        side: float(settings.value(f"export/margins/{side}"))
+                        for side in ("left", "top", "right", "bottom")
+                    }
+                )
             self._export_margins_linked = linked
         except (TypeError, ValueError, OverflowError):
             # A corrupt or incomplete preference must not prevent opening a drawing.
@@ -835,7 +870,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self._forget_recent_file(source)
             self._show_document_error("Open Project failed", error)
             return OpenResult.FAILED
-        result = self._replace_current_document(document, source_path=source, baseline="saved")
+        result = self._replace_current_document(
+            document, source_path=source, baseline="saved"
+        )
         if result is OpenResult.OPENED:
             self._remember_recent_file(source)
         return result
@@ -866,7 +903,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 return OpenResult.OPENED
         try:
             self.document_controller.replace_document(
-                document, source_path=source_path, baseline=baseline,
+                document,
+                source_path=source_path,
+                baseline=baseline,
                 recovery_revision=recovery_revision,
             )
         except Exception as error:
@@ -899,7 +938,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def save_document_as(self, _checked: bool = False) -> bool:
         current_path = self.document_controller.path
-        suggested = str(current_path) if current_path is not None else "Untitled.drawsvg"
+        suggested = (
+            str(current_path) if current_path is not None else "Untitled.drawsvg"
+        )
         selected_path, _selected_filter = QtWidgets.QFileDialog.getSaveFileName(
             self,
             "Save DrawSVG Project",
@@ -968,7 +1009,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _request_quit(self, _checked: bool = False) -> bool:
         windows = tuple(self._window_registry.windows())
         for window in windows:
-            if not window._confirm_document_replacement():
+            if not window._confirm_document_replacement():  # noqa: SLF001 - same class
                 return False
         for window in windows:
             window.document_controller.discard_recovery()
@@ -980,7 +1021,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._window_registry.quitting = False
         return True
 
-    def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         if self._force_close or self._window_registry.quitting:
             self._window_registry.unregister(self)
             event.accept()
@@ -1003,7 +1044,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if (
             self.document_controller.path is not None
             or self.document_controller.dirty
-            or self.canvas._serialize_scene_state()["items"]
+            or self.canvas.serialize_scene_state()["items"]
         ):
             return
         for candidate in self._recovery_store.candidates():
@@ -1019,7 +1060,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._show_document_error("Recovery failed", error)
                 continue
             result = self._replace_current_document(
-                document, source_path=candidate.source_path, baseline="recovered",
+                document,
+                source_path=candidate.source_path,
+                baseline="recovered",
                 recovery_revision=candidate.revision,
             )
             if result is not OpenResult.FAILED or self.document_controller.dirty:
@@ -1048,7 +1091,9 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             export_drawsvg_py(self.canvas.scene(), self, margins=self._export_margins)
         except (OSError, RuntimeError, ValueError) as error:
-            QtWidgets.QMessageBox.critical(self, "Save drawsvg Python failed", str(error))
+            QtWidgets.QMessageBox.critical(
+                self, "Save drawsvg Python failed", str(error)
+            )
 
     def _export_scene(self, export_format: str) -> None:
         if export_format == "png":
@@ -1074,7 +1119,8 @@ class MainWindow(QtWidgets.QMainWindow):
             export_method(
                 output_path,
                 ExportRequest(
-                    hidden_items=tuple(self.canvas._pages.values()), margins=self._export_margins
+                    hidden_items=tuple(self.canvas.page_items()),
+                    margins=self._export_margins,
                 ),
             )
         except (OSError, RuntimeError, ValueError) as error:
@@ -1091,7 +1137,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def _export_png(self) -> None:
         renderer = ExportRenderer(self.canvas.scene())
         request = ExportRequest(
-            hidden_items=tuple(self.canvas._pages.values()), margins=self._export_margins
+            hidden_items=tuple(self.canvas.page_items()),
+            margins=self._export_margins,
         )
         initial_path = self.document_controller.path
         if initial_path is None:
@@ -1107,9 +1154,12 @@ class MainWindow(QtWidgets.QMainWindow):
             if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
                 return
             output_path = dialog.output_path()
-            renderer.export_png(output_path, replace(
-                request, scale=dialog.scale(), background=dialog.background_color()
-            ))
+            renderer.export_png(
+                output_path,
+                replace(
+                    request, scale=dialog.scale(), background=dialog.background_color()
+                ),
+            )
         except (OSError, RuntimeError, ValueError) as error:
             QtWidgets.QMessageBox.critical(self, "Export PNG failed", str(error))
             return
@@ -1128,20 +1178,24 @@ class MainWindow(QtWidgets.QMainWindow):
             path = selected_path
         source = Path(path).expanduser().resolve()
         try:
-            with _temporary_canvas(grid_visible=self.actionShow_grid.isChecked()) as canvas:
+            with _temporary_canvas(
+                grid_visible=self.actionShow_grid.isChecked()
+            ) as canvas:
                 loaded_path = import_drawsvg_py(canvas.scene(), self, source)
                 if loaded_path is None:
                     # The importer owns the one error dialog for parse failures.
                     self._forget_recent_file(source)
                     return OpenResult.FAILED
                 document = ProjectDocument(
-                    scene=canvas._serialize_scene_state(), assets=canvas.bitmap_assets()
+                    scene=canvas.serialize_scene_state(), assets=canvas.bitmap_assets()
                 )
         except Exception as error:
             self._forget_recent_file(source)
             self._show_document_error("Load Python failed", error)
             return OpenResult.FAILED
-        result = self._replace_current_document(document, source_path=None, baseline="unsaved")
+        result = self._replace_current_document(
+            document, source_path=None, baseline="unsaved"
+        )
         if result is OpenResult.OPENED:
             self._remember_recent_file(source)
             self.statusBar().showMessage(f"Loaded: {source}", 5000)
@@ -1231,9 +1285,7 @@ class MainWindow(QtWidgets.QMainWindow):
             action.setToolTip(path)
             action.setStatusTip(path)
             action.triggered.connect(
-                lambda _checked=False, file_path=path: self._open_recent_file(
-                    file_path
-                )
+                lambda _checked=False, file_path=path: self._open_recent_file(file_path)
             )
         self.recent_files_menu.setEnabled(bool(self._recent_files))
 

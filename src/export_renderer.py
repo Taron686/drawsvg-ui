@@ -32,6 +32,7 @@ from export_margins import ExportMargins, expand_export_rect
 
 PNG_BASE_DPI = 96  # Scene units per inch, matching the editor's page geometry.
 
+
 class ExportArea(str, Enum):
     """The scene region to render."""
 
@@ -67,9 +68,7 @@ class ExportShadow:
     offset_y: float = 3.0
     blur_radius: float = 4.0
     style: ShadowStyle = ShadowStyle.SOFT_RASTER
-    color: QtGui.QColor = field(
-        default_factory=lambda: QtGui.QColor(0, 0, 0, 96)
-    )
+    color: QtGui.QColor = field(default_factory=lambda: QtGui.QColor(0, 0, 0, 96))
 
     def __post_init__(self) -> None:
         if self.blur_radius < 0.0:
@@ -112,7 +111,7 @@ class ExportRenderer:
     _MAX_SHADOW_PIXELS = 16_000_000
     _MAX_PAGE_PIXELS = 64_000_000
 
-    def __init__(self, scene: QtWidgets.QGraphicsScene):
+    def __init__(self, scene: QtWidgets.QGraphicsScene) -> None:
         self._scene = scene
 
     def export_svg(self, path: str | Path, request: ExportRequest) -> tuple[Path, ...]:
@@ -137,11 +136,15 @@ class ExportRenderer:
                 else:
                     generator = QtSvg.QSvgGenerator()
                     # Match Qt's default text layout DPI, including platform scaling.
-                    generator.setResolution(round(QtGui.QFontMetricsF(QtGui.QFont()).fontDpi()))
+                    generator.setResolution(
+                        round(QtGui.QFontMetricsF(QtGui.QFont()).fontDpi())
+                    )
                     generator.setFileName(str(output_path))
                     generator.setSize(self._pixel_size(source_rect, request.scale))
                     generator.setViewBox(
-                        QtCore.QRectF(0.0, 0.0, source_rect.width(), source_rect.height())
+                        QtCore.QRectF(
+                            0.0, 0.0, source_rect.width(), source_rect.height()
+                        )
                     )
                     painter = QtGui.QPainter(generator)
                     if not painter.isActive():
@@ -201,7 +204,8 @@ class ExportRenderer:
                 if request.margins is not None:
                     # Round allocation only: pixel rounding must not stretch artwork.
                     target_rect = QtCore.QRectF(
-                        0.0, 0.0,
+                        0.0,
+                        0.0,
                         output_rect.width() * request.scale,
                         output_rect.height() * request.scale,
                     )
@@ -226,7 +230,10 @@ class ExportRenderer:
                     message = f"Could not save PNG:\n{output_path}"
                     if not output_path.parent.is_dir():
                         message += "\n\nThe save folder does not exist. Choose an existing folder."
-                    elif writer.error() == QtGui.QImageWriter.ImageWriterError.DeviceError:
+                    elif (
+                        writer.error()
+                        == QtGui.QImageWriter.ImageWriterError.DeviceError
+                    ):
                         message += (
                             "\n\nWriting to this location failed. Check that the application has "
                             "permission to write to the folder and replace the file."
@@ -301,7 +308,9 @@ class ExportRenderer:
 
         if request.area is ExportArea.ALL_PAGES:
             if not request.pages:
-                raise ValueError("All-pages export requires at least one page rectangle")
+                raise ValueError(
+                    "All-pages export requires at least one page rectangle"
+                )
             return tuple(self._valid_rect(rect) for rect in request.pages)
 
         with self._temporary_export_state(request.hidden_items):
@@ -325,6 +334,10 @@ class ExportRenderer:
         if normalized.isEmpty():
             raise ValueError("Cannot export an empty scene rectangle")
         return normalized
+
+    @staticmethod
+    def pixel_size(rect: QtCore.QRectF, scale: float) -> QtCore.QSize:
+        return ExportRenderer._pixel_size(rect, scale)
 
     @staticmethod
     def _pixel_size(rect: QtCore.QRectF, scale: float) -> QtCore.QSize:
@@ -379,16 +392,23 @@ class ExportRenderer:
                 scale_x = target_rect.width() / output_rect.width()
                 scale_y = target_rect.height() / output_rect.height()
                 painter.translate(
-                    target_rect.left() + (source_rect.left() - output_rect.left()) * scale_x,
-                    target_rect.top() + (source_rect.top() - output_rect.top()) * scale_y,
+                    target_rect.left()
+                    + (source_rect.left() - output_rect.left()) * scale_x,
+                    target_rect.top()
+                    + (source_rect.top() - output_rect.top()) * scale_y,
                 )
                 target_rect = QtCore.QRectF(
-                    0.0, 0.0, source_rect.width() * scale_x, source_rect.height() * scale_y
+                    0.0,
+                    0.0,
+                    source_rect.width() * scale_x,
+                    source_rect.height() * scale_y,
                 )
                 # Keep the original page/selection crop, including shadow clipping.
                 painter.setClipRect(target_rect, QtCore.Qt.ClipOperation.IntersectClip)
             if shadow is not None and shadow.style is ShadowStyle.HARD_VECTOR:
-                self._paint_hard_shadow(painter, source_rect, target_rect, text_strategy, shadow)
+                self._paint_hard_shadow(
+                    painter, source_rect, target_rect, text_strategy, shadow
+                )
                 return
             if shadow is not None:
                 shadow_raster = self._shadow_raster(
@@ -425,28 +445,43 @@ class ExportRenderer:
         namespace = root.tag.partition("}")[0].removeprefix("{")
         tag = lambda name: f"{{{namespace}}}{name}" if namespace else name
         if output_rect != source_rect:
-            group = ElementTree.Element(tag("g"), {
-                "transform": (
-                    f"translate({source_rect.left() - output_rect.left():.12g} "
-                    f"{source_rect.top() - output_rect.top():.12g})"
-                ),
-                "clip-path": "url(#export-content-clip)",
-            })
+            group = ElementTree.Element(
+                tag("g"),
+                {
+                    "transform": (
+                        f"translate({source_rect.left() - output_rect.left():.12g} "
+                        f"{source_rect.top() - output_rect.top():.12g})"
+                    ),
+                    "clip-path": "url(#export-content-clip)",
+                },
+            )
             for child in list(root):
                 if not child.tag.endswith("defs"):
                     root.remove(child)
                     group.append(child)
             definitions = ElementTree.SubElement(root, tag("defs"))
-            clip = ElementTree.SubElement(definitions, tag("clipPath"), {
-                "id": "export-content-clip", "clipPathUnits": "userSpaceOnUse",
-            })
-            ElementTree.SubElement(clip, tag("rect"), {
-                "x": "0", "y": "0",
-                "width": f"{source_rect.width():.12g}",
-                "height": f"{source_rect.height():.12g}",
-            })
+            clip = ElementTree.SubElement(
+                definitions,
+                tag("clipPath"),
+                {
+                    "id": "export-content-clip",
+                    "clipPathUnits": "userSpaceOnUse",
+                },
+            )
+            ElementTree.SubElement(
+                clip,
+                tag("rect"),
+                {
+                    "x": "0",
+                    "y": "0",
+                    "width": f"{source_rect.width():.12g}",
+                    "height": f"{source_rect.height():.12g}",
+                },
+            )
             root.append(group)
-        root.set("viewBox", f"0 0 {output_rect.width():.12g} {output_rect.height():.12g}")
+        root.set(
+            "viewBox", f"0 0 {output_rect.width():.12g} {output_rect.height():.12g}"
+        )
         return ExportRenderer._svg_with_background(
             ElementTree.tostring(root), output_rect, background, scale, round_size=False
         )
@@ -473,7 +508,9 @@ class ExportRenderer:
         try:
             self._paint_scene(
                 content_painter,
-                self._target_to_source_rect(source_rect, target_rect, shadow_target_rect),
+                self._target_to_source_rect(
+                    source_rect, target_rect, shadow_target_rect
+                ),
                 QtCore.QRectF(content.rect()),
                 text_strategy,
             )
@@ -549,10 +586,16 @@ class ExportRenderer:
         content_rect = content_rect.intersected(source_rect)
         scale_x = target_rect.width() / source_rect.width()
         scale_y = target_rect.height() / source_rect.height()
-        left = max(target_rect.left(), (content_rect.left() - source_rect.left()) * scale_x)
+        left = max(
+            target_rect.left(), (content_rect.left() - source_rect.left()) * scale_x
+        )
         top = max(target_rect.top(), (content_rect.top() - source_rect.top()) * scale_y)
-        right = min(target_rect.right(), (content_rect.right() - source_rect.left()) * scale_x)
-        bottom = min(target_rect.bottom(), (content_rect.bottom() - source_rect.top()) * scale_y)
+        right = min(
+            target_rect.right(), (content_rect.right() - source_rect.left()) * scale_x
+        )
+        bottom = min(
+            target_rect.bottom(), (content_rect.bottom() - source_rect.top()) * scale_y
+        )
         return QtCore.QRectF(left, top, right - left, bottom - top).toAlignedRect()
 
     @staticmethod
@@ -581,7 +624,9 @@ class ExportRenderer:
         left, top = alpha.width(), alpha.height()
         right = bottom = -1
         for y in range(alpha.height()):
-            row = data[y * alpha.bytesPerLine() : y * alpha.bytesPerLine() + alpha.width()]
+            row = data[
+                y * alpha.bytesPerLine() : y * alpha.bytesPerLine() + alpha.width()
+            ]
             non_empty = [x for x, value in enumerate(row) if value]
             if non_empty:
                 left = min(left, non_empty[0])
@@ -753,7 +798,10 @@ class ExportRenderer:
         tag = lambda name: f"{{{namespace}}}{name}" if namespace else name
         protected: set[ElementTree.Element] = set()
         for child in list(root):
-            if child.tag.endswith("defs") or child.attrib.get("id") == "export-background":
+            if (
+                child.tag.endswith("defs")
+                or child.attrib.get("id") == "export-background"
+            ):
                 protected.add(child)
         content = [child for child in list(root) if child not in protected]
         for child in content:
@@ -851,7 +899,9 @@ class ExportRenderer:
         substitutions: set[tuple[str, str]] = set()
         for item in self._scene.items():
             font_getter = getattr(item, "font", None)
-            font = font_getter() if callable(font_getter) else getattr(item, "_font", None)
+            font = (
+                font_getter() if callable(font_getter) else getattr(item, "_font", None)
+            )
             if not isinstance(font, QtGui.QFont):
                 continue
             requested = font.family()

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6 import QtGui, QtWidgets
 
 
 STYLE_VERSION = 1
@@ -13,13 +13,26 @@ KEY_STYLE = 1104
 
 PRESETS: dict[str, dict[str, Any]] = {
     "default": {"label": "Default", "fill": "#ffffff", "stroke": "#000000"},
-    "ocean": {"label": "Ocean", "gradient": ("#d7f0ff", "#2686c2"), "stroke": "#17658f"},
-    "sunset": {"label": "Sunset", "gradient": ("#ffe2bf", "#e36c54"), "stroke": "#a64638"},
+    "ocean": {
+        "label": "Ocean",
+        "gradient": ("#d7f0ff", "#2686c2"),
+        "stroke": "#17658f",
+    },
+    "sunset": {
+        "label": "Sunset",
+        "gradient": ("#ffe2bf", "#e36c54"),
+        "stroke": "#a64638",
+    },
     "soft-shadow": {
         "label": "Soft shadow",
         "fill": "#ffffff",
         "stroke": "#4b5563",
-        "shadow": {"offset_x": 3.0, "offset_y": 3.0, "blur_radius": 5.0, "color": "#66000000"},
+        "shadow": {
+            "offset_x": 3.0,
+            "offset_y": 3.0,
+            "blur_radius": 5.0,
+            "color": "#66000000",
+        },
     },
 }
 
@@ -38,7 +51,9 @@ def _color(value: object, fallback: str = "#00000000") -> QtGui.QColor:
     return color if color.isValid() else QtGui.QColor(fallback)
 
 
-def _shadow_effect(data: Mapping[str, Any] | None) -> QtWidgets.QGraphicsDropShadowEffect | None:
+def _shadow_effect(
+    data: Mapping[str, Any] | None,
+) -> QtWidgets.QGraphicsDropShadowEffect | None:
     if not data:
         return None
     effect = QtWidgets.QGraphicsDropShadowEffect()
@@ -48,7 +63,9 @@ def _shadow_effect(data: Mapping[str, Any] | None) -> QtWidgets.QGraphicsDropSha
     return effect
 
 
-def apply_style_data(item: QtWidgets.QGraphicsItem, data: Mapping[str, Any] | None) -> None:
+def apply_style_data(
+    item: QtWidgets.QGraphicsItem, data: Mapping[str, Any] | None
+) -> None:
     """Restore metadata and the corresponding editor shadow without touching colors."""
 
     if not data:
@@ -58,7 +75,9 @@ def apply_style_data(item: QtWidgets.QGraphicsItem, data: Mapping[str, Any] | No
     restored = migrate_style_data(data)
     item.setData(KEY_STYLE, restored)
     shadow = restored.get("shadow")
-    item.setGraphicsEffect(_shadow_effect(shadow if isinstance(shadow, Mapping) else None))
+    item.setGraphicsEffect(
+        _shadow_effect(shadow if isinstance(shadow, Mapping) else None)
+    )
 
 
 def migrate_style_data(data: Mapping[str, Any]) -> dict[str, Any]:
@@ -84,7 +103,9 @@ def apply_preset(item: QtWidgets.QGraphicsItem, preset_id: str) -> bool:
         if "gradient" in preset:
             start, end = preset["gradient"]
             gradient = QtGui.QLinearGradient(0.0, 0.0, 1.0, 1.0)
-            gradient.setCoordinateMode(QtGui.QGradient.CoordinateMode.ObjectBoundingMode)
+            gradient.setCoordinateMode(
+                QtGui.QGradient.CoordinateMode.ObjectBoundingMode
+            )
             gradient.setColorAt(0.0, _color(start))
             gradient.setColorAt(1.0, _color(end))
             item.setBrush(QtGui.QBrush(gradient))

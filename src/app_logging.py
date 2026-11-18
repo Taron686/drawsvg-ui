@@ -56,7 +56,10 @@ def _log_directory() -> Path:
 
 
 def _redact(value: str) -> str:
-    value = _SECRET_RE.sub(lambda match: match.group(0).split("=", 1)[0].split(":", 1)[0] + "=<redacted>", value)
+    value = _SECRET_RE.sub(
+        lambda match: match.group(0).split("=", 1)[0].split(":", 1)[0] + "=<redacted>",
+        value,
+    )
     return _PATH_RE.sub("<path>", value)
 
 
@@ -80,7 +83,9 @@ def _safe_fields(fields: dict[str, Any]) -> dict[str, Any]:
 class _JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload = {
-            "timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            "timestamp": datetime.now(timezone.utc)
+            .isoformat(timespec="milliseconds")
+            .replace("+00:00", "Z"),
             "level": record.levelname,
             "event": getattr(record, "event", "internal.invariant"),
             "message": _redact(record.getMessage()),
@@ -104,7 +109,10 @@ def _ensure_handler() -> None:
         directory = _log_directory()
         directory.mkdir(parents=True, exist_ok=True)
         handler = logging.handlers.RotatingFileHandler(
-            directory / "app.log", maxBytes=_MAX_BYTES, backupCount=_BACKUP_COUNT, encoding="utf-8"
+            directory / "app.log",
+            maxBytes=_MAX_BYTES,
+            backupCount=_BACKUP_COUNT,
+            encoding="utf-8",
         )
         handler.setFormatter(_JsonFormatter())
         _logger.addHandler(handler)
@@ -126,13 +134,23 @@ def start_session() -> str:
     return _session_id
 
 
-def log_event(level: str, event: str, *, component: str, message: str, operation_id: str | None = None, **fields: Any) -> None:
+def log_event(
+    level: str,
+    event: str,
+    *,
+    component: str,
+    message: str,
+    operation_id: str | None = None,
+    **fields: Any,
+) -> None:
     """Write one structured event without allowing logging to escape."""
     try:
         with _state_lock:
             _ensure_handler()
             numeric_level = getattr(logging, str(level).upper(), logging.INFO)
-            extras = _safe_fields({**fields, **({"operation_id": operation_id} if operation_id else {})})
+            extras = _safe_fields(
+                {**fields, **({"operation_id": operation_id} if operation_id else {})}
+            )
             extra = {"event": event, "component": component, "fields": extras}
             for key in ("exception_type", "traceback"):
                 if key in fields and isinstance(fields[key], str):
@@ -142,12 +160,28 @@ def log_event(level: str, event: str, *, component: str, message: str, operation
         return
 
 
-def log_exception(event: str, exc: BaseException, *, component: str, operation_id: str | None = None, **fields: Any) -> None:
+def log_exception(
+    event: str,
+    exc: BaseException,
+    *,
+    component: str,
+    operation_id: str | None = None,
+    **fields: Any,
+) -> None:
     """Log a controlled exception with bounded, redacted diagnostic data."""
     try:
         details = {**fields, "exception_type": type(exc).__name__}
-        details["traceback"] = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))[:_MAX_TRACEBACK]
-        log_event("ERROR", event, component=component, message="Operation failed", operation_id=operation_id, **details)
+        details["traceback"] = "".join(
+            traceback.format_exception(type(exc), exc, exc.__traceback__)
+        )[:_MAX_TRACEBACK]
+        log_event(
+            "ERROR",
+            event,
+            component=component,
+            message="Operation failed",
+            operation_id=operation_id,
+            **details,
+        )
     except Exception:  # noqa: BLE001 - diagnostics must never affect the editor
         return
 
@@ -156,7 +190,9 @@ def shutdown_logging() -> None:
     """Emit shutdown and close the file handler, best effort."""
     global _handler
     try:
-        log_event("INFO", "app.shutdown", component="startup", message="Application stopped")
+        log_event(
+            "INFO", "app.shutdown", component="startup", message="Application stopped"
+        )
         with _state_lock:
             if _handler is not None:
                 _handler.close()
@@ -195,4 +231,6 @@ def install_excepthook() -> Callable[[], None]:
 
 def hash_path(path: str) -> str:
     """Return a process-local correlation hash for an approved path value."""
-    return hashlib.sha256(_salt + path.encode("utf-8", errors="replace")).hexdigest()[:16]
+    return hashlib.sha256(_salt + path.encode("utf-8", errors="replace")).hexdigest()[
+        :16
+    ]

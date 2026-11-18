@@ -24,7 +24,7 @@ from ..labels import ShapeLabelMixin
 
 
 class TriangleItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
-    def __init__(self, x, y, w, h):
+    def __init__(self, x: float, y: float, w: float, h: float) -> None:
         QtWidgets.QGraphicsPolygonItem.__init__(self)
         ResizableItem.__init__(self)
         self._w = w
@@ -41,7 +41,10 @@ class TriangleItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
         self.setPen(PEN_NORMAL)
         self.setBrush(DEFAULT_FILL)
 
-    def _update_polygon(self):
+    def size(self) -> tuple[float, float]:
+        return self._w, self._h
+
+    def _update_polygon(self) -> None:
         poly = QtGui.QPolygonF(
             [
                 QtCore.QPointF(self._w / 2.0, 0.0),
@@ -51,14 +54,19 @@ class TriangleItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
         )
         self.setPolygon(poly)
 
-    def set_size(self, w, h, adjust_origin: bool = True):
+    def set_size(self, w: float, h: float, adjust_origin: bool = True) -> None:
         self._w = w
         self._h = h
         self._update_polygon()
         if adjust_origin:
             self.setTransformOriginPoint(w / 2.0, h / 2.0)
 
-    def paint(self, painter, option, widget=None):
+    def paint(
+        self,
+        painter: QtGui.QPainter,
+        option: QtWidgets.QStyleOptionGraphicsItem,
+        widget: QtWidgets.QWidget | None = None,
+    ) -> None:
         opt = QtWidgets.QStyleOptionGraphicsItem(option)
         opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
         super().paint(painter, opt, widget)
@@ -71,7 +79,7 @@ class TriangleItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
 
 
 class DiamondItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsPolygonItem):
-    def __init__(self, x: float, y: float, w: float, h: float):
+    def __init__(self, x: float, y: float, w: float, h: float) -> None:
         QtWidgets.QGraphicsPolygonItem.__init__(self)
         ResizableItem.__init__(self)
         self._w = w
@@ -88,6 +96,9 @@ class DiamondItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsPolygonItem
         self._init_shape_label()
         self.setPen(PEN_NORMAL)
         self.setBrush(DEFAULT_FILL)
+
+    def size(self) -> tuple[float, float]:
+        return self._w, self._h
 
     def _label_base_rect(self) -> QtCore.QRectF:
         return QtCore.QRectF(self.boundingRect())
@@ -119,7 +130,12 @@ class DiamondItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsPolygonItem
         super().setPen(pen)
         self._update_label_color()
 
-    def paint(self, painter, option, widget=None):
+    def paint(
+        self,
+        painter: QtGui.QPainter,
+        option: QtWidgets.QStyleOptionGraphicsItem,
+        widget: QtWidgets.QWidget | None = None,
+    ) -> None:
         opt = QtWidgets.QStyleOptionGraphicsItem(option)
         opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
         super().paint(painter, opt, widget)
@@ -130,9 +146,7 @@ class DiamondItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsPolygonItem
             painter.drawRect(self.boundingRect())
             painter.restore()
 
-    def mouseDoubleClickEvent(
-        self, event: QtWidgets.QGraphicsSceneMouseEvent
-    ) -> None:  # type: ignore[override]
+    def mouseDoubleClickEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:  # type: ignore[override]
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
             self._begin_label_edit()
             event.accept()
@@ -143,7 +157,7 @@ class DiamondItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsPolygonItem
 class BlockArrowHandle(QtWidgets.QGraphicsEllipseItem):
     """Special orange handles for :class:`BlockArrowItem`."""
 
-    def __init__(self, parent: "BlockArrowItem", role: str):
+    def __init__(self, parent: BlockArrowItem, role: str) -> None:
         radius = DIVIDER_HANDLE_DIAMETER / 2.0
         super().__init__(
             -radius,
@@ -156,14 +170,16 @@ class BlockArrowHandle(QtWidgets.QGraphicsEllipseItem):
         self.setBrush(DIVIDER_HANDLE_COLOR)
         self.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
-        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+        self.setFlag(
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
+        )
         if role == "head":
             self.setCursor(QtCore.Qt.CursorShape.SizeHorCursor)
         else:
             self.setCursor(QtCore.Qt.CursorShape.SizeVerCursor)
         self._parent_was_movable = False
 
-    def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
+    def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
         parent = self.parentItem()
         if parent is not None:
             flags = parent.flags()
@@ -177,13 +193,13 @@ class BlockArrowHandle(QtWidgets.QGraphicsEllipseItem):
                 )
         event.accept()
 
-    def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
-        parent: "BlockArrowItem" = self.parentItem()  # type: ignore[assignment]
+    def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
+        parent: BlockArrowItem = self.parentItem()  # type: ignore[assignment]
         if parent is not None:
-            parent._handle_special_drag(self._role, event)
+            parent._handle_special_drag(self._role, event)  # noqa: SLF001 - paired helper and item
         event.accept()
 
-    def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
+    def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
         parent = self.parentItem()
         if parent is not None and self._parent_was_movable:
             parent.setFlag(
@@ -195,7 +211,7 @@ class BlockArrowHandle(QtWidgets.QGraphicsEllipseItem):
 
 
 class BlockArrowItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
-    def __init__(self, x: float, y: float, w: float, h: float):
+    def __init__(self, x: float, y: float, w: float, h: float) -> None:
         QtWidgets.QGraphicsPolygonItem.__init__(self)
         ResizableItem.__init__(self)
         self._w = w
@@ -215,6 +231,12 @@ class BlockArrowItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
         )
         self.setPen(PEN_NORMAL)
         self.setBrush(DEFAULT_FILL)
+
+    def set_property_size(self, width: float, height: float) -> None:
+        self._w = width
+        self._h = height
+        self._update_polygon()
+        self.setTransformOriginPoint(width / 2.0, height / 2.0)
 
     def _clamp_head_ratio(self, ratio: float) -> float:
         return max(0.05, min(0.8, ratio))
@@ -277,7 +299,9 @@ class BlockArrowItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
         self._head_handle.setPos(head_pos)
         self._body_handle.setPos(body_pos)
 
-    def _handle_special_drag(self, role: str, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
+    def _handle_special_drag(
+        self, role: str, event: QtWidgets.QGraphicsSceneMouseEvent
+    ) -> None:
         scene_pos = event.scenePos()
         if not (event.modifiers() & QtCore.Qt.KeyboardModifier.AltModifier):
             scene_pos = snap_to_grid(self, scene_pos)
@@ -313,7 +337,7 @@ class BlockArrowItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
         ratio = shaft_height / h
         self.set_shaft_ratio(ratio)
 
-    def update_handles(self):  # type: ignore[override]
+    def update_handles(self) -> None:  # type: ignore[override]
         super().update_handles()
         if self._handles:
             tip: QtCore.QPointF | None = None
@@ -328,7 +352,12 @@ class BlockArrowItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
                     break
         self._update_custom_handles()
 
-    def paint(self, painter, option, widget=None):
+    def paint(
+        self,
+        painter: QtGui.QPainter,
+        option: QtWidgets.QStyleOptionGraphicsItem,
+        widget: QtWidgets.QWidget | None = None,
+    ) -> None:
         opt = QtWidgets.QStyleOptionGraphicsItem(option)
         opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
         super().paint(painter, opt, widget)
@@ -339,7 +368,7 @@ class BlockArrowItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
             painter.drawRect(self.boundingRect())
             painter.restore()
 
-    def show_handles_once(self):
+    def show_handles_once(self) -> None:
         if not self._head_handle:
             self._head_handle = BlockArrowHandle(self, "head")
             self._head_handle.setZValue(1.0)
@@ -348,7 +377,7 @@ class BlockArrowItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
             self._body_handle.setZValue(1.0)
         self._update_custom_handles()
 
-    def show_handles(self):  # type: ignore[override]
+    def show_handles(self) -> None:  # type: ignore[override]
         self.show_handles_once()
         super().show_handles()
         if self._head_handle:
@@ -356,7 +385,7 @@ class BlockArrowItem(ResizableItem, QtWidgets.QGraphicsPolygonItem):
         if self._body_handle:
             self._body_handle.show()
 
-    def hide_handles(self):  # type: ignore[override]
+    def hide_handles(self) -> None:  # type: ignore[override]
         super().hide_handles()
         if self._head_handle:
             self._head_handle.hide()

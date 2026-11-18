@@ -76,9 +76,7 @@ def test_diagram_shapes_are_palette_extensions_with_independent_parameters() -> 
 
 
 def test_database_shape_draws_a_lower_ellipse_edge(canvas_view: CanvasView) -> None:
-    item = canvas_view.add_shape(
-        "Database", QtCore.QPointF(), snap_to_grid=False
-    )
+    item = canvas_view.add_shape("Database", QtCore.QPointF(), snap_to_grid=False)
 
     assert isinstance(item, DiagramItem)
     item.set_size(140.0, 90.0)

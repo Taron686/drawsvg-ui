@@ -12,7 +12,7 @@ from ..labels import ShapeLabelMixin
 class DiagramItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsPathItem):
     """A labelled, resizable diagram shape with serializable parameters."""
 
-    def __init__(self, x: float, y: float, w: float, h: float, kind: str):
+    def __init__(self, x: float, y: float, w: float, h: float, kind: str) -> None:
         QtWidgets.QGraphicsPathItem.__init__(self)
         ResizableItem.__init__(self)
         self.kind = kind
@@ -40,6 +40,9 @@ class DiagramItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsPathItem):
     def setPen(self, pen: QtGui.QPen | QtGui.QColor) -> None:  # type: ignore[override]
         super().setPen(pen)
         self._update_label_color()
+
+    def size(self) -> tuple[float, float]:
+        return self._w, self._h
 
     def set_size(self, w: float, h: float, adjust_origin: bool = True) -> None:
         self._w = max(1.0, w)
@@ -168,7 +171,12 @@ class DiagramItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsPathItem):
             return
         super().mouseDoubleClickEvent(event)
 
-    def paint(self, painter, option, widget=None):  # type: ignore[override]
+    def paint(
+        self,
+        painter: QtGui.QPainter,
+        option: QtWidgets.QStyleOptionGraphicsItem,
+        widget: QtWidgets.QWidget | None = None,
+    ) -> None:  # type: ignore[override]
         opt = QtWidgets.QStyleOptionGraphicsItem(option)
         opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
         super().paint(painter, opt, widget)

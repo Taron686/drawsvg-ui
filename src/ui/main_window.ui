@@ -92,7 +92,6 @@
     <addaction name="actionRedo"/>
     <addaction name="separator"/>
     <addaction name="actionClear_canvas"/>
-    <addaction name="actionShow_grid"/>
     <addaction name="separator"/>
     <addaction name="actionExport_margins"/>
    </widget>

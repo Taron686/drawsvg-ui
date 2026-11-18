@@ -22,7 +22,9 @@ def rotation_window(application, tmp_path):
     arrow.set_arrow_start(True)
     arrow.set_arrow_end(False)
     arrow._points = [
-        QtCore.QPointF(60, 360), QtCore.QPointF(120, 255), QtCore.QPointF(410, 225)
+        QtCore.QPointF(60, 360),
+        QtCore.QPointF(120, 255),
+        QtCore.QPointF(410, 225),
     ]
     arrow._update_path()
     arrow.update_handles()
@@ -54,9 +56,12 @@ def _drag_handle(window, arrow, handle, vertex, original, *, snap=False):
     start = view.mapFromScene(handle.scenePos())
     modifiers = (
         QtCore.Qt.KeyboardModifier.NoModifier
-        if snap else QtCore.Qt.KeyboardModifier.AltModifier
+        if snap
+        else QtCore.Qt.KeyboardModifier.AltModifier
     )
-    QTest.mousePress(view.viewport(), QtCore.Qt.MouseButton.LeftButton, modifiers, start)
+    QTest.mousePress(
+        view.viewport(), QtCore.Qt.MouseButton.LeftButton, modifiers, start
+    )
     assert arrow._moving_index == vertex
     for delta in (QtCore.QPoint(12, 8), QtCore.QPoint(25, 20)):
         end = start + delta
@@ -69,16 +74,21 @@ def _drag_handle(window, arrow, handle, vertex, original, *, snap=False):
                 origin.y() + round((target.y() - origin.y()) / spacing) * spacing,
             )
         event = QtGui.QMouseEvent(
-            QtCore.QEvent.Type.MouseMove, QtCore.QPointF(end),
+            QtCore.QEvent.Type.MouseMove,
+            QtCore.QPointF(end),
             QtCore.QPointF(view.viewport().mapToGlobal(end)),
-            QtCore.Qt.MouseButton.NoButton, QtCore.Qt.MouseButton.LeftButton, modifiers,
+            QtCore.Qt.MouseButton.NoButton,
+            QtCore.Qt.MouseButton.LeftButton,
+            modifiers,
         )
         QtWidgets.QApplication.sendEvent(view.viewport(), event)
         expected = list(original)
         expected[vertex] = target
         _assert_points_equal(_scene_points(arrow), expected)
         assert arrow.pos() == position
-    QTest.mouseRelease(view.viewport(), QtCore.Qt.MouseButton.LeftButton, modifiers, end)
+    QTest.mouseRelease(
+        view.viewport(), QtCore.Qt.MouseButton.LeftButton, modifiers, end
+    )
     return _scene_points(arrow)
 
 
@@ -101,14 +111,20 @@ def test_rotation_property_then_vertex_drag_keeps_untouched_points_fixed(
 
     assert history.can_undo()
     history.undo()
-    restored = next(it for it in window.canvas.scene().items() if isinstance(it, LineItem))
+    restored = next(
+        it for it in window.canvas.scene().items() if isinstance(it, LineItem)
+    )
     _assert_points_equal(_scene_points(restored), original)
     history.redo()
-    restored = next(it for it in window.canvas.scene().items() if isinstance(it, LineItem))
+    restored = next(
+        it for it in window.canvas.scene().items() if isinstance(it, LineItem)
+    )
     _assert_points_equal(_scene_points(restored), moved)
     state = json.loads(json.dumps(window.canvas._serialize_scene_state()))
     window.canvas._restore_scene_state(state)
-    restored = next(it for it in window.canvas.scene().items() if isinstance(it, LineItem))
+    restored = next(
+        it for it in window.canvas.scene().items() if isinstance(it, LineItem)
+    )
     _assert_points_equal(_scene_points(restored), moved)
 
 
@@ -116,7 +132,9 @@ def test_rotation_property_then_vertex_drag_keeps_untouched_points_fixed(
 def test_rotated_vertex_drag_snaps_only_the_dragged_point(rotation_window, vertex):
     window, arrow = rotation_window
     window.properties_panel._spin_rotation.setValue(90.0)
-    _drag_handle(window, arrow, arrow._handles[vertex], vertex, _scene_points(arrow), snap=True)
+    _drag_handle(
+        window, arrow, arrow._handles[vertex], vertex, _scene_points(arrow), snap=True
+    )
 
 
 @pytest.mark.parametrize("rotation", (35.0, 90.0))

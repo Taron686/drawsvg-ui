@@ -13,13 +13,18 @@ def _event(event_type, position, *, alt=False):
     event.setScenePos(position)
     event.setModifiers(
         QtCore.Qt.KeyboardModifier.AltModifier
-        if alt else QtCore.Qt.KeyboardModifier.NoModifier
+        if alt
+        else QtCore.Qt.KeyboardModifier.NoModifier
     )
     return event
 
 
-@pytest.mark.parametrize("grid,alignment", [(True, True), (True, False), (False, True), (False, False)])
-def test_point_snap_obeys_grid_mode_independently_of_visibility(canvas_view, grid, alignment):
+@pytest.mark.parametrize(
+    "grid,alignment", [(True, True), (True, False), (False, True), (False, False)]
+)
+def test_point_snap_obeys_grid_mode_independently_of_visibility(
+    canvas_view, grid, alignment
+):
     canvas_view._master_origin = QtCore.QPointF(3, -7)
     item = QtWidgets.QGraphicsRectItem(0, 0, 50, 50)
     canvas_view.scene().addItem(item)
@@ -53,7 +58,9 @@ def test_resize_bypasses_pointer_and_size_rounding_when_grid_is_disabled(
     canvas_view, shape, rotation, grid, alt
 ):
     canvas_view._master_origin = QtCore.QPointF()
-    item = RectItem(0, 0, 50, 50) if shape == "rectangle" else BlockArrowItem(0, 0, 50, 50)
+    item = (
+        RectItem(0, 0, 50, 50) if shape == "rectangle" else BlockArrowItem(0, 0, 50, 50)
+    )
     if shape == "block_arrow":
         item.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
     canvas_view.scene().addItem(item)
@@ -63,8 +70,12 @@ def test_resize_bypasses_pointer_and_size_rounding_when_grid_is_disabled(
     end = item.mapToScene(QtCore.QPointF(63, 67))
     handle.mousePressEvent(_event(QtCore.QEvent.Type.GraphicsSceneMousePress, start))
     canvas_view.set_grid_snap_enabled(grid)
-    handle.mouseMoveEvent(_event(QtCore.QEvent.Type.GraphicsSceneMouseMove, end, alt=alt))
-    handle.mouseReleaseEvent(_event(QtCore.QEvent.Type.GraphicsSceneMouseRelease, end, alt=alt))
+    handle.mouseMoveEvent(
+        _event(QtCore.QEvent.Type.GraphicsSceneMouseMove, end, alt=alt)
+    )
+    handle.mouseReleaseEvent(
+        _event(QtCore.QEvent.Type.GraphicsSceneMouseRelease, end, alt=alt)
+    )
 
     if shape == "rectangle":
         assert item.rect().width() == pytest.approx(60 if grid and not alt else 63)
@@ -80,13 +91,19 @@ def test_free_resize_preserves_minimum_size(canvas_view):
     canvas_view.scene().addItem(item)
     canvas_view.set_grid_snap_enabled(False)
     handle = ResizeHandle(item, "bottom_right")
-    handle.mousePressEvent(_event(QtCore.QEvent.Type.GraphicsSceneMousePress, QtCore.QPointF(50, 50)))
-    handle.mouseMoveEvent(_event(QtCore.QEvent.Type.GraphicsSceneMouseMove, QtCore.QPointF(-13, -17)))
+    handle.mousePressEvent(
+        _event(QtCore.QEvent.Type.GraphicsSceneMousePress, QtCore.QPointF(50, 50))
+    )
+    handle.mouseMoveEvent(
+        _event(QtCore.QEvent.Type.GraphicsSceneMouseMove, QtCore.QPointF(-13, -17))
+    )
     assert item.rect().width() == 10
     assert item.rect().height() == 10
 
 
-@pytest.mark.parametrize("kind", ["line", "path_end", "path_control", "block_head", "block_body"])
+@pytest.mark.parametrize(
+    "kind", ["line", "path_end", "path_control", "block_head", "block_body"]
+)
 @pytest.mark.parametrize("grid,alt", [(False, False), (True, True), (True, False)])
 def test_point_handles_follow_mode_changes_and_alt(canvas_view, kind, grid, alt):
     canvas_view._master_origin = QtCore.QPointF()
@@ -107,11 +124,17 @@ def test_point_handles_follow_mode_changes_and_alt(canvas_view, kind, grid, alt)
     else:
         handle = item._head_handle if kind == "block_head" else item._body_handle
     target = QtCore.QPointF(63, 67)
-    handle.mousePressEvent(_event(QtCore.QEvent.Type.GraphicsSceneMousePress, handle.scenePos()))
+    handle.mousePressEvent(
+        _event(QtCore.QEvent.Type.GraphicsSceneMousePress, handle.scenePos())
+    )
     canvas_view.set_grid_snap_enabled(False)
     canvas_view.set_grid_snap_enabled(grid)
-    handle.mouseMoveEvent(_event(QtCore.QEvent.Type.GraphicsSceneMouseMove, target, alt=alt))
-    handle.mouseReleaseEvent(_event(QtCore.QEvent.Type.GraphicsSceneMouseRelease, target, alt=alt))
+    handle.mouseMoveEvent(
+        _event(QtCore.QEvent.Type.GraphicsSceneMouseMove, target, alt=alt)
+    )
+    handle.mouseReleaseEvent(
+        _event(QtCore.QEvent.Type.GraphicsSceneMouseRelease, target, alt=alt)
+    )
 
     snapped = grid and not alt
     if kind == "block_head":
@@ -125,7 +148,9 @@ def test_point_handles_follow_mode_changes_and_alt(canvas_view, kind, grid, alt)
 
 
 def test_mode_changes_leave_document_geometry_and_history_untouched(canvas_view):
-    item = canvas_view.add_shape("Rectangle", QtCore.QPointF(103, 107), snap_to_grid=False)
+    item = canvas_view.add_shape(
+        "Rectangle", QtCore.QPointF(103, 107), snap_to_grid=False
+    )
     before = canvas_view._serialize_scene_state()
     canvas_view.history().capture_initial_state()
     assert canvas_view.grid_snap_enabled()

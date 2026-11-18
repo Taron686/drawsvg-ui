@@ -76,7 +76,11 @@ class LayerManager(QtCore.QObject):
                     continue
                 layer_id = entry.get("id")
                 name = entry.get("name")
-                if not isinstance(layer_id, str) or not layer_id or layer_id in known_ids:
+                if (
+                    not isinstance(layer_id, str)
+                    or not layer_id
+                    or layer_id in known_ids
+                ):
                     continue
                 known_ids.add(layer_id)
                 restored.append(
@@ -108,7 +112,9 @@ class LayerManager(QtCore.QObject):
         layer_id = data.get("layer_id")
         item.setData(
             KEY_LAYER_ID,
-            layer_id if isinstance(layer_id, str) and self._find_layer(layer_id) else DEFAULT_LAYER_ID,
+            layer_id
+            if isinstance(layer_id, str) and self._find_layer(layer_id)
+            else DEFAULT_LAYER_ID,
         )
         item.setData(KEY_ITEM_VISIBLE, bool(data.get("visible", True)))
         item.setData(KEY_ITEM_LOCKED, bool(data.get("locked", False)))
@@ -136,26 +142,54 @@ class LayerManager(QtCore.QObject):
     def item_visible(self, item: QtWidgets.QGraphicsItem) -> bool:
         return item.data(KEY_ITEM_VISIBLE) is not False
 
+    def effective_item_visible(self, item: QtWidgets.QGraphicsItem) -> bool:
+        """Include the owning layer's visibility in the displayed object state."""
+        return self._layer_for_item_state(item).visible and self.item_visible(item)
+
     def item_locked(self, item: QtWidgets.QGraphicsItem) -> bool:
         return bool(item.data(KEY_ITEM_LOCKED))
+
+    def effective_item_locked(self, item: QtWidgets.QGraphicsItem) -> bool:
+        """Include the owning layer's lock in the displayed object state."""
+        return self._layer_for_item_state(item).locked or self.item_locked(item)
 
     def set_layer_visible(self, layer_id: str, visible: bool) -> bool:
         layer = self._find_layer(layer_id)
         if layer is None or layer.visible == visible:
             return False
         layer.visible = visible
-        self._apply_layer(layer)
+        for item in self.items_for_layer(layer_id):
+            self._set_item_visibility_recursive(item, visible)
+            self._apply_item_state(item, layer)
         self.changed.emit()
         return True
+
+    def _set_item_visibility_recursive(
+        self, item: QtWidgets.QGraphicsItem, visible: bool
+    ) -> None:
+        item.setData(KEY_ITEM_VISIBLE, visible)
+        for child in item.childItems():
+            if self._is_managed_item(child):
+                self._set_item_visibility_recursive(child, visible)
 
     def set_layer_locked(self, layer_id: str, locked: bool) -> bool:
         layer = self._find_layer(layer_id)
         if layer is None or layer.locked == locked:
             return False
         layer.locked = locked
-        self._apply_layer(layer)
+        for item in self.items_for_layer(layer_id):
+            self._set_item_lock_recursive(item, locked)
+            self._apply_item_state(item, layer)
         self.changed.emit()
         return True
+
+    def _set_item_lock_recursive(
+        self, item: QtWidgets.QGraphicsItem, locked: bool
+    ) -> None:
+        item.setData(KEY_ITEM_LOCKED, locked)
+        for child in item.childItems():
+            if self._is_managed_item(child):
+                self._set_item_lock_recursive(child, locked)
 
     def set_item_visible(self, item: QtWidgets.QGraphicsItem, visible: bool) -> bool:
         if self.item_visible(item) == visible:
@@ -210,7 +244,10 @@ class LayerManager(QtCore.QObject):
         target = max(0, min(len(self._layers) - 1, index + offset))
         if target == index:
             return False
-        self._layers[index], self._layers[target] = self._layers[target], self._layers[index]
+        self._layers[index], self._layers[target] = (
+            self._layers[target],
+            self._layers[index],
+        )
         self.changed.emit()
         return True
 
@@ -255,7 +292,10 @@ class LayerManager(QtCore.QObject):
             if self._is_top_level_item(item)
         ]
         iterator = iter(layer_items)
-        ordered = [next(iterator) if self.layer_for_item(item).id == layer_id else item for item in ordered]
+        ordered = [
+            next(iterator) if self.layer_for_item(item).id == layer_id else item
+            for item in ordered
+        ]
         for z_value, ordered_item in enumerate(ordered):
             ordered_item.setZValue(float(z_value))
 
@@ -271,7 +311,9 @@ class LayerManager(QtCore.QObject):
         locked = layer.locked or self.item_locked(item)
         item.locked = locked
         item.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, not locked)
-        item.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, not locked)
+        item.setFlag(
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, not locked
+        )
         if locked:
             item.setSelected(False)
         for child in item.childItems():
@@ -286,15 +328,12 @@ class LayerManager(QtCore.QObject):
 
     def _is_managed_item(self, item: QtWidgets.QGraphicsItem) -> bool:
         return bool(
-            self._canvas._is_serializable_item(item)
+            self._canvas.is_serializable_item(item)
             and not SceneCodec.is_transient(item)
         )
 
     def _is_top_level_item(self, item: QtWidgets.QGraphicsItem) -> bool:
-        return bool(
-            item.parentItem() is None
-            and self._is_managed_item(item)
-        )
+        return bool(item.parentItem() is None and self._is_managed_item(item))
 
     def _find_layer(self, layer_id: str) -> Layer | None:
         return next((layer for layer in self._layers if layer.id == layer_id), None)

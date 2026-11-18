@@ -1,7 +1,5 @@
 """Document preparation must not announce or replace an unaccepted document."""
 
-from pathlib import Path
-
 import pytest
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -69,25 +67,33 @@ def test_import_preparation_does_not_announce_loaded(editor, python_file):
     messages = []
     editor.statusBar().messageChanged.connect(messages.append)
     try:
-        assert import_drawsvg.import_drawsvg_py(
-            prepared.scene(), editor, python_file
-        ) == python_file.resolve()
+        assert (
+            import_drawsvg.import_drawsvg_py(prepared.scene(), editor, python_file)
+            == python_file.resolve()
+        )
         assert not any(message.startswith("Loaded:") for message in messages)
         assert editor.canvas._serialize_scene_state()["items"] == []
     finally:
         prepared.close()
 
 
-def test_python_loaded_status_is_emitted_once_after_document_is_ready(editor, python_file):
+def test_python_loaded_status_is_emitted_once_after_document_is_ready(
+    editor, python_file
+):
     observations = []
 
     def observe(message):
         if message.startswith("Loaded:"):
-            observations.append((
-                editor.document_controller.dirty,
-                editor.document_controller.revision,
-                any(item.data(0) == "Rectangle" for item in editor.canvas.scene().items()),
-            ))
+            observations.append(
+                (
+                    editor.document_controller.dirty,
+                    editor.document_controller.revision,
+                    any(
+                        item.data(0) == "Rectangle"
+                        for item in editor.canvas.scene().items()
+                    ),
+                )
+            )
 
     editor.statusBar().messageChanged.connect(observe)
     result = editor._open_python_document(python_file)
@@ -113,7 +119,9 @@ def test_python_cancel_does_not_announce_loaded(editor, python_file, monkeypatch
 def test_python_dialog_cancel_preserves_document(editor, monkeypatch):
     editor.canvas.add_shape("Ellipse", QtCore.QPointF(30, 40), snap_to_grid=False)
     before = editor.canvas._serialize_scene_state()
-    monkeypatch.setattr(QtWidgets.QFileDialog, "getOpenFileName", lambda *_args: ("", ""))
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getOpenFileName", lambda *_args: ("", "")
+    )
 
     result = editor._open_python_document()
 
@@ -122,13 +130,19 @@ def test_python_dialog_cancel_preserves_document(editor, monkeypatch):
     assert result is main_window.OpenResult.CANCELLED
 
 
-def test_python_import_error_shows_one_dialog_parented_to_current_window(editor, tmp_path, monkeypatch):
+def test_python_import_error_shows_one_dialog_parented_to_current_window(
+    editor, tmp_path, monkeypatch
+):
     path = tmp_path / "invalid.py"
     path.write_text("print('unrelated')\n", encoding="utf-8")
     editor.canvas.add_shape("Ellipse", QtCore.QPointF(30, 40), snap_to_grid=False)
     before = editor.canvas._serialize_scene_state()
     dialogs = []
-    monkeypatch.setattr(QtWidgets.QMessageBox, "critical", lambda parent, title, text: dialogs.append((parent, title, text)))
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "critical",
+        lambda parent, title, text: dialogs.append((parent, title, text)),
+    )
 
     result = editor._open_python_document(path)
 
@@ -139,14 +153,18 @@ def test_python_import_error_shows_one_dialog_parented_to_current_window(editor,
 
 
 @pytest.mark.parametrize("reason", ["cancel", "save_cancel", "save_error"])
-def test_recent_target_survives_cancelled_replacement(editor, target_file, monkeypatch, reason):
+def test_recent_target_survives_cancelled_replacement(
+    editor, target_file, monkeypatch, reason
+):
     editor.canvas.add_shape("Ellipse", QtCore.QPointF(30, 40), snap_to_grid=False)
     before = editor.canvas._serialize_scene_state()
     editor._remember_recent_file(target_file)
     old_history = editor._recent_files_path.read_bytes()
     decision = "cancel" if reason == "cancel" else "save"
     monkeypatch.setattr(editor, "_ask_unsaved_changes", lambda: decision)
-    destination = "" if reason == "save_cancel" else str(target_file.parent / "current.drawsvg")
+    destination = (
+        "" if reason == "save_cancel" else str(target_file.parent / "current.drawsvg")
+    )
     save_dialogs = []
     errors = []
 
@@ -156,10 +174,16 @@ def test_recent_target_survives_cancelled_replacement(editor, target_file, monke
 
     monkeypatch.setattr(QtWidgets.QFileDialog, "getSaveFileName", choose_save)
     if reason == "save_error":
+
         def fail_save(*_args):
             raise OSError("unwritable destination")
+
         monkeypatch.setattr(document_controller, "save_project", fail_save)
-        monkeypatch.setattr(QtWidgets.QMessageBox, "critical", lambda parent, title, text: errors.append((parent, text)))
+        monkeypatch.setattr(
+            QtWidgets.QMessageBox,
+            "critical",
+            lambda parent, title, text: errors.append((parent, text)),
+        )
 
     result = _open(editor, target_file)
     editor._open_recent_file(str(target_file))
@@ -171,7 +195,10 @@ def test_recent_target_survives_cancelled_replacement(editor, target_file, monke
     assert save_dialogs == ([] if reason == "cancel" else [editor, editor])
     if reason == "save_error":
         assert len(errors) == 2
-        assert all(parent is editor and "unwritable destination" in text for parent, text in errors)
+        assert all(
+            parent is editor and "unwritable destination" in text
+            for parent, text in errors
+        )
 
 
 def test_recent_valid_target_survives_apply_error(editor, target_file, monkeypatch):
@@ -201,7 +228,9 @@ def test_recent_valid_target_survives_apply_error(editor, target_file, monkeypat
 
 @pytest.mark.parametrize("suffix", [".py", ".drawsvg"])
 @pytest.mark.parametrize("exists", [False, True])
-def test_recent_invalid_target_is_removed_at_preparation_failure(editor, tmp_path, monkeypatch, suffix, exists):
+def test_recent_invalid_target_is_removed_at_preparation_failure(
+    editor, tmp_path, monkeypatch, suffix, exists
+):
     path = tmp_path / ("invalid" + suffix)
     if exists:
         path.write_text("invalid document", encoding="utf-8")
@@ -216,20 +245,30 @@ def test_recent_invalid_target_is_removed_at_preparation_failure(editor, tmp_pat
 
 
 @pytest.mark.parametrize("failure", ["unknown", "none", "exception"])
-def test_template_preparation_failure_preserves_current_document(editor, monkeypatch, failure):
+def test_template_preparation_failure_preserves_current_document(
+    editor, monkeypatch, failure
+):
     editor.canvas.add_shape("Ellipse", QtCore.QPointF(30, 40), snap_to_grid=False)
     before = editor.canvas._serialize_scene_state()
     old_id = editor.document_controller.document_id
     dialogs = []
-    monkeypatch.setattr(QtWidgets.QMessageBox, "critical", lambda parent, title, text: dialogs.append((parent, title, text)))
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox,
+        "critical",
+        lambda parent, title, text: dialogs.append((parent, title, text)),
+    )
     if failure != "unknown":
+
         def broken_shape(*_args, **_kwargs):
             if failure == "exception":
                 raise RuntimeError("template creation failed")
             return None
+
         monkeypatch.setattr(CanvasView, "add_shape", broken_shape)
 
-    result = editor.new_document_from_template("Unknown" if failure == "unknown" else "Flowchart")
+    result = editor.new_document_from_template(
+        "Unknown" if failure == "unknown" else "Flowchart"
+    )
 
     assert editor._window_registry.windows() == (editor,)
     assert editor.canvas._serialize_scene_state() == before
@@ -251,7 +290,9 @@ def test_blank_template_is_unsaved_in_existing_window(editor):
     assert result is main_window.OpenResult.OPENED
 
 
-def test_successful_open_fits_master_page_in_current_window(editor, target_file, application):
+def test_successful_open_fits_master_page_in_current_window(
+    editor, target_file, application
+):
     editor.show()
     application.processEvents()
     editor.canvas.scale(0.01, 0.01)
@@ -262,13 +303,17 @@ def test_successful_open_fits_master_page_in_current_window(editor, target_file,
     assert editor._window_registry.windows() == (editor,)
     assert editor.canvas.transform().m11() > 0.1
     viewport = editor.canvas.viewport().rect()
-    page = editor.canvas.mapFromScene(editor.canvas._page_item.sceneBoundingRect()).boundingRect()
+    page = editor.canvas.mapFromScene(
+        editor.canvas._page_item.sceneBoundingRect()
+    ).boundingRect()
     assert viewport.adjusted(-2, -2, 2, 2).contains(page)
     assert result is main_window.OpenResult.OPENED
 
 
 @pytest.mark.parametrize("reason", ["cancel", "invalid"])
-def test_unsuccessful_open_preserves_view(editor, target_file, application, monkeypatch, reason):
+def test_unsuccessful_open_preserves_view(
+    editor, target_file, application, monkeypatch, reason
+):
     editor.show()
     application.processEvents()
     editor.canvas.add_shape("Ellipse", QtCore.QPointF(30, 40), snap_to_grid=False)
@@ -288,7 +333,9 @@ def test_unsuccessful_open_preserves_view(editor, target_file, application, monk
 
 
 @pytest.mark.parametrize("operation", ["new", "template"])
-def test_new_and_template_clear_old_state_but_keep_bitmap_clipboard(editor, application, monkeypatch, operation):
+def test_new_and_template_clear_old_state_but_keep_bitmap_clipboard(
+    editor, application, monkeypatch, operation
+):
     image = QtGui.QImage(12, 8, QtGui.QImage.Format.Format_ARGB32)
     image.fill(QtGui.QColor("#123456"))
     data = QtCore.QByteArray()
@@ -307,7 +354,11 @@ def test_new_and_template_clear_old_state_but_keep_bitmap_clipboard(editor, appl
     canvas.set_connector_creation_enabled(True)
     monkeypatch.setattr(editor, "_ask_unsaved_changes", lambda: "discard")
     try:
-        result = editor.new_document() if operation == "new" else editor.new_document_from_template("Flowchart")
+        result = (
+            editor.new_document()
+            if operation == "new"
+            else editor.new_document_from_template("Flowchart")
+        )
 
         assert result is main_window.OpenResult.OPENED
         assert editor.canvas is canvas
@@ -321,7 +372,9 @@ def test_new_and_template_clear_old_state_but_keep_bitmap_clipboard(editor, appl
         assert not canvas.scene().selectedItems()
         assert not canvas.history().can_undo()
         assert canvas._paste_clipboard_items(QtCore.QPointF(300, 200))
-        pasted = [item for item in canvas.scene().items() if isinstance(item, BitmapItem)]
+        pasted = [
+            item for item in canvas.scene().items() if isinstance(item, BitmapItem)
+        ]
         assert len(pasted) == 1
         assert pasted[0].asset.data == bytes(data)
         assert canvas.bitmap_assets() == (asset,)

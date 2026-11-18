@@ -14,9 +14,14 @@ from shape_registry import SHAPE_REGISTRY
 
 @pytest.fixture
 def margin_window(application, tmp_path):
-    settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
-    window = MainWindow(recent_files_path=tmp_path / "recent.json", settings=settings,
-                        recovery_enabled=False)
+    settings = QtCore.QSettings(
+        str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat
+    )
+    window = MainWindow(
+        recent_files_path=tmp_path / "recent.json",
+        settings=settings,
+        recovery_enabled=False,
+    )
     yield window, settings
     window._force_close = True
     window.close()
@@ -31,7 +36,9 @@ def _choose_margins(dialog):
     return dialog.result()
 
 
-def test_edit_margins_persist_without_changing_document(margin_window, monkeypatch, tmp_path):
+def test_edit_margins_persist_without_changing_document(
+    margin_window, monkeypatch, tmp_path
+):
     window, settings = margin_window
     edit = window.menuBar().findChild(QtWidgets.QMenu, "menuEdit")
     assert "Export Margins…" in [action.text() for action in edit.actions()]
@@ -42,11 +49,19 @@ def test_edit_margins_persist_without_changing_document(margin_window, monkeypat
     monkeypatch.setattr(main_window.ExportMarginsDialog, "exec", _choose_margins)
     window.actionExport_margins.trigger()
     settings.sync()
-    restored = MainWindow(recent_files_path=tmp_path / "recent2.json", settings=settings,
-                          recovery_enabled=False)
+    restored = MainWindow(
+        recent_files_path=tmp_path / "recent2.json",
+        settings=settings,
+        recovery_enabled=False,
+    )
     try:
         margins = restored._export_margins
-        assert (margins.left, margins.top, margins.right, margins.bottom) == (10, 5, 20, 15)
+        assert (margins.left, margins.top, margins.right, margins.bottom) == (
+            10,
+            5,
+            20,
+            15,
+        )
         assert not restored._export_margins_linked
         assert window.canvas._serialize_scene_state() == before
         assert window.document_controller.dirty == dirty
@@ -77,12 +92,23 @@ def test_cancel_margin_changes_keeps_settings(margin_window, monkeypatch):
 
 @pytest.mark.parametrize("bad_value", ["broken", "nan", "inf", -1, 10001])
 def test_invalid_saved_margin_uses_legacy_defaults(application, tmp_path, bad_value):
-    settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
-    for key, value in {"enabled": True, "linked": False, "left": bad_value,
-                       "top": 5, "right": 20, "bottom": 15}.items():
+    settings = QtCore.QSettings(
+        str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat
+    )
+    for key, value in {
+        "enabled": True,
+        "linked": False,
+        "left": bad_value,
+        "top": 5,
+        "right": 20,
+        "bottom": 15,
+    }.items():
         settings.setValue(f"export/margins/{key}", value)
-    window = MainWindow(recent_files_path=tmp_path / "recent.json", settings=settings,
-                        recovery_enabled=False)
+    window = MainWindow(
+        recent_files_path=tmp_path / "recent.json",
+        settings=settings,
+        recovery_enabled=False,
+    )
     try:
         assert window._export_margins is None
         assert window._export_margins_linked is True
@@ -92,7 +118,9 @@ def test_invalid_saved_margin_uses_legacy_defaults(application, tmp_path, bad_va
 
 
 @pytest.mark.parametrize("export_format", ["svg", "png", "pdf", "py"])
-def test_menu_exports_use_margin_preferences(margin_window, monkeypatch, tmp_path, export_format):
+def test_menu_exports_use_margin_preferences(
+    margin_window, monkeypatch, tmp_path, export_format
+):
     window, _settings = margin_window
     item = SHAPE_REGISTRY.create("Rectangle", 100, 200, 100, 50)
     item.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
@@ -107,7 +135,9 @@ def test_menu_exports_use_margin_preferences(margin_window, monkeypatch, tmp_pat
     monkeypatch.setattr(main_window.ExportMarginsDialog, "exec", _choose_margins)
     window.actionExport_margins.trigger()
     output = tmp_path / f"drawing.{export_format}"
-    monkeypatch.setattr(QtWidgets.QFileDialog, "getSaveFileName", lambda *a, **kw: (str(output), ""))
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName", lambda *a, **kw: (str(output), "")
+    )
 
     def choose_png(dialog):
         dialog.folder.setText(str(tmp_path))
@@ -120,8 +150,14 @@ def test_menu_exports_use_margin_preferences(margin_window, monkeypatch, tmp_pat
 
     monkeypatch.setattr(PngExportDialog, "exec", choose_png)
     errors = []
-    monkeypatch.setattr(QtWidgets.QMessageBox, "critical", lambda *a: errors.append(a[2]))
-    action = window.actionSave_drawsvg_py if export_format == "py" else getattr(window, f"actionExport_{export_format}")
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox, "critical", lambda *a: errors.append(a[2])
+    )
+    action = (
+        window.actionSave_drawsvg_py
+        if export_format == "py"
+        else getattr(window, f"actionExport_{export_format}")
+    )
     action.trigger()
     assert not errors
     assert output.exists()
@@ -136,8 +172,13 @@ def test_menu_exports_use_margin_preferences(margin_window, monkeypatch, tmp_pat
         assert pdf.pagePointSize(0) == QtCore.QSizeF(130, 70)
         pdf.close()
     else:
-        root = (ElementTree.fromstring(runpy.run_path(str(output))["build_drawing"]().as_svg())
-                if export_format == "py" else ElementTree.parse(output).getroot())
+        root = (
+            ElementTree.fromstring(
+                runpy.run_path(str(output))["build_drawing"]().as_svg()
+            )
+            if export_format == "py"
+            else ElementTree.parse(output).getroot()
+        )
         assert tuple(map(float, root.attrib["viewBox"].split()[2:])) == (130, 70)
     assert window.canvas._serialize_scene_state() == before
     assert list(window.canvas.history()._states) == states
@@ -145,7 +186,9 @@ def test_menu_exports_use_margin_preferences(margin_window, monkeypatch, tmp_pat
     assert item.isSelected()
 
 
-def test_reset_margins_restores_legacy_mode_after_restart(margin_window, monkeypatch, tmp_path):
+def test_reset_margins_restores_legacy_mode_after_restart(
+    margin_window, monkeypatch, tmp_path
+):
     window, settings = margin_window
     monkeypatch.setattr(main_window.ExportMarginsDialog, "exec", _choose_margins)
     window.actionExport_margins.trigger()
@@ -158,8 +201,11 @@ def test_reset_margins_restores_legacy_mode_after_restart(margin_window, monkeyp
     monkeypatch.setattr(main_window.ExportMarginsDialog, "exec", reset)
     window.actionExport_margins.trigger()
     settings.sync()
-    restored = MainWindow(recent_files_path=tmp_path / "restored.json", settings=settings,
-                          recovery_enabled=False)
+    restored = MainWindow(
+        recent_files_path=tmp_path / "restored.json",
+        settings=settings,
+        recovery_enabled=False,
+    )
     try:
         assert restored._export_margins is None
         assert restored._export_margins_linked
@@ -173,9 +219,13 @@ def test_custom_empty_python_export_reports_error(margin_window, monkeypatch, tm
     monkeypatch.setattr(main_window.ExportMarginsDialog, "exec", _choose_margins)
     window.actionExport_margins.trigger()
     output = tmp_path / "empty.py"
-    monkeypatch.setattr(QtWidgets.QFileDialog, "getSaveFileName", lambda *a, **kw: (str(output), ""))
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName", lambda *a, **kw: (str(output), "")
+    )
     errors = []
-    monkeypatch.setattr(QtWidgets.QMessageBox, "critical", lambda *a: errors.append(a[2]))
+    monkeypatch.setattr(
+        QtWidgets.QMessageBox, "critical", lambda *a: errors.append(a[2])
+    )
     window.actionSave_drawsvg_py.trigger()
     assert len(errors) == 1
     assert not output.exists()

@@ -1,0 +1,6 @@
+**
+!dist/extension.js
+!python/render_drawsvg.py
+!package.json
+!README.md
+!LICENSE

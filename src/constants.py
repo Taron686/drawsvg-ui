@@ -19,20 +19,20 @@ SHAPES = (
 )
 
 DEFAULTS = {
-    "Rectangle": (160.0, 100.0),   # w, h
-    "Rounded Rectangle": (160.0, 100.0),   # w, h
-    "Split Rounded Rectangle": (180.0, 120.0),   # w, h
-    "Ellipse":   (160.0, 100.0),   # w, h
-    "Circle":    (100.0, 100.0),   # diameter, diameter
-    "Triangle":  (160.0, 100.0),   # w, h
-    "Diamond":   (140.0, 140.0),   # w, h
-    "Line":      (150.0, 0.0),     # length, (unused)
-    "Arrow":     (150.0, 0.0),     # length, (unused)
-    "Block Arrow": (200.0, 120.0), # w, h
+    "Rectangle": (160.0, 100.0),  # w, h
+    "Rounded Rectangle": (160.0, 100.0),  # w, h
+    "Split Rounded Rectangle": (180.0, 120.0),  # w, h
+    "Ellipse": (160.0, 100.0),  # w, h
+    "Circle": (100.0, 100.0),  # diameter, diameter
+    "Triangle": (160.0, 100.0),  # w, h
+    "Diamond": (140.0, 140.0),  # w, h
+    "Line": (150.0, 0.0),  # length, (unused)
+    "Arrow": (150.0, 0.0),  # length, (unused)
+    "Block Arrow": (200.0, 120.0),  # w, h
     "Curvy Right Bracket": (80.0, 160.0),  # w, h
     "Curvy Left Bracket": (80.0, 160.0),  # w, h
-    "Text":      (100.0, 50.0),    # placeholder bbox
-    "Folder Tree": (240.0, 200.0), # auto-sized, reference bbox
+    "Text": (100.0, 50.0),  # placeholder bbox
+    "Folder Tree": (240.0, 200.0),  # auto-sized, reference bbox
     "Hexagon": (160.0, 100.0),
     "Parallelogram": (160.0, 100.0),
     "Database": (160.0, 110.0),
@@ -58,3 +58,10 @@ PEN_STYLE_DASH_ARRAYS = {
     QtCore.Qt.PenStyle.DashLine: (4.0, 4.0),
     QtCore.Qt.PenStyle.DotLine: (1.0, 4.0),
 }
+
+# Line styles offered in the context menu and the properties panel.
+LINE_STYLE_CHOICES = (
+    ("Solid", QtCore.Qt.PenStyle.SolidLine),
+    ("Dashed", QtCore.Qt.PenStyle.DashLine),
+    ("Dotted", QtCore.Qt.PenStyle.DotLine),
+)

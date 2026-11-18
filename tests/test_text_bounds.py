@@ -24,7 +24,9 @@ def text_test_font(application):
         QtGui.QFontDatabase.removeApplicationFont(font_id)
 
 
-@pytest.mark.parametrize("text", ["dasd dd", "Short", "A much longer text", "First\nSecond line"])
+@pytest.mark.parametrize(
+    "text", ["dasd dd", "Short", "A much longer text", "First\nSecond line"]
+)
 def test_text_boxes_fit_content(application, text):
     item = TextItem(30, 40, 200, 80)
     item.setPlainText(text)
@@ -61,7 +63,9 @@ def test_manual_text_box_reserves_equal_margins(application, margin, alignment):
 
 
 @pytest.mark.parametrize("rotation", [0, 35, 90])
-def test_auto_fit_preserves_position_when_font_margin_or_content_changes(canvas_view, rotation):
+def test_auto_fit_preserves_position_when_font_margin_or_content_changes(
+    canvas_view, rotation
+):
     item = canvas_view.add_shape("Text", QtCore.QPointF(100, 200))
     item.setRotation(rotation)
     item.setScale(1.4)
@@ -110,7 +114,9 @@ def test_text_fit_mode_and_geometry_survive_registry_roundtrip(application, manu
 
 
 def test_legacy_text_box_keeps_saved_size_until_fit_is_requested(application):
-    item = SHAPE_REGISTRY.restore({"shape": "Text", "text": "dasd dd", "size": [250, 90]})
+    item = SHAPE_REGISTRY.restore(
+        {"shape": "Text", "text": "dasd dd", "size": [250, 90]}
+    )
     assert item.boundingRect().size() == QtCore.QSizeF(250, 90)
     item.fit_to_text()
     assert item.boundingRect().size() == item.document().size()
@@ -148,7 +154,9 @@ def test_fit_context_menu_undo_restores_manual_box(canvas_view, monkeypatch):
 
     class FitMenu(QtWidgets.QMenu):
         def exec(self, _position):
-            return next(action for action in self.actions() if action.text() == "Fit to text")
+            return next(
+                action for action in self.actions() if action.text() == "Fit to text"
+            )
 
     monkeypatch.setattr(QtWidgets, "QMenu", FitMenu)
     view.resize(900, 700)
@@ -168,20 +176,28 @@ def test_fit_context_menu_undo_restores_manual_box(canvas_view, monkeypatch):
 
 
 @pytest.mark.parametrize("manual", [False, True])
-def test_python_export_preserves_text_fit_mode(canvas_view, monkeypatch, tmp_path, manual):
+def test_python_export_preserves_text_fit_mode(
+    canvas_view, monkeypatch, tmp_path, manual
+):
     item = canvas_view.add_shape("Text", QtCore.QPointF(100, 100))
     item.setPlainText("dasd dd")
     if manual:
         item.set_size(120, 150)
     path = tmp_path / "text.py"
-    monkeypatch.setattr(QtWidgets.QFileDialog, "getSaveFileName", lambda *args: (str(path), ""))
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName", lambda *args: (str(path), "")
+    )
     export_drawsvg_py(canvas_view.scene())
     scene = QtWidgets.QGraphicsScene()
     assert import_drawsvg_py(scene, path=path) == path.resolve()
     restored = next(item for item in scene.items() if isinstance(item, TextItem))
     assert restored.auto_sizes_to_text() is (not manual)
-    assert restored.boundingRect().width() == pytest.approx(item.boundingRect().width(), abs=0.01)
-    assert restored.boundingRect().height() == pytest.approx(item.boundingRect().height(), abs=0.01)
+    assert restored.boundingRect().width() == pytest.approx(
+        item.boundingRect().width(), abs=0.01
+    )
+    assert restored.boundingRect().height() == pytest.approx(
+        item.boundingRect().height(), abs=0.01
+    )
     canvas_view.scene().clearSelection()
 
 
@@ -199,7 +215,11 @@ def test_fitted_multiline_alignment_uses_whole_box(application, alignment):
     item.setPlainText("abc\nshort")
     item.set_text_alignment(horizontal=alignment)
     line = item.document().begin().layout().lineAt(0)
-    free_width = item.boundingRect().width() - 2 * item.document().documentMargin() - line.naturalTextWidth()
+    free_width = (
+        item.boundingRect().width()
+        - 2 * item.document().documentMargin()
+        - line.naturalTextWidth()
+    )
     assert free_width > 0
     expected_x = {"left": 0, "center": free_width / 2, "right": free_width}[alignment]
     assert line.naturalTextRect().x() == pytest.approx(expected_x)

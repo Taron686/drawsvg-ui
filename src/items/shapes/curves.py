@@ -20,7 +20,7 @@ from ..labels import ShapeLabelMixin
 
 
 class EllipseItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsEllipseItem):
-    def __init__(self, x, y, w, h):
+    def __init__(self, x: float, y: float, w: float, h: float) -> None:
         QtWidgets.QGraphicsEllipseItem.__init__(self, 0, 0, w, h)
         ResizableItem.__init__(self)
         self.setPos(x, y)
@@ -42,20 +42,23 @@ class EllipseItem(ShapeLabelMixin, ResizableItem, QtWidgets.QGraphicsEllipseItem
         QtWidgets.QGraphicsEllipseItem.setRect(self, x, y, w, h)
         self._update_label_geometry()
 
-    def setPen(self, pen):  # type: ignore[override]
+    def setPen(self, pen: QtGui.QPen) -> None:  # type: ignore[override]
         super().setPen(pen)
         self._update_label_color()
 
-    def mouseDoubleClickEvent(
-        self, event: QtWidgets.QGraphicsSceneMouseEvent
-    ) -> None:  # type: ignore[override]
+    def mouseDoubleClickEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:  # type: ignore[override]
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
             self._begin_label_edit()
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
 
-    def paint(self, painter, option, widget=None):
+    def paint(
+        self,
+        painter: QtGui.QPainter,
+        option: QtWidgets.QStyleOptionGraphicsItem,
+        widget: QtWidgets.QWidget | None = None,
+    ) -> None:
         opt = QtWidgets.QStyleOptionGraphicsItem(option)
         opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
         super().paint(painter, opt, widget)
@@ -138,7 +141,12 @@ class CurvyBracketItem(ResizableItem, QtWidgets.QGraphicsPathItem):
         path = build_curvy_bracket_path(self._w, self._h, hook)
         self.setPath(path)
 
-    def paint(self, painter, option, widget=None):
+    def paint(
+        self,
+        painter: QtGui.QPainter,
+        option: QtWidgets.QStyleOptionGraphicsItem,
+        widget: QtWidgets.QWidget | None = None,
+    ) -> None:
         opt = QtWidgets.QStyleOptionGraphicsItem(option)
         opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
         super().paint(painter, opt, widget)

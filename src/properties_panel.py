@@ -22,17 +22,21 @@ from PySide6.QtUiTools import QUiLoader
 from items import (
     BlockArrowItem,
     CurvyBracketItem,
-    DiamondItem,
-    EllipseItem,
     LineItem,
-    RectItem,
     ShapeLabelMixin,
     SplitRoundedRectItem,
     TextItem,
-    TriangleItem,
 )
+from constants import LINE_STYLE_CHOICES
+from properties_object_section import ObjectSectionBuilder
 from property_command_service import PropertyCommandService
-from style_presets import STYLE_VERSION, apply_preset, apply_style_data, preset_choices, style_data
+from style_presets import (
+    STYLE_VERSION,
+    apply_preset,
+    apply_style_data,
+    preset_choices,
+    style_data,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - only for typing
     from canvas_view import CanvasView
@@ -42,12 +46,17 @@ Number = float
 
 _UI_PATH = Path(__file__).resolve().parent / "ui" / "properties_panel.ui"
 
+
 class ColorButton(QtWidgets.QToolButton):
     """Tool button that displays and edits a QColor."""
 
     colorChanged = QtCore.Signal(QtGui.QColor)
 
-    def __init__(self, color: QtGui.QColor | str | None = None, parent: QtWidgets.QWidget | None = None) -> None:
+    def __init__(
+        self,
+        color: QtGui.QColor | str | None = None,
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self._color = QtGui.QColor()
         self.setAutoRaise(True)
@@ -62,9 +71,7 @@ class ColorButton(QtWidgets.QToolButton):
         return QtGui.QColor(self._color)
 
     def setColor(self, value: QtGui.QColor | str | None) -> None:
-        if isinstance(value, QtGui.QColor):
-            color = QtGui.QColor(value)
-        elif isinstance(value, str):
+        if isinstance(value, QtGui.QColor) or isinstance(value, str):
             color = QtGui.QColor(value)
         else:
             color = QtGui.QColor("#00000000")
@@ -77,7 +84,9 @@ class ColorButton(QtWidgets.QToolButton):
 
     def _choose_color(self) -> None:
         dialog = QtWidgets.QColorDialog(self._color, self)
-        dialog.setOption(QtWidgets.QColorDialog.ColorDialogOption.ShowAlphaChannel, True)
+        dialog.setOption(
+            QtWidgets.QColorDialog.ColorDialogOption.ShowAlphaChannel, True
+        )
         if dialog.exec():
             new_color = dialog.currentColor()
             if new_color.isValid():
@@ -88,10 +97,20 @@ class ColorButton(QtWidgets.QToolButton):
 
     def _update_visuals(self) -> None:
         rgba = self._color.name(QtGui.QColor.HexArgb)
-        text = self._color.name(QtGui.QColor.HexRgb) if self._color.alphaF() >= 0.99 else rgba
+        text = (
+            self._color.name(QtGui.QColor.HexRgb)
+            if self._color.alphaF() >= 0.99
+            else rgba
+        )
         self.setText(text.upper())
-        luminance = 0.2126 * self._color.redF() + 0.7152 * self._color.greenF() + 0.0722 * self._color.blueF()
-        foreground = "#000000" if luminance > 0.6 or self._color.alphaF() < 0.5 else "#ffffff"
+        luminance = (
+            0.2126 * self._color.redF()
+            + 0.7152 * self._color.greenF()
+            + 0.0722 * self._color.blueF()
+        )
+        foreground = (
+            "#000000" if luminance > 0.6 or self._color.alphaF() < 0.5 else "#ffffff"
+        )
         self.setStyleSheet(
             "QToolButton {"
             f"background-color: {rgba};"
@@ -173,7 +192,7 @@ class PropertyBinding(QtCore.QObject):
         value = self._getter()
         self._guard = True
         try:
-            blocker = QtCore.QSignalBlocker(self.widget)
+            blocker = QtCore.QSignalBlocker(self.widget)  # noqa: F841 - held for its scope
             self._write(self.widget, value)
         finally:
             self._guard = False
@@ -191,7 +210,7 @@ class PropertyBinding(QtCore.QObject):
             self._change_callback()
 
 
-class PropertiesPanel(QtWidgets.QWidget):
+class PropertiesPanel(ObjectSectionBuilder, QtWidgets.QWidget):
     """Interactive properties panel that keeps the canvas in sync with edits."""
 
     def __init__(
@@ -283,15 +302,25 @@ class PropertiesPanel(QtWidgets.QWidget):
         return widget
 
     def _cache_object_widgets(self) -> None:
-        self._group_transform = self._require_widget(QtWidgets.QGroupBox, "groupTransform")
+        self._group_transform = self._require_widget(
+            QtWidgets.QGroupBox, "groupTransform"
+        )
         self._group_size = self._require_widget(QtWidgets.QGroupBox, "groupSize")
-        self._group_rounded = self._require_widget(QtWidgets.QGroupBox, "groupRoundedCorners")
-        self._group_sections = self._require_widget(QtWidgets.QGroupBox, "groupSections")
+        self._group_rounded = self._require_widget(
+            QtWidgets.QGroupBox, "groupRoundedCorners"
+        )
+        self._group_sections = self._require_widget(
+            QtWidgets.QGroupBox, "groupSections"
+        )
         self._group_stroke = self._require_widget(QtWidgets.QGroupBox, "groupStroke")
         self._group_fill = self._require_widget(QtWidgets.QGroupBox, "groupFill")
-        self._group_arrow_shape = self._require_widget(QtWidgets.QGroupBox, "groupArrowShape")
+        self._group_arrow_shape = self._require_widget(
+            QtWidgets.QGroupBox, "groupArrowShape"
+        )
         self._group_bracket = self._require_widget(QtWidgets.QGroupBox, "groupBracket")
-        self._group_line_arrows = self._require_widget(QtWidgets.QGroupBox, "groupLineArrows")
+        self._group_line_arrows = self._require_widget(
+            QtWidgets.QGroupBox, "groupLineArrows"
+        )
 
         self._spin_pos_x = self._require_widget(QtWidgets.QDoubleSpinBox, "spinPosX")
         self._spin_pos_y = self._require_widget(QtWidgets.QDoubleSpinBox, "spinPosY")
@@ -299,27 +328,66 @@ class PropertiesPanel(QtWidgets.QWidget):
             spin.setReadOnly(True)
             spin.setButtonSymbols(QtWidgets.QAbstractSpinBox.ButtonSymbols.NoButtons)
             spin.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
-        self._spin_rotation = self._require_widget(QtWidgets.QDoubleSpinBox, "spinRotation")
+        self._spin_rotation = self._require_widget(
+            QtWidgets.QDoubleSpinBox, "spinRotation"
+        )
         self._spin_scale = self._require_widget(QtWidgets.QDoubleSpinBox, "spinScale")
-        self._spin_z_value = self._require_widget(QtWidgets.QDoubleSpinBox, "spinZValue")
+        self._spin_z_value = self._require_widget(
+            QtWidgets.QDoubleSpinBox, "spinZValue"
+        )
         self._spin_width = self._require_widget(QtWidgets.QDoubleSpinBox, "spinWidth")
         self._spin_height = self._require_widget(QtWidgets.QDoubleSpinBox, "spinHeight")
-        self._spin_radius_x = self._require_widget(QtWidgets.QDoubleSpinBox, "spinRadiusX")
-        self._spin_radius_y = self._require_widget(QtWidgets.QDoubleSpinBox, "spinRadiusY")
+        self._spin_radius_x = self._require_widget(
+            QtWidgets.QDoubleSpinBox, "spinRadiusX"
+        )
+        self._spin_radius_y = self._require_widget(
+            QtWidgets.QDoubleSpinBox, "spinRadiusY"
+        )
         self._color_top_fill = self._require_widget(ColorButton, "colorTopFill")
         self._color_bottom_fill = self._require_widget(ColorButton, "colorBottomFill")
-        self._spin_divider_ratio = self._require_widget(QtWidgets.QDoubleSpinBox, "spinDividerRatio")
+        self._spin_divider_ratio = self._require_widget(
+            QtWidgets.QDoubleSpinBox, "spinDividerRatio"
+        )
         self._color_stroke = self._require_widget(ColorButton, "colorStroke")
-        self._spin_stroke_width = self._require_widget(QtWidgets.QDoubleSpinBox, "spinStrokeWidth")
+        self._spin_stroke_width = self._require_widget(
+            QtWidgets.QDoubleSpinBox, "spinStrokeWidth"
+        )
+        self._combo_stroke_style = self._require_widget(
+            QtWidgets.QComboBox, "comboStrokeStyle"
+        )
+        for label, style in LINE_STYLE_CHOICES:
+            self._combo_stroke_style.addItem(label, int(style.value))
+        # Displayed for imported custom dash patterns only: hidden from the
+        # popup list and not user-selectable.
+        self._combo_stroke_style.addItem("Custom", -1)
+        custom_row = self._combo_stroke_style.count() - 1
+        self._combo_stroke_style.model().item(custom_row).setEnabled(False)
+        self._combo_stroke_style.view().setRowHidden(custom_row, True)
         self._color_fill = self._require_widget(ColorButton, "colorFill")
-        self._spin_head_ratio = self._require_widget(QtWidgets.QDoubleSpinBox, "spinHeadRatio")
-        self._spin_shaft_ratio = self._require_widget(QtWidgets.QDoubleSpinBox, "spinShaftRatio")
-        self._slider_hook_depth = self._require_widget(QtWidgets.QSlider, "sliderHookDepth")
-        self._spin_hook_depth = self._require_widget(QtWidgets.QDoubleSpinBox, "spinHookDepth")
-        self._check_arrow_start = self._require_widget(QtWidgets.QCheckBox, "checkArrowStart")
-        self._check_arrow_end = self._require_widget(QtWidgets.QCheckBox, "checkArrowEnd")
-        self._spin_arrow_length = self._require_widget(QtWidgets.QDoubleSpinBox, "spinArrowLength")
-        self._spin_arrow_width = self._require_widget(QtWidgets.QDoubleSpinBox, "spinArrowWidth")
+        self._spin_head_ratio = self._require_widget(
+            QtWidgets.QDoubleSpinBox, "spinHeadRatio"
+        )
+        self._spin_shaft_ratio = self._require_widget(
+            QtWidgets.QDoubleSpinBox, "spinShaftRatio"
+        )
+        self._slider_hook_depth = self._require_widget(
+            QtWidgets.QSlider, "sliderHookDepth"
+        )
+        self._spin_hook_depth = self._require_widget(
+            QtWidgets.QDoubleSpinBox, "spinHookDepth"
+        )
+        self._check_arrow_start = self._require_widget(
+            QtWidgets.QCheckBox, "checkArrowStart"
+        )
+        self._check_arrow_end = self._require_widget(
+            QtWidgets.QCheckBox, "checkArrowEnd"
+        )
+        self._spin_arrow_length = self._require_widget(
+            QtWidgets.QDoubleSpinBox, "spinArrowLength"
+        )
+        self._spin_arrow_width = self._require_widget(
+            QtWidgets.QDoubleSpinBox, "spinArrowWidth"
+        )
 
         self._object_groups = [
             self._group_transform,
@@ -340,7 +408,9 @@ class PropertiesPanel(QtWidgets.QWidget):
         for preset_id, label in preset_choices():
             self._combo_style_preset.addItem(label, preset_id)
         form.addRow("Preset", self._combo_style_preset)
-        self._check_style_shadow = QtWidgets.QCheckBox("Enable shadow", self._group_style_preset)
+        self._check_style_shadow = QtWidgets.QCheckBox(
+            "Enable shadow", self._group_style_preset
+        )
         form.addRow(self._check_style_shadow)
         self._spin_shadow_x = QtWidgets.QDoubleSpinBox(self._group_style_preset)
         self._spin_shadow_y = QtWidgets.QDoubleSpinBox(self._group_style_preset)
@@ -350,7 +420,9 @@ class PropertiesPanel(QtWidgets.QWidget):
             spin.setDecimals(1)
         self._spin_shadow_blur.setRange(0.0, 100.0)
         self._spin_shadow_blur.setDecimals(1)
-        self._color_shadow = ColorButton(QtGui.QColor("#66000000"), self._group_style_preset)
+        self._color_shadow = ColorButton(
+            QtGui.QColor("#66000000"), self._group_style_preset
+        )
         form.addRow("Offset X", self._spin_shadow_x)
         form.addRow("Offset Y", self._spin_shadow_y)
         form.addRow("Blur", self._spin_shadow_blur)
@@ -364,10 +436,14 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._spin_shadow_x.valueChanged.connect(self._write_shadow_style)
         self._spin_shadow_y.valueChanged.connect(self._write_shadow_style)
         self._spin_shadow_blur.valueChanged.connect(self._write_shadow_style)
-        self._color_shadow.colorChanged.connect(lambda _color: self._write_shadow_style())
+        self._color_shadow.colorChanged.connect(
+            lambda _color: self._write_shadow_style()
+        )
 
     def _apply_selected_preset(self) -> None:
-        if self._current_item is not None and apply_preset(self._current_item, str(self._combo_style_preset.currentData())):
+        if self._current_item is not None and apply_preset(
+            self._current_item, str(self._combo_style_preset.currentData())
+        ):
             self._after_property_change()
             self._rebuild_for_item(self._current_item)
 
@@ -375,36 +451,83 @@ class PropertiesPanel(QtWidgets.QWidget):
         if self._current_item is None:
             return
         data = style_data(self._current_item) or {"version": STYLE_VERSION}
-        data["shadow"] = ({"offset_x": self._spin_shadow_x.value(), "offset_y": self._spin_shadow_y.value(), "blur_radius": self._spin_shadow_blur.value(), "color": self._color_shadow.color().name(QtGui.QColor.NameFormat.HexArgb)} if self._check_style_shadow.isChecked() else {})
+        data["shadow"] = (
+            {
+                "offset_x": self._spin_shadow_x.value(),
+                "offset_y": self._spin_shadow_y.value(),
+                "blur_radius": self._spin_shadow_blur.value(),
+                "color": self._color_shadow.color().name(
+                    QtGui.QColor.NameFormat.HexArgb
+                ),
+            }
+            if self._check_style_shadow.isChecked()
+            else {}
+        )
         apply_style_data(self._current_item, data)
         self._after_property_change()
 
     def _cache_text_widgets(self) -> None:
         self._group_label = self._require_widget(QtWidgets.QGroupBox, "groupLabel")
-        self._group_text_content = self._require_widget(QtWidgets.QGroupBox, "groupTextContent")
-        self._group_text_format = self._require_widget(QtWidgets.QGroupBox, "groupTextFormat")
+        self._group_text_content = self._require_widget(
+            QtWidgets.QGroupBox, "groupTextContent"
+        )
+        self._group_text_format = self._require_widget(
+            QtWidgets.QGroupBox, "groupTextFormat"
+        )
 
         self._plain_label_text = self._require_widget(PlainTextEditor, "plainLabelText")
-        self._combo_label_font = self._require_widget(QtWidgets.QFontComboBox, "comboLabelFont")
-        self._spin_label_font_size = self._require_widget(QtWidgets.QDoubleSpinBox, "spinLabelFontSize")
+        self._combo_label_font = self._require_widget(
+            QtWidgets.QFontComboBox, "comboLabelFont"
+        )
+        self._spin_label_font_size = self._require_widget(
+            QtWidgets.QDoubleSpinBox, "spinLabelFontSize"
+        )
         self._color_label_font = self._require_widget(ColorButton, "colorLabelFont")
-        self._button_label_color_default = self._require_widget(QtWidgets.QToolButton, "buttonLabelColorDefault")
-        self._combo_label_horizontal = self._require_widget(QtWidgets.QComboBox, "comboLabelHorizontal")
-        self._combo_label_vertical = self._require_widget(QtWidgets.QComboBox, "comboLabelVertical")
+        self._button_label_color_default = self._require_widget(
+            QtWidgets.QToolButton, "buttonLabelColorDefault"
+        )
+        self._combo_label_horizontal = self._require_widget(
+            QtWidgets.QComboBox, "comboLabelHorizontal"
+        )
+        self._combo_label_vertical = self._require_widget(
+            QtWidgets.QComboBox, "comboLabelVertical"
+        )
 
-        self._plain_text_content = self._require_widget(PlainTextEditor, "plainTextContent")
-        self._combo_text_font = self._require_widget(QtWidgets.QFontComboBox, "comboTextFont")
-        self._spin_text_font_size = self._require_widget(QtWidgets.QDoubleSpinBox, "spinTextFontSize")
+        self._plain_text_content = self._require_widget(
+            PlainTextEditor, "plainTextContent"
+        )
+        self._combo_text_font = self._require_widget(
+            QtWidgets.QFontComboBox, "comboTextFont"
+        )
+        self._spin_text_font_size = self._require_widget(
+            QtWidgets.QDoubleSpinBox, "spinTextFontSize"
+        )
         self._color_text_font = self._require_widget(ColorButton, "colorTextFont")
-        self._spin_text_padding = self._require_widget(QtWidgets.QDoubleSpinBox, "spinTextPadding")
-        self._combo_text_horizontal = self._require_widget(QtWidgets.QComboBox, "comboTextHorizontal")
-        self._combo_text_vertical = self._require_widget(QtWidgets.QComboBox, "comboTextVertical")
-        self._combo_text_direction = self._require_widget(QtWidgets.QComboBox, "comboTextDirection")
+        self._spin_text_padding = self._require_widget(
+            QtWidgets.QDoubleSpinBox, "spinTextPadding"
+        )
+        self._combo_text_horizontal = self._require_widget(
+            QtWidgets.QComboBox, "comboTextHorizontal"
+        )
+        self._combo_text_vertical = self._require_widget(
+            QtWidgets.QComboBox, "comboTextVertical"
+        )
+        self._combo_text_direction = self._require_widget(
+            QtWidgets.QComboBox, "comboTextDirection"
+        )
 
-        self._text_groups = [self._group_label, self._group_text_content, self._group_text_format]
+        self._text_groups = [
+            self._group_label,
+            self._group_text_content,
+            self._group_text_format,
+        ]
 
     def _initialize_combobox_options(self) -> None:
-        alignment_options = [("Left", "left"), ("Centered", "center"), ("Right", "right")]
+        alignment_options = [
+            ("Left", "left"),
+            ("Centered", "center"),
+            ("Right", "right"),
+        ]
         vertical_options = [("Top", "top"), ("Center", "middle"), ("Bottom", "bottom")]
         self._configure_combobox(self._combo_label_horizontal, alignment_options)
         self._configure_combobox(self._combo_label_vertical, vertical_options)
@@ -601,7 +724,10 @@ class PropertiesPanel(QtWidgets.QWidget):
             self._latest_text_data = dict(text_data)
             self._refresh_active_bindings()
 
-        if hasattr(self._tab_widget, "setCurrentIndex") and self._tab_widget.currentIndex() == -1:
+        if (
+            hasattr(self._tab_widget, "setCurrentIndex")
+            and self._tab_widget.currentIndex() == -1
+        ):
             self._tab_widget.setCurrentIndex(0)
         self._set_tab_widget_active(True)
         self._set_empty_spacer_visible(False)
@@ -700,11 +826,6 @@ class PropertiesPanel(QtWidgets.QWidget):
             return
         if combo.currentIndex() != index:
             combo.setCurrentIndex(index)
-    @staticmethod
-    def _set_line_edit_text(edit: QtWidgets.QLineEdit, value: Any) -> None:
-        text = "" if value is None else str(value)
-        if edit.text() != text:
-            edit.setText(text)
 
     @staticmethod
     def _set_plain_text(editor: PlainTextEditor, value: Any) -> None:
@@ -803,26 +924,6 @@ class PropertiesPanel(QtWidgets.QWidget):
         binding.refresh()
         self._bindings_for(group).append(binding)
 
-    def _bind_line_edit(
-        self,
-        edit: QtWidgets.QLineEdit,
-        getter: Callable[[], str],
-        setter: Callable[[str], bool | None],
-        *,
-        group: str = "object",
-    ) -> None:
-        binding = PropertyBinding(
-            edit,
-            getter,
-            setter,
-            edit.editingFinished,
-            lambda w: w.text(),
-            self._set_line_edit_text,
-            self._after_property_change,
-        )
-        binding.refresh()
-        self._bindings_for(group).append(binding)
-
     def _bind_plain_text(
         self,
         editor: PlainTextEditor,
@@ -886,6 +987,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._bindings_for(group).append(binding)
 
         if reset_button is not None and resetter is not None:
+
             def on_reset() -> None:
                 changed = resetter()
                 if changed is False:
@@ -893,173 +995,26 @@ class PropertiesPanel(QtWidgets.QWidget):
                 else:
                     self._after_property_change()
 
-            previous = getattr(reset_button, "_properties_panel_reset_callback", None)
+            previous = reset_button.property("propertiesPanelResetCallback")
             if previous is not None:
                 try:
                     reset_button.clicked.disconnect(previous)
                 except (TypeError, RuntimeError):
                     pass
-            reset_button._properties_panel_reset_callback = on_reset  # type: ignore[attr-defined]
+            reset_button.setProperty("propertiesPanelResetCallback", on_reset)
             reset_button.clicked.connect(on_reset)
 
     # ------------------------------------------------------------------ #
     # Object section                                                     #
     # ------------------------------------------------------------------ #
 
-    def _build_object_section(self, item: QtWidgets.QGraphicsItem, object_data: dict[str, Any]) -> None:
-        self._group_transform.show()
-        self._bind_double_spin(
-            self._spin_pos_x,
-            lambda: float(item.pos().x()),
-            lambda value: self._set_item_pos(item, x=value),
-        )
-        self._bind_double_spin(
-            self._spin_pos_y,
-            lambda: float(item.pos().y()),
-            lambda value: self._set_item_pos(item, y=value),
-        )
-        self._bind_double_spin(
-            self._spin_rotation,
-            lambda: float(item.rotation()),
-            lambda value: self._set_item_rotation(item, value),
-        )
-        self._bind_double_spin(
-            self._spin_scale,
-            lambda: float(item.scale()),
-            lambda value: self._set_item_scale(item, value),
-        )
-        self._bind_double_spin(
-            self._spin_z_value,
-            lambda: float(item.zValue()),
-            lambda value: self._set_item_z(item, value),
-        )
-
-        size_value = object_data.get("size")
-        if isinstance(size_value, (list, tuple)) and len(size_value) == 2:
-            self._group_size.show()
-            self._bind_double_spin(
-                self._spin_width,
-                lambda item=item: float(self._item_dimensions(item)[0]),
-                lambda value: self._set_item_size(item, width=value),
-            )
-            self._bind_double_spin(
-                self._spin_height,
-                lambda item=item: float(self._item_dimensions(item)[1]),
-                lambda value: self._set_item_size(item, height=value),
-            )
-
-        if isinstance(item, (RectItem, SplitRoundedRectItem)) or hasattr(item, "rx"):
-            self._group_rounded.show()
-            self._bind_double_spin(
-                self._spin_radius_x,
-                lambda: float(getattr(item, "rx", 0.0)),
-                lambda value: self._set_corner_radius(item, "rx", value),
-            )
-            self._bind_double_spin(
-                self._spin_radius_y,
-                lambda: float(getattr(item, "ry", getattr(item, "rx", 0.0))),
-                lambda value: self._set_corner_radius(item, "ry", value),
-            )
-
-        if isinstance(item, SplitRoundedRectItem):
-            self._group_sections.show()
-            self._bind_color_field(
-                self._color_top_fill,
-                lambda: item.topBrush().color(),
-                lambda color: self._set_split_brush_color(item, "top", color),
-            )
-            self._bind_color_field(
-                self._color_bottom_fill,
-                lambda: item.bottomBrush().color(),
-                lambda color: self._set_split_brush_color(item, "bottom", color),
-            )
-            self._bind_double_spin(
-                self._spin_divider_ratio,
-                lambda: float(item.divider_ratio()),
-                lambda value: self._set_split_ratio(item, value),
-            )
-
-        if hasattr(item, "pen") and not isinstance(item, TextItem):
-            self._group_stroke.show()
-            self._bind_color_field(
-                self._color_stroke,
-                lambda: item.pen().color(),
-                lambda color: self._set_pen_color(item, color),
-            )
-            self._bind_double_spin(
-                self._spin_stroke_width,
-                lambda: float(item.pen().widthF()),
-                lambda value: self._set_pen_width(item, value),
-            )
-
-        if hasattr(item, "brush") and not isinstance(item, LineItem):
-            self._group_fill.show()
-            self._bind_color_field(
-                self._color_fill,
-                lambda: item.brush().color(),
-                lambda color: self._set_brush_color(item, color),
-            )
-
-        if hasattr(item, "setGraphicsEffect"):
-            self._group_style_preset.show()
-            data = style_data(item) or {}
-            shadow = data.get("shadow") if isinstance(data.get("shadow"), dict) else {}
-            with QtCore.QSignalBlocker(self._combo_style_preset):
-                preset_id = data.get("preset_id")
-                index = self._combo_style_preset.findData(preset_id)
-                self._combo_style_preset.setCurrentIndex(max(0, index))
-            with QtCore.QSignalBlocker(self._check_style_shadow):
-                self._check_style_shadow.setChecked(bool(shadow))
-            for spin, key in ((self._spin_shadow_x, "offset_x"), (self._spin_shadow_y, "offset_y"), (self._spin_shadow_blur, "blur_radius")):
-                with QtCore.QSignalBlocker(spin):
-                    spin.setValue(float(shadow.get(key, 0.0)))
-            with QtCore.QSignalBlocker(self._color_shadow):
-                self._color_shadow.setColor(str(shadow.get("color", "#66000000")))
-
-        if isinstance(item, BlockArrowItem):
-            self._group_arrow_shape.show()
-            self._bind_double_spin(
-                self._spin_head_ratio,
-                item.head_ratio,
-                lambda value: self._set_block_arrow_ratio(item, "head", value),
-            )
-            self._bind_double_spin(
-                self._spin_shaft_ratio,
-                item.shaft_ratio,
-                lambda value: self._set_block_arrow_ratio(item, "shaft", value),
-            )
-
-        if isinstance(item, CurvyBracketItem):
-            self._group_bracket.show()
-            self._bind_ratio_slider(
-                self._slider_hook_depth,
-                self._spin_hook_depth,
-                item.hook_ratio,
-                lambda value: self._set_bracket_hook_ratio(item, value),
-            )
-
-        if isinstance(item, LineItem):
-            self._group_line_arrows.show()
-            self._bind_checkbox(
-                self._check_arrow_start,
-                lambda: bool(item.arrow_start),
-                lambda value: self._toggle_line_arrow(item, "start", value),
-            )
-            self._bind_checkbox(
-                self._check_arrow_end,
-                lambda: bool(item.arrow_end),
-                lambda value: self._toggle_line_arrow(item, "end", value),
-            )
-            self._bind_double_spin(
-                self._spin_arrow_length,
-                item.arrow_head_length,
-                lambda value: self._set_line_arrow_metric(item, "length", value),
-            )
-            self._bind_double_spin(
-                self._spin_arrow_width,
-                item.arrow_head_width,
-                lambda value: self._set_line_arrow_metric(item, "width", value),
-            )
+    def _build_object_section(
+        self, item: QtWidgets.QGraphicsItem, object_data: dict[str, Any]
+    ) -> None:
+        self._build_transform_and_size(item, object_data)
+        self._build_rounded_and_split(item, object_data)
+        self._build_stroke_fill_and_style(item, object_data)
+        self._build_shape_specific_controls(item, object_data)
 
     # ------------------------------------------------------------------ #
     # Text section                                                       #
@@ -1181,11 +1136,18 @@ class PropertiesPanel(QtWidgets.QWidget):
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _set_item_pos(item: QtWidgets.QGraphicsItem, *, x: Number | None = None, y: Number | None = None) -> bool:
+    def _set_item_pos(
+        item: QtWidgets.QGraphicsItem,
+        *,
+        x: Number | None = None,
+        y: Number | None = None,
+    ) -> bool:
         pos = item.pos()
         target_x = float(x) if x is not None else float(pos.x())
         target_y = float(y) if y is not None else float(pos.y())
-        if math.isclose(pos.x(), target_x, abs_tol=0.1) and math.isclose(pos.y(), target_y, abs_tol=0.1):
+        if math.isclose(pos.x(), target_x, abs_tol=0.1) and math.isclose(
+            pos.y(), target_y, abs_tol=0.1
+        ):
             return False
         item.setPos(target_x, target_y)
         return True
@@ -1226,25 +1188,20 @@ class PropertiesPanel(QtWidgets.QWidget):
         target_h = float(height) if height is not None else current_h
         target_w = max(1.0, target_w)
         target_h = max(1.0, target_h)
-        if (
-            math.isclose(current_w, target_w, rel_tol=1e-3, abs_tol=0.2)
-            and math.isclose(current_h, target_h, rel_tol=1e-3, abs_tol=0.2)
-        ):
+        if math.isclose(
+            current_w, target_w, rel_tol=1e-3, abs_tol=0.2
+        ) and math.isclose(current_h, target_h, rel_tol=1e-3, abs_tol=0.2):
             return False
         old_top_left = item.mapToScene(QtCore.QPointF(0.0, 0.0))
 
-        if isinstance(item, QtWidgets.QGraphicsRectItem):
-            rect = item.rect()
-            item.setRect(rect.x(), rect.y(), target_w, target_h)
-        elif isinstance(item, QtWidgets.QGraphicsEllipseItem):
+        if isinstance(item, QtWidgets.QGraphicsRectItem) or isinstance(
+            item, QtWidgets.QGraphicsEllipseItem
+        ):
             rect = item.rect()
             item.setRect(rect.x(), rect.y(), target_w, target_h)
         elif isinstance(item, BlockArrowItem):
-            item._w = target_w  # type: ignore[assignment]
-            item._h = target_h  # type: ignore[assignment]
-            item._update_polygon()  # type: ignore[attr-defined]
-            item.setTransformOriginPoint(target_w / 2.0, target_h / 2.0)
-        elif hasattr(item, "set_size") and callable(getattr(item, "set_size")):
+            item.set_property_size(target_w, target_h)
+        elif hasattr(item, "set_size") and callable(item.set_size):
             try:
                 item.set_size(target_w, target_h)  # type: ignore[misc]
             except TypeError:
@@ -1273,7 +1230,9 @@ class PropertiesPanel(QtWidgets.QWidget):
             return float(rect.width()), float(rect.height())
         width_attr = getattr(item, "_w", None)
         height_attr = getattr(item, "_h", None)
-        if isinstance(width_attr, (int, float)) and isinstance(height_attr, (int, float)):
+        if isinstance(width_attr, (int, float)) and isinstance(
+            height_attr, (int, float)
+        ):
             return float(width_attr), float(height_attr)
         bounds = item.boundingRect()
         return float(bounds.width()), float(bounds.height())
@@ -1312,6 +1271,33 @@ class PropertiesPanel(QtWidgets.QWidget):
         return True
 
     @staticmethod
+    def _pen_style_value(item: Any) -> int:
+        style = item.pen().style()
+        if any(style == choice for _label, choice in LINE_STYLE_CHOICES):
+            return int(style.value)
+        return -1
+
+    @staticmethod
+    def _set_pen_style(item: Any, value: Any) -> bool:
+        try:
+            style = QtCore.Qt.PenStyle(int(value))
+        except (TypeError, ValueError):
+            return False
+        if all(style != choice for _label, choice in LINE_STYLE_CHOICES):
+            return False
+        if item.pen().style() == style:
+            return False
+        setter = getattr(item, "set_pen_style", None)
+        if callable(setter):
+            setter(style)
+        else:
+            pen = QtGui.QPen(item.pen())
+            pen.setStyle(style)
+            item.setPen(pen)
+            item.update()
+        return True
+
+    @staticmethod
     def _set_brush_color(item: Any, color: QtGui.QColor) -> bool:
         qcolor = QtGui.QColor(color)
         if not qcolor.isValid():
@@ -1325,7 +1311,9 @@ class PropertiesPanel(QtWidgets.QWidget):
         return False
 
     @staticmethod
-    def _set_split_brush_color(item: SplitRoundedRectItem, which: str, color: QtGui.QColor) -> bool:
+    def _set_split_brush_color(
+        item: SplitRoundedRectItem, which: str, color: QtGui.QColor
+    ) -> bool:
         qcolor = QtGui.QColor(color)
         if not qcolor.isValid():
             return False
