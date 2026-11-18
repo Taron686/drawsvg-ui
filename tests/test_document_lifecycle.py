@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 import pytest
-from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6 import QtCore, QtWidgets
 
 import main_window
 from document_controller import DocumentWindowRegistry
@@ -48,8 +48,12 @@ def test_multiple_selected_items_enable_transform_properties(
     application: QtWidgets.QApplication, tmp_path: Path
 ) -> None:
     window = _window(tmp_path)
-    first = window.canvas.add_shape("Rectangle", QtCore.QPointF(10, 10), snap_to_grid=False)
-    second = window.canvas.add_shape("Ellipse", QtCore.QPointF(50, 10), snap_to_grid=False)
+    first = window.canvas.add_shape(
+        "Rectangle", QtCore.QPointF(10, 10), snap_to_grid=False
+    )
+    second = window.canvas.add_shape(
+        "Ellipse", QtCore.QPointF(50, 10), snap_to_grid=False
+    )
     assert first is not None and second is not None
     first.setSelected(True)
     second.setSelected(True)
@@ -64,8 +68,12 @@ def test_locked_layer_disables_transform_properties_for_multi_selection(
     application: QtWidgets.QApplication, tmp_path: Path
 ) -> None:
     window = _window(tmp_path)
-    first = window.canvas.add_shape("Rectangle", QtCore.QPointF(10, 10), snap_to_grid=False)
-    second = window.canvas.add_shape("Ellipse", QtCore.QPointF(50, 10), snap_to_grid=False)
+    first = window.canvas.add_shape(
+        "Rectangle", QtCore.QPointF(10, 10), snap_to_grid=False
+    )
+    second = window.canvas.add_shape(
+        "Ellipse", QtCore.QPointF(50, 10), snap_to_grid=False
+    )
     assert first is not None and second is not None
     manager = window.canvas.layer_manager()
     assert manager.set_layer_locked(manager.layers()[0].id, True)
@@ -115,12 +123,13 @@ def test_save_and_undo_track_document_dirty_state_and_title(
         assert window.document_controller.path == project_path.resolve()
         assert not window.document_controller.dirty
         assert window.windowTitle() == "drawing.drawsvg — DrawSVG UI"
-        assert load_project(project_path).document_id == window.document_controller.document_id
+        assert (
+            load_project(project_path).document_id
+            == window.document_controller.document_id
+        )
 
         item = next(
-            item
-            for item in window.canvas.scene().items()
-            if isinstance(item, RectItem)
+            item for item in window.canvas.scene().items() if isinstance(item, RectItem)
         )
         item.moveBy(25.0, 0.0)
         window.canvas.history().capture_now()
@@ -145,7 +154,10 @@ def test_new_windows_keep_uuid_history_and_dirty_state_separate(
         _dirty(first)
 
         assert registry.windows() == (first, second)
-        assert first.document_controller.document_id != second.document_controller.document_id
+        assert (
+            first.document_controller.document_id
+            != second.document_controller.document_id
+        )
         assert first.document_controller.dirty
         assert not second.document_controller.dirty
         assert first.canvas.history().can_undo()
@@ -217,9 +229,7 @@ def test_restore_rejects_unknown_shape_without_clearing_current_scene(
         assert original is not None
 
         with pytest.raises(ValueError, match="Unknown shape: Unknown Shape"):
-            window.canvas._restore_scene_state(
-                {"items": [{"shape": "Unknown Shape"}]}
-            )
+            window.canvas._restore_scene_state({"items": [{"shape": "Unknown Shape"}]})
 
         assert original in window.canvas.scene().items()
     finally:
@@ -272,7 +282,10 @@ def test_recovery_is_uuid_scoped_and_skips_duplicate_snapshots(
             second.document_controller.document_id,
         }
         assert len(tuple((tmp_path / "recovery").glob("*.drawsvg"))) == 2
-        assert all(store.load(candidate).document_id == candidate.document_id for candidate in candidates)
+        assert all(
+            store.load(candidate).document_id == candidate.document_id
+            for candidate in candidates
+        )
     finally:
         _force_close(registry)
 
@@ -317,9 +330,10 @@ def test_recovery_is_only_offered_when_newer_than_its_source(
         assert window.document_controller.write_recovery_if_needed()
         assert len(store.candidates()) == 1
 
-        future = max(
-            candidate.recovered_at_ns for candidate in store.candidates()
-        ) + 1_000_000_000
+        future = (
+            max(candidate.recovered_at_ns for candidate in store.candidates())
+            + 1_000_000_000
+        )
         os.utime(project_path, ns=(future, future))
         assert store.candidates() == ()
     finally:
@@ -365,7 +379,8 @@ def test_startup_recovery_recovers_one_candidate_per_start(
     candidates = store.candidates()
     preserved = {
         candidate.document_id: (
-            candidate.archive_path.read_bytes(), candidate.metadata_path.read_bytes()
+            candidate.archive_path.read_bytes(),
+            candidate.metadata_path.read_bytes(),
         )
         for candidate in candidates
     }
@@ -387,7 +402,8 @@ def test_startup_recovery_recovers_one_candidate_per_start(
         assert startup.document_controller.dirty
         for candidate in candidates:
             assert (
-                candidate.archive_path.read_bytes(), candidate.metadata_path.read_bytes()
+                candidate.archive_path.read_bytes(),
+                candidate.metadata_path.read_bytes(),
             ) == preserved[candidate.document_id]
         assert startup._save_document_to(tmp_path / "recovered.drawsvg")
         _force_close(registry)
@@ -402,7 +418,10 @@ def test_startup_recovery_recovers_one_candidate_per_start(
         assert offered == [candidates[0].document_id, candidates[1].document_id]
         assert registry.windows() == (next_start,)
         assert next_start.document_controller.document_id == candidates[1].document_id
-        assert candidates[1].archive_path.read_bytes() == preserved[candidates[1].document_id][0]
+        assert (
+            candidates[1].archive_path.read_bytes()
+            == preserved[candidates[1].document_id][0]
+        )
     finally:
         _force_close(registry)
 

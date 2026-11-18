@@ -8,7 +8,11 @@ import pytest
 from PySide6 import QtWidgets
 
 from canvas_view import CanvasView
-from document_format import CURRENT_FORMAT_VERSION, PROJECT_JSON_PATH, UnsupportedFormatVersionError
+from document_format import (
+    CURRENT_FORMAT_VERSION,
+    PROJECT_JSON_PATH,
+    UnsupportedFormatVersionError,
+)
 from document_io import load_project, save_project
 from import_drawsvg import import_drawsvg_py
 
@@ -47,7 +51,10 @@ def test_supported_v1_projects_load_and_resave_with_current_writer(
         persisted = json.loads(archive.read(PROJECT_JSON_PATH))
     assert loaded.document_id == payload["document_id"]
     assert loaded.scene == payload["scene"]
-    assert any(item.data(0) == payload["scene"]["items"][0]["type_id"] for item in canvas.scene().items())
+    assert any(
+        item.data(0) == payload["scene"]["items"][0]["type_id"]
+        for item in canvas.scene().items()
+    )
     assert persisted["format_version"] == CURRENT_FORMAT_VERSION
     assert persisted["scene"] == payload["scene"]
 

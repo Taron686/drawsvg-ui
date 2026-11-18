@@ -17,12 +17,13 @@ from main_window import MainWindow
 RECOVERY_ENABLED = False
 
 
-def main():
+def main() -> int:
     restore_hook = install_excepthook()
     start_session()
     try:
         app = QtWidgets.QApplication(sys.argv)
-        app.setStyle("Fusion")
+        available_styles = QtWidgets.QStyleFactory.keys()
+        app.setStyle("windows11" if "windows11" in available_styles else "Fusion")
         win = MainWindow(
             recovery_enabled=RECOVERY_ENABLED,
             check_startup_recovery=RECOVERY_ENABLED,

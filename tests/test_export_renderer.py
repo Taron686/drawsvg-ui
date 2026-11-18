@@ -21,8 +21,11 @@ from items import RectItem
 @pytest.mark.parametrize("rotation", [0.0, 27.0])
 @pytest.mark.parametrize("area", [ExportArea.CANVAS, ExportArea.SELECTION])
 def test_curved_content_exports_without_control_point_margins(
-    application: QtWidgets.QApplication, tmp_path: Path,
-    kind: str, rotation: float, area: ExportArea,
+    application: QtWidgets.QApplication,
+    tmp_path: Path,
+    kind: str,
+    rotation: float,
+    area: ExportArea,
 ) -> None:
     from items.shapes.diagrams import DiagramItem
 
@@ -40,6 +43,7 @@ def test_curved_content_exports_without_control_point_margins(
     svg = QtGui.QImage(png.size(), QtGui.QImage.Format.Format_ARGB32_Premultiplied)
     svg.fill(QtCore.Qt.GlobalColor.white)
     from PySide6 import QtSvg
+
     painter = QtGui.QPainter(svg)
     QtSvg.QSvgRenderer(str(svg_path)).render(painter)
     painter.end()
@@ -49,12 +53,15 @@ def test_curved_content_exports_without_control_point_margins(
         pdf = document.render(0, document.pagePointSize(0).toSize())
         for image in (png, svg, pdf):
             pixels = [
-                (x, y) for y in range(image.height()) for x in range(image.width())
+                (x, y)
+                for y in range(image.height())
+                for x in range(image.width())
                 if image.pixelColor(x, y).alpha() > 128
                 and image.pixelColor(x, y).red() < 128
             ]
             margins = (
-                min(x for x, y in pixels), min(y for x, y in pixels),
+                min(x for x, y in pixels),
+                min(y for x, y in pixels),
                 image.width() - 1 - max(x for x, y in pixels),
                 image.height() - 1 - max(y for x, y in pixels),
             )
@@ -67,20 +74,28 @@ def test_curved_content_exports_without_control_point_margins(
 @pytest.mark.parametrize("head_length", [10.0, 30.0])
 @pytest.mark.parametrize("text_strategy", list(TextStrategy))
 def test_pdf_arrow_tip_matches_raster_contour(
-    application: QtWidgets.QApplication, tmp_path: Path,
-    head_length: float, text_strategy: TextStrategy,
+    application: QtWidgets.QApplication,
+    tmp_path: Path,
+    head_length: float,
+    text_strategy: TextStrategy,
 ) -> None:
     from items import LineItem
 
     scene = QtWidgets.QGraphicsScene()
-    scene.addItem(LineItem(
-        0.0, 0.0, arrow_end=True, arrow_head_length=head_length,
-        points=[QtCore.QPointF(150, 150), QtCore.QPointF(50, 50)],
-    ))
+    scene.addItem(
+        LineItem(
+            0.0,
+            0.0,
+            arrow_end=True,
+            arrow_head_length=head_length,
+            points=[QtCore.QPointF(150, 150), QtCore.QPointF(50, 50)],
+        )
+    )
     renderer = ExportRenderer(scene)
     request = ExportRequest(
         area=ExportArea.CURRENT_PAGE,
-        current_page=QtCore.QRectF(0, 0, 200, 200), scale=8,
+        current_page=QtCore.QRectF(0, 0, 200, 200),
+        scale=8,
         text_strategy=text_strategy,
     )
     png = QtGui.QImage(str(renderer.export_png(tmp_path / "arrow.png", request)[0]))
@@ -91,11 +106,15 @@ def test_pdf_arrow_tip_matches_raster_contour(
         pdf = document.render(0, png.size())
         tips = []
         for image in (png, pdf):
-            tips.append(min(
-                x + y for y in range(350, 420) for x in range(350, 420)
-                if image.pixelColor(x, y).alpha() > 128
-                and image.pixelColor(x, y).red() < 128
-            ))
+            tips.append(
+                min(
+                    x + y
+                    for y in range(350, 420)
+                    for x in range(350, 420)
+                    if image.pixelColor(x, y).alpha() > 128
+                    and image.pixelColor(x, y).red() < 128
+                )
+            )
         assert abs(tips[0] - tips[1]) <= 3, tips
         assert b"/Subtype /Image" not in pdf_path.read_bytes()
     finally:
@@ -105,8 +124,10 @@ def test_pdf_arrow_tip_matches_raster_contour(
 @pytest.mark.parametrize("area", [ExportArea.CANVAS, ExportArea.ALL_PAGES])
 @pytest.mark.parametrize("text_strategy", list(TextStrategy))
 def test_pdf_preserves_content_at_all_page_edges(
-    application: QtWidgets.QApplication, tmp_path: Path,
-    area: ExportArea, text_strategy: TextStrategy,
+    application: QtWidgets.QApplication,
+    tmp_path: Path,
+    area: ExportArea,
+    text_strategy: TextStrategy,
 ) -> None:
     scene = QtWidgets.QGraphicsScene()
     scene.addItem(_rectangle(100.0, 120.0, 80.0, 60.0, "#ff0000"))
@@ -169,7 +190,10 @@ def test_all_pages_uses_numbered_svg_and_png_files(
     scene.addItem(_rectangle(0.0, 0.0, 10.0, 10.0, "#d94f4f"))
     request = ExportRequest(
         area=ExportArea.ALL_PAGES,
-        pages=(QtCore.QRectF(0.0, 0.0, 20.0, 20.0), QtCore.QRectF(30.0, 0.0, 20.0, 20.0)),
+        pages=(
+            QtCore.QRectF(0.0, 0.0, 20.0, 20.0),
+            QtCore.QRectF(30.0, 0.0, 20.0, 20.0),
+        ),
     )
     renderer = ExportRenderer(scene)
 

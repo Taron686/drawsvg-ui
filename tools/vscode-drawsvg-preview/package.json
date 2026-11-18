@@ -1,0 +1,82 @@
+{
+  "name": "drawsvg-preview",
+  "displayName": "drawsvg Preview",
+  "description": "Shows the SVG produced by a drawsvg Python script next to the editor.",
+  "version": "0.1.1",
+  "publisher": "local",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Taron686/drawsvg-ui.git",
+    "directory": "tools/vscode-drawsvg-preview"
+  },
+  "engines": { "vscode": "^1.90.0" },
+  "categories": ["Visualization"],
+  "main": "./dist/extension.js",
+  "activationEvents": ["onLanguage:python"],
+  "extensionKind": ["workspace"],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "The preview runs the Python file, so it only renders in trusted workspaces."
+    },
+    "virtualWorkspaces": false
+  },
+  "contributes": {
+    "commands": [
+      { "command": "drawsvgPreview.open", "title": "drawsvg: Open Preview", "category": "drawsvg" }
+    ],
+    "keybindings": [
+      {
+        "command": "drawsvgPreview.open",
+        "key": "ctrl+d",
+        "mac": "cmd+d",
+        "when": "editorTextFocus && editorLangId == python && drawsvgPreview.isDrawsvgFile"
+      }
+    ],
+    "configuration": {
+      "title": "drawsvg Preview",
+      "properties": {
+        "drawsvgPreview.pythonPath": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "Python interpreter used for rendering. Empty: interpreter selected in the Python extension, then .venv in the workspace, then 'python'."
+        },
+        "drawsvgPreview.renderOn": {
+          "type": "string",
+          "enum": ["save", "type"],
+          "default": "type",
+          "description": "Re-render on save, and also while typing when set to 'type' (debounced)."
+        },
+        "drawsvgPreview.debounceMs": {
+          "type": "number",
+          "default": 300,
+          "minimum": 50,
+          "description": "Delay before re-rendering while typing."
+        },
+        "drawsvgPreview.timeoutMs": {
+          "type": "number",
+          "default": 10000,
+          "minimum": 1000,
+          "description": "Maximum time one render may take."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node esbuild.mjs --test && node --test dist-test/detection.test.js",
+    "package": "npm run build && vsce package --no-dependencies --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  }
+}

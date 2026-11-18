@@ -9,9 +9,7 @@ from properties_panel import PlainTextEditor, PropertiesPanel
 def test_single_selection_snapshot_keeps_raw_panel_data_without_formatted_lists(
     canvas_view,
 ) -> None:
-    item = canvas_view.add_shape(
-        "Text", QtCore.QPointF(10.0, 10.0), snap_to_grid=False
-    )
+    item = canvas_view.add_shape("Text", QtCore.QPointF(10.0, 10.0), snap_to_grid=False)
     assert isinstance(item, TextItem)
     item.setPlainText("Raw text")
     item.setSelected(True)

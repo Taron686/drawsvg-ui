@@ -81,6 +81,12 @@ class ConnectorItem(QtWidgets.QGraphicsPathItem):
         self.setPen(pen or QtGui.QPen(QtGui.QColor("#303030"), 2.0))
         self.setZValue(-0.25)
 
+    def hidden_by_target(self) -> bool:
+        return self._hidden_by_target
+
+    def set_hidden_by_target(self, hidden: bool) -> None:
+        self._hidden_by_target = hidden
+
     def route_points(self) -> tuple[QtCore.QPointF, ...]:
         return tuple(QtCore.QPointF(point) for point in self._route_points)
 
@@ -136,9 +142,12 @@ class ConnectorItem(QtWidgets.QGraphicsPathItem):
 class ConnectorManager(QtCore.QObject):
     """Resolve bindings and reroute only connectors affected by geometry changes."""
 
+    # Emitted when a connector's painted route actually moved.
+    routeChanged = QtCore.Signal()  # noqa: N815 - Qt signal naming
+
     def __init__(
         self, scene: QtWidgets.QGraphicsScene, parent: QtCore.QObject | None = None
-    ):
+    ) -> None:
         super().__init__(parent)
         self._scene = scene
         self._connectors: set[ConnectorItem] = set()
@@ -235,27 +244,6 @@ class ConnectorManager(QtCore.QObject):
             self._register_binding(connector, connector.end_endpoint.target_id)
             self.update_connector(connector)
 
-    def bind_endpoint(
-        self,
-        connector: ConnectorItem,
-        role: EndpointRole,
-        target: QtWidgets.QGraphicsItem,
-        *,
-        anchor: AnchorName = "auto",
-    ) -> None:
-        endpoint = self.endpoint_for(target, anchor=anchor)
-        self._set_endpoint(connector, role, endpoint)
-        self.update_connector(connector)
-
-    def set_free_endpoint(
-        self,
-        connector: ConnectorItem,
-        role: EndpointRole,
-        position: QtCore.QPointF,
-    ) -> None:
-        self._set_endpoint(connector, role, ConnectorEndpoint.free(position))
-        self.update_connector(connector)
-
     def notify_item_geometry_changed(self, item: QtWidgets.QGraphicsItem) -> None:
         affected: set[ConnectorItem] = set()
         pending = [item]
@@ -320,7 +308,10 @@ class ConnectorManager(QtCore.QObject):
             points, obstacle_count = self._orthogonal_route(connector, start, end)
         connector.start_endpoint = replace(connector.start_endpoint, position=start)
         connector.end_endpoint = replace(connector.end_endpoint, position=end)
+        previous_route = connector.route_points()
         connector.set_route_points(points)
+        if connector.route_points() != previous_route:
+            self.routeChanged.emit()
         self._last_obstacle_count = obstacle_count
         self._reroute_count += 1
 
@@ -334,10 +325,10 @@ class ConnectorManager(QtCore.QObject):
         )
         if target_hidden:
             if connector.isVisible():
-                connector._hidden_by_target = True
+                connector.set_hidden_by_target(True)
                 connector.setVisible(False)
-        elif connector._hidden_by_target:
-            connector._hidden_by_target = False
+        elif connector.hidden_by_target():
+            connector.set_hidden_by_target(False)
             if self._is_visible_in_layers(connector):
                 connector.setVisible(True)
 
@@ -347,9 +338,8 @@ class ConnectorManager(QtCore.QObject):
         if not callable(layer_manager):
             return True
         manager = layer_manager()
-        return (
-            manager.layer_for_item(connector).visible
-            and manager.item_visible(connector)
+        return manager.layer_for_item(connector).visible and manager.item_visible(
+            connector
         )
 
     def refresh_visibility(self) -> None:

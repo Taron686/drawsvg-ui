@@ -14,12 +14,13 @@ from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from constants import DEFAULT_TEXT_COLOR, DEFAULT_FONT_FAMILY
+
 if TYPE_CHECKING:  # pragma: no cover - only for type checkers
     from .shapes.rects import RectItem
 
 
 class _ShapeLabelItem(QtWidgets.QGraphicsTextItem):
-    def __init__(self, parent: "RectItem") -> None:
+    def __init__(self, parent: RectItem) -> None:
         super().__init__("", parent)
         self.setFont(QtGui.QFont(DEFAULT_FONT_FAMILY))
         self.setDefaultTextColor(DEFAULT_TEXT_COLOR)
@@ -28,7 +29,9 @@ class _ShapeLabelItem(QtWidgets.QGraphicsTextItem):
         self.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.NoTextInteraction)
         self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
         self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
-        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, False)
+        self.setFlag(
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, False
+        )
         self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
         self.setZValue(1.0)
         doc = self.document()
@@ -41,7 +44,7 @@ class _ShapeLabelItem(QtWidgets.QGraphicsTextItem):
         super().focusOutEvent(event)
         parent = self.parentItem()
         if isinstance(parent, ShapeLabelMixin):
-            parent._finish_label_edit()
+            parent._finish_label_edit()  # noqa: SLF001 - paired helper and item
 
 
 class ShapeLabelMixin:
@@ -199,14 +202,18 @@ class ShapeLabelMixin:
             if isinstance(override, QtGui.QColor) and override.isValid():
                 target = QtGui.QColor(override)
             else:
-                base = getattr(self, "_label_base_color", QtGui.QColor(DEFAULT_TEXT_COLOR))
+                base = getattr(
+                    self, "_label_base_color", QtGui.QColor(DEFAULT_TEXT_COLOR)
+                )
                 target = QtGui.QColor(base)
             self._label.setDefaultTextColor(target)
 
     def _begin_label_edit(self) -> None:
         self._label.setVisible(True)
         self._apply_label_alignment()
-        self._label.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextEditorInteraction)
+        self._label.setTextInteractionFlags(
+            QtCore.Qt.TextInteractionFlag.TextEditorInteraction
+        )
         self._label.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
         self._label.setFocus(QtCore.Qt.FocusReason.MouseFocusReason)
         cursor = self._label.textCursor()
@@ -220,7 +227,9 @@ class ShapeLabelMixin:
         if cursor.hasSelection():
             cursor.clearSelection()
             self._label.setTextCursor(cursor)
-        self._label.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.NoTextInteraction)
+        self._label.setTextInteractionFlags(
+            QtCore.Qt.TextInteractionFlag.NoTextInteraction
+        )
         self._label.setAcceptedMouseButtons(QtCore.Qt.MouseButton.NoButton)
         self._label.clearFocus()
 
@@ -232,7 +241,7 @@ class ShapeLabelMixin:
             self._label.setVisible(False)
         self._update_label_geometry()
 
-    def copy_label_from(self, other: "ShapeLabelMixin") -> None:
+    def copy_label_from(self, other: ShapeLabelMixin) -> None:
         if not isinstance(other, ShapeLabelMixin):
             return
         self._label_h_align, self._label_v_align = other.label_alignment()
@@ -241,11 +250,15 @@ class ShapeLabelMixin:
         if other.label_has_custom_color():
             self.set_label_color(other.label_color())
         else:
-            self.reset_label_color(update=True, base_color=other_label.defaultTextColor())
+            self.reset_label_color(
+                update=True, base_color=other_label.defaultTextColor()
+            )
         self._apply_label_alignment()
         self.set_label_text(other.label_text())
 
-    def itemChange(self, change, value):  # type: ignore[override]
+    def itemChange(
+        self, change: QtWidgets.QGraphicsItem.GraphicsItemChange, value: object
+    ) -> object:  # type: ignore[override]
         if change == QtWidgets.QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
             if not bool(value):
                 self._clear_label_highlight()

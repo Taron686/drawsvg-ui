@@ -23,7 +23,7 @@ DIVIDER_HANDLE_DIAMETER = 10.0
 
 
 if TYPE_CHECKING:  # pragma: no cover - only for type checkers
-    from .shapes.polygons import DiamondItem, TriangleItem
+    pass
 
 
 def _origin_component(origin: Any, axis: str) -> float:
@@ -76,7 +76,9 @@ def snap_to_grid(item: QtWidgets.QGraphicsItem, pos: QtCore.QPointF) -> QtCore.Q
     return pos
 
 
-def _local_axis_units(item: QtWidgets.QGraphicsItem) -> tuple[QtCore.QPointF, QtCore.QPointF]:
+def _local_axis_units(
+    item: QtWidgets.QGraphicsItem,
+) -> tuple[QtCore.QPointF, QtCore.QPointF]:
     """Unit vectors for the local +X and +Y axes in scene space."""
 
     transform = item.sceneTransform()
@@ -205,7 +207,7 @@ def build_curvy_bracket_path(w: float, h: float, hook: float) -> QtGui.QPainterP
 class HandleAwareItemMixin:
     """Shared ``itemChange`` implementation for items with interactive handles."""
 
-    def _snap_position_value(self, value):
+    def _snap_position_value(self, value: object) -> object:
         if isinstance(value, QtCore.QPointF):
             mods = QtWidgets.QApplication.keyboardModifiers()
             if not mods & QtCore.Qt.KeyboardModifier.AltModifier:
@@ -218,10 +220,14 @@ class HandleAwareItemMixin:
         else:
             self.hide_handles()
 
-    def itemChange(self, change, value):  # type: ignore[override]
+    def itemChange(
+        self, change: QtWidgets.QGraphicsItem.GraphicsItemChange, value: object
+    ) -> object:  # type: ignore[override]
         if change == QtWidgets.QGraphicsItem.GraphicsItemChange.ItemPositionChange:
             value = self._snap_position_value(value)
-        elif change == QtWidgets.QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
+        elif (
+            change == QtWidgets.QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged
+        ):
             self._handle_selection_changed(bool(value))
         elif change in (
             QtWidgets.QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged,
@@ -235,7 +241,7 @@ class HandleAwareItemMixin:
 class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
     """Interactive resize handle."""
 
-    def __init__(self, parent: QtWidgets.QGraphicsItem, direction: str):
+    def __init__(self, parent: QtWidgets.QGraphicsItem, direction: str) -> None:
         super().__init__(
             -HANDLE_SIZE / 2.0,
             -HANDLE_SIZE / 2.0,
@@ -247,7 +253,9 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
         self.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
         self._direction = direction
-        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+        self.setFlag(
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
+        )
 
         self._start_pos_scene: QtCore.QPointF | None = None
         self._parent_start_pos: QtCore.QPointF | None = None
@@ -262,25 +270,32 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
         rotation = getattr(parent, "rotation", lambda: 0.0)()
         self.setCursor(_cursor_for_dir_rotated(direction, rotation))
 
-    def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
+    def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
         parent = self.parentItem()
         self._start_pos_scene = event.scenePos()
         self._parent_start_pos = QtCore.QPointF(parent.pos())
         self._ex_u, self._ey_u = _local_axis_units(parent)
 
-        if isinstance(parent, (QtWidgets.QGraphicsRectItem, QtWidgets.QGraphicsEllipseItem)):
+        if isinstance(
+            parent, (QtWidgets.QGraphicsRectItem, QtWidgets.QGraphicsEllipseItem)
+        ):
             rect = parent.rect()
             self._w0, self._h0 = rect.width(), rect.height()
             self._start_rx = getattr(parent, "rx", 0.0)
             self._start_ry = getattr(parent, "ry", 0.0)
         else:
-            from .shapes.polygons import DiamondItem, TriangleItem  # local import to avoid cycles
+            from .shapes.polygons import (
+                DiamondItem,
+                TriangleItem,
+            )  # local import to avoid cycles
 
             if isinstance(parent, (TriangleItem, DiamondItem)):
-                self._w0, self._h0 = parent._w, parent._h  # type: ignore[attr-defined]
+                self._w0, self._h0 = parent.size()
             else:
                 handle_rect = getattr(parent, "_handle_rect", None)
-                bounds = handle_rect() if callable(handle_rect) else parent.boundingRect()
+                bounds = (
+                    handle_rect() if callable(handle_rect) else parent.boundingRect()
+                )
                 self._w0, self._h0 = bounds.width(), bounds.height()
 
         flags = parent.flags()
@@ -288,10 +303,12 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
             flags & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
         )
         if self._parent_was_movable:
-            parent.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+            parent.setFlag(
+                QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False
+            )
         event.accept()
 
-    def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
+    def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
         if self._start_pos_scene is None:
             event.ignore()
             return
@@ -309,6 +326,51 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
         dx_local = delta_scene.x() * self._ex_u.x() + delta_scene.y() * self._ex_u.y()
         dy_local = delta_scene.x() * self._ey_u.x() + delta_scene.y() * self._ey_u.y()
 
+        new_w, new_h, shift_x, shift_y = self._resize_dimensions(
+            parent, dx_local, dy_local, snap_scene
+        )
+
+        if isinstance(parent, QtWidgets.QGraphicsRectItem):
+            parent.setRect(0, 0, new_w, new_h)
+            if hasattr(parent, "rx") and hasattr(parent, "ry"):
+                sx = new_w / (self._w0 or 1.0)
+                sy = new_h / (self._h0 or 1.0)
+                scale = min(sx, sy)
+                max_r = min(new_w, new_h) / 2.0
+                new_r = min(self._start_rx, self._start_ry) * scale
+                parent.rx = parent.ry = min(new_r, max_r, 50.0)
+        elif isinstance(parent, QtWidgets.QGraphicsEllipseItem):
+            parent.setRect(0, 0, new_w, new_h)
+        elif hasattr(parent, "set_size") and callable(
+            getattr(parent, "set_size", None)
+        ):
+            parent.set_size(new_w, new_h, adjust_origin=False)  # type: ignore[attr-defined]
+        else:
+            bounds = parent.boundingRect()
+            sx = new_w / (bounds.width() or 1.0)
+            sy = new_h / (bounds.height() or 1.0)
+            parent.setScale(max(sx, sy))
+
+        if shift_x or shift_y:
+            delta_scene = QtCore.QPointF(
+                shift_x * self._ex_u.x() + shift_y * self._ey_u.x(),
+                shift_x * self._ex_u.y() + shift_y * self._ey_u.y(),
+            )
+            parent.setPos(self._parent_start_pos + delta_scene)
+        else:
+            parent.setPos(self._parent_start_pos)
+
+        if hasattr(parent, "update_handles"):
+            parent.update_handles()
+        event.accept()
+
+    def _resize_dimensions(
+        self,
+        parent: QtWidgets.QGraphicsItem,
+        dx_local: float,
+        dy_local: float,
+        snap_scene: bool,
+    ) -> tuple[float, float, float, float]:
         min_w, min_h = 10.0, 10.0
 
         new_w, new_h = self._w0, self._h0
@@ -355,56 +417,40 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
             new_h = max(min_h, self._h0 + dy_local)
 
         if snap_scene:
-            grid = 10
-            scene = parent.scene()
-            if scene and scene.views():
-                grid = getattr(scene.views()[0], "_grid_size_min", 10)
-
-            def snap(value: float) -> float:
-                return round(value / grid) * grid
-
-            if "left" in self._direction or "right" in self._direction:
-                new_w = max(min_w, snap(new_w))
-                if self._direction in ("left", "top_left", "bottom_left"):
-                    shift_x = self._w0 - new_w
-            if "top" in self._direction or "bottom" in self._direction:
-                new_h = max(min_h, snap(new_h))
-                if self._direction in ("top", "top_left", "top_right"):
-                    shift_y = self._h0 - new_h
-
-        if isinstance(parent, QtWidgets.QGraphicsRectItem):
-            parent.setRect(0, 0, new_w, new_h)
-            if hasattr(parent, "rx") and hasattr(parent, "ry"):
-                sx = new_w / (self._w0 or 1.0)
-                sy = new_h / (self._h0 or 1.0)
-                scale = min(sx, sy)
-                max_r = min(new_w, new_h) / 2.0
-                new_r = min(self._start_rx, self._start_ry) * scale
-                parent.rx = parent.ry = min(new_r, max_r, 50.0)
-        elif isinstance(parent, QtWidgets.QGraphicsEllipseItem):
-            parent.setRect(0, 0, new_w, new_h)
-        elif hasattr(parent, "set_size") and callable(getattr(parent, "set_size", None)):
-            parent.set_size(new_w, new_h, adjust_origin=False)  # type: ignore[attr-defined]
-        else:
-            bounds = parent.boundingRect()
-            sx = new_w / (bounds.width() or 1.0)
-            sy = new_h / (bounds.height() or 1.0)
-            parent.setScale(max(sx, sy))
-
-        if shift_x or shift_y:
-            delta_scene = QtCore.QPointF(
-                shift_x * self._ex_u.x() + shift_y * self._ey_u.x(),
-                shift_x * self._ex_u.y() + shift_y * self._ey_u.y(),
+            new_w, new_h, shift_x, shift_y = self._snap_resize_dimensions(
+                parent, new_w, new_h, shift_x, shift_y
             )
-            parent.setPos(self._parent_start_pos + delta_scene)
-        else:
-            parent.setPos(self._parent_start_pos)
+        return new_w, new_h, shift_x, shift_y
 
-        if hasattr(parent, "update_handles"):
-            parent.update_handles()
-        event.accept()
+    def _snap_resize_dimensions(
+        self,
+        parent: QtWidgets.QGraphicsItem,
+        new_w: float,
+        new_h: float,
+        shift_x: float,
+        shift_y: float,
+    ) -> tuple[float, float, float, float]:
+        min_w, min_h = 10.0, 10.0
+        grid = 10
+        scene = parent.scene()
+        if scene and scene.views():
+            grid = getattr(scene.views()[0], "_grid_size_min", 10)
 
-    def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
+        def snap(value: float) -> float:
+            return round(value / grid) * grid
+
+        if "left" in self._direction or "right" in self._direction:
+            new_w = max(min_w, snap(new_w))
+            if self._direction in ("left", "top_left", "bottom_left"):
+                shift_x = self._w0 - new_w
+        if "top" in self._direction or "bottom" in self._direction:
+            new_h = max(min_h, snap(new_h))
+            if self._direction in ("top", "top_left", "top_right"):
+                shift_y = self._h0 - new_h
+
+        return new_w, new_h, shift_x, shift_y
+
+    def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
         parent = self.parentItem()
         changes_geometry = isinstance(
             parent, (QtWidgets.QGraphicsRectItem, QtWidgets.QGraphicsEllipseItem)
@@ -445,7 +491,7 @@ class ResizeHandle(QtWidgets.QGraphicsEllipseItem):
 class RotationHandle(QtWidgets.QGraphicsPixmapItem):
     """Handle for rotating an item."""
 
-    def __init__(self, parent: QtWidgets.QGraphicsItem):
+    def __init__(self, parent: QtWidgets.QGraphicsItem) -> None:
         pix = QtGui.QPixmap(20, 20)
         pix.fill(QtCore.Qt.GlobalColor.transparent)
         painter = QtGui.QPainter(pix)
@@ -468,7 +514,9 @@ class RotationHandle(QtWidgets.QGraphicsPixmapItem):
         self.setShapeMode(QtWidgets.QGraphicsPixmapItem.ShapeMode.BoundingRectShape)
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
         self.setCursor(QtCore.Qt.CursorShape.OpenHandCursor)
-        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+        self.setFlag(
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
+        )
         self._start_angle = None
         self._start_rotation = 0.0
         self._center = QtCore.QPointF()
@@ -476,7 +524,7 @@ class RotationHandle(QtWidgets.QGraphicsPixmapItem):
         self._angle_label: QtWidgets.QGraphicsSimpleTextItem | None = None
         self._angle_label_bg: QtWidgets.QGraphicsRectItem | None = None
 
-    def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
+    def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
         parent = self.parentItem()
         pos = event.scenePos()
         self._center = parent.sceneBoundingRect().center()
@@ -489,7 +537,9 @@ class RotationHandle(QtWidgets.QGraphicsPixmapItem):
             flags & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
         )
         if self._parent_was_movable:
-            parent.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+            parent.setFlag(
+                QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False
+            )
         self.setCursor(QtCore.Qt.CursorShape.ClosedHandCursor)
         if parent.scene():
             scene = parent.scene()
@@ -506,7 +556,7 @@ class RotationHandle(QtWidgets.QGraphicsPixmapItem):
         self._update_label(parent.rotation())
         event.accept()
 
-    def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
+    def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
         if self._start_angle is None:
             event.ignore()
             return
@@ -526,7 +576,7 @@ class RotationHandle(QtWidgets.QGraphicsPixmapItem):
             parent.update_handles()
         event.accept()
 
-    def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
+    def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
         parent = self.parentItem()
         if self._parent_was_movable:
             parent.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
@@ -566,14 +616,14 @@ class RotationHandle(QtWidgets.QGraphicsPixmapItem):
 class ResizableItem(HandleAwareItemMixin):
     """Mixin that adds eight resize handles and a rotation handle."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._handles: list[ResizeHandle] = []
         self._rotation_handle: RotationHandle | None = None
 
     def _handle_rect(self) -> QtCore.QRectF:
         return self.boundingRect()
 
-    def _ensure_handles(self):
+    def _ensure_handles(self) -> None:
         if self._handles:
             return
         directions = [
@@ -593,7 +643,7 @@ class ResizableItem(HandleAwareItemMixin):
         self._rotation_handle = RotationHandle(self)
         self._rotation_handle.hide()
 
-    def update_handles(self):
+    def update_handles(self) -> None:
         self._ensure_handles()
         rect = self._handle_rect()
         if rect.isNull():
@@ -614,7 +664,7 @@ class ResizableItem(HandleAwareItemMixin):
             handle.setPos(point)
             handle.setCursor(
                 _cursor_for_dir_rotated(
-                    handle._direction,
+                    handle._direction,  # noqa: SLF001 - paired helper and item
                     getattr(self, "rotation", lambda: 0.0)(),
                 )
             )
@@ -623,14 +673,14 @@ class ResizableItem(HandleAwareItemMixin):
             rotation_vector = QtCore.QPointF(rot_offset, -rot_offset)
             self._rotation_handle.setPos(rect.topRight() + rotation_vector)
 
-    def show_handles(self):
+    def show_handles(self) -> None:
         self.update_handles()
         for handle in self._handles:
             handle.show()
         if self._rotation_handle:
             self._rotation_handle.show()
 
-    def hide_handles(self):
+    def hide_handles(self) -> None:
         for handle in self._handles:
             handle.hide()
         if self._rotation_handle:

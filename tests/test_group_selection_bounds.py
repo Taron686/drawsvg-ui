@@ -14,9 +14,7 @@ def _clear_selection(canvas_view):
 
 
 def _rectangle(view, x, y, width=30, height=20):
-    item = view.add_shape(
-        "Rectangle", QtCore.QPointF(x, y), snap_to_grid=False
-    )
+    item = view.add_shape("Rectangle", QtCore.QPointF(x, y), snap_to_grid=False)
     item.setRect(0, 0, width, height)
     item.update_handles()
     return item
@@ -82,9 +80,11 @@ def test_nested_rotations_do_not_accumulate_empty_bounding_corners(canvas_view):
     inverse, invertible = group.sceneTransform().inverted()
     assert invertible
     content = QtCore.QRectF()
-    for item in (first, second, *[
-        child for child in group.childItems() if child.data(0) == "Rectangle"
-    ]):
+    for item in (
+        first,
+        second,
+        *[child for child in group.childItems() if child.data(0) == "Rectangle"],
+    ):
         transform = item.sceneTransform() * inverse
         rect = transform.mapRect(item.boundingRect())
         content = content.united(rect)
@@ -107,7 +107,8 @@ def test_restored_nested_selection_stays_tight(canvas_view, tmp_path, operation)
             state = load_project(path).scene
         view._restore_scene_state(state)
     restored = next(
-        item for item in view.scene().items()
+        item
+        for item in view.scene().items()
         if isinstance(item, GroupItem) and item.data(KEY_ITEM_ID) == group_id
     )
     restored.setSelected(True)

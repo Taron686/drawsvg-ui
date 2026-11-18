@@ -22,10 +22,16 @@ def _window(tmp_path, registry, settings):
     )
 
 
-@pytest.mark.parametrize("grid,alignment", [(False, False), (False, True), (True, False), (True, True)])
-def test_snap_actions_persist_independently_of_display_and_theme(application, tmp_path, grid, alignment):
+@pytest.mark.parametrize(
+    "grid,alignment", [(False, False), (False, True), (True, False), (True, True)]
+)
+def test_snap_actions_persist_independently_of_display_and_theme(
+    application, tmp_path, grid, alignment
+):
     registry = DocumentWindowRegistry()
-    settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
+    settings = QtCore.QSettings(
+        str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat
+    )
     window = _window(tmp_path, registry, settings)
     try:
         actions = {action.text(): action for action in window.menuView.actions()}
@@ -35,7 +41,9 @@ def test_snap_actions_persist_independently_of_display_and_theme(application, tm
         alignment_action = actions["Snap to guides and objects"]
         assert grid_action.isCheckable() and grid_action.isChecked()
         assert alignment_action.isCheckable() and alignment_action.isChecked()
-        item = window.canvas.add_shape("Rectangle", QtCore.QPointF(103, 107), snap_to_grid=False)
+        item = window.canvas.add_shape(
+            "Rectangle", QtCore.QPointF(103, 107), snap_to_grid=False
+        )
         window._set_theme("dark")
         window.canvas.history().capture_initial_state()
         before = window.canvas._serialize_scene_state()
@@ -71,7 +79,9 @@ def test_snap_actions_persist_independently_of_display_and_theme(application, tm
 
 def test_old_view_settings_default_missing_snap_keys_to_enabled(application, tmp_path):
     registry = DocumentWindowRegistry()
-    settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
+    settings = QtCore.QSettings(
+        str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat
+    )
     settings.setValue("view/settings_version", 1)
     settings.setValue("view/grid", False)
     settings.setValue("view/guides", False)
@@ -107,7 +117,9 @@ def test_about_menu_is_last_in_menu_bar(application, tmp_path) -> None:
 
 def test_template_opens_an_unsaved_document(application, tmp_path) -> None:
     registry = DocumentWindowRegistry()
-    settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
+    settings = QtCore.QSettings(
+        str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat
+    )
     window = _window(tmp_path, registry, settings)
     try:
         document_id = window.document_controller.document_id
@@ -133,9 +145,13 @@ def test_template_opens_an_unsaved_document(application, tmp_path) -> None:
             candidate.close()
 
 
-def test_theme_and_view_settings_are_restored_after_restart(application, tmp_path) -> None:
+def test_theme_and_view_settings_are_restored_after_restart(
+    application, tmp_path
+) -> None:
     registry = DocumentWindowRegistry()
-    settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
+    settings = QtCore.QSettings(
+        str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat
+    )
     window = _window(tmp_path, registry, settings)
     try:
         window.actionShow_grid.setChecked(False)
@@ -150,7 +166,9 @@ def test_theme_and_view_settings_are_restored_after_restart(application, tmp_pat
         assert restored.actionShow_grid.isChecked() is False
         assert restored.actionShow_guides.isChecked() is False
         restored_palette = QtWidgets.QWidget.palette(restored.centralWidget())
-        assert restored_palette.color(QtGui.QPalette.ColorRole.Window).name() == "#252526"
+        assert (
+            restored_palette.color(QtGui.QPalette.ColorRole.Window).name() == "#252526"
+        )
     finally:
         for candidate in registry.windows():
             candidate._force_close = True
@@ -178,9 +196,17 @@ def test_dark_and_light_themes_update_the_complete_window_chrome(
         application.processEvents()
         for widget in themed_widgets:
             palette = QtWidgets.QWidget.palette(widget)
-            surface_color = "#1e1e1e" if isinstance(widget, QtWidgets.QAbstractItemView) else "#252526"
-            assert palette.color(QtGui.QPalette.ColorRole.Window).name() == surface_color
-            assert palette.color(QtGui.QPalette.ColorRole.WindowText).name() == "#f0f0f0"
+            surface_color = (
+                "#1e1e1e"
+                if isinstance(widget, QtWidgets.QAbstractItemView)
+                else "#252526"
+            )
+            assert (
+                palette.color(QtGui.QPalette.ColorRole.Window).name() == surface_color
+            )
+            assert (
+                palette.color(QtGui.QPalette.ColorRole.WindowText).name() == "#f0f0f0"
+            )
         assert "background-color: #1e1e1e" in window.styleSheet()
         assert "alternate-background-color: #2d2d30" in window.styleSheet()
         assert window.canvas.backgroundBrush().color() == QtGui.QColor("#2d2d30")
@@ -219,7 +245,9 @@ def test_dark_and_light_themes_update_the_complete_window_chrome(
         window.close()
 
 
-def test_light_theme_stays_light_with_a_dark_standard_palette(application, tmp_path) -> None:
+def test_light_theme_stays_light_with_a_dark_standard_palette(
+    application, tmp_path
+) -> None:
     class DarkSystemStyle(QtWidgets.QProxyStyle):
         def standardPalette(self):
             palette = super().standardPalette()
@@ -242,10 +270,16 @@ def test_light_theme_stays_light_with_a_dark_standard_palette(application, tmp_p
     window = None
     try:
         application.setStyle(DarkSystemStyle("Fusion"))
-        assert application.style().standardPalette().color(
-            QtGui.QPalette.ColorRole.Window
-        ).lightness() < 80
-        settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
+        assert (
+            application.style()
+            .standardPalette()
+            .color(QtGui.QPalette.ColorRole.Window)
+            .lightness()
+            < 80
+        )
+        settings = QtCore.QSettings(
+            str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat
+        )
         window = _window(tmp_path, DocumentWindowRegistry(), settings)
         for theme in ("light", "dark", "light"):
             window._set_theme(theme)
@@ -254,7 +288,10 @@ def test_light_theme_stays_light_with_a_dark_standard_palette(application, tmp_p
                 continue
             for widget in (window.centralWidget(), window.properties_panel):
                 palette = QtWidgets.QWidget.palette(widget)
-                for group in (QtGui.QPalette.ColorGroup.Active, QtGui.QPalette.ColorGroup.Inactive):
+                for group in (
+                    QtGui.QPalette.ColorGroup.Active,
+                    QtGui.QPalette.ColorGroup.Inactive,
+                ):
                     for role in (
                         QtGui.QPalette.ColorRole.Window,
                         QtGui.QPalette.ColorRole.Base,
@@ -276,13 +313,17 @@ def test_light_theme_stays_light_with_a_dark_standard_palette(application, tmp_p
 
 
 @pytest.mark.parametrize("spin_type", [QtWidgets.QSpinBox, QtWidgets.QDoubleSpinBox])
-def test_dark_fusion_spinbox_arrows_are_visible_and_receive_clicks(application, tmp_path, spin_type) -> None:
+def test_dark_fusion_spinbox_arrows_are_visible_and_receive_clicks(
+    application, tmp_path, spin_type
+) -> None:
     previous_style = application.style().objectName()
     previous_palette = QtGui.QPalette(application.palette())
     window = None
     try:
         application.setStyle("Fusion")
-        settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
+        settings = QtCore.QSettings(
+            str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat
+        )
         window = _window(tmp_path, DocumentWindowRegistry(), settings)
         window.setAttribute(QtCore.Qt.WidgetAttribute.WA_DontShowOnScreen)
         spin = spin_type(window)
@@ -307,13 +348,20 @@ def test_dark_fusion_spinbox_arrows_are_visible_and_receive_clicks(application, 
             scale = image.devicePixelRatio()
             assert any(
                 image.pixelColor(x, y).lightness() > 150
-                for x in range(round(interior.left() * scale), round((interior.right() + 1) * scale))
-                for y in range(round(interior.top() * scale), round((interior.bottom() + 1) * scale))
+                for x in range(
+                    round(interior.left() * scale),
+                    round((interior.right() + 1) * scale),
+                )
+                for y in range(
+                    round(interior.top() * scale),
+                    round((interior.bottom() + 1) * scale),
+                )
             ), "No visible arrow inside the spin button"
             target = spin.childAt(button.center()) or spin
             spin.setValue(0)
             QtTest.QTest.mouseClick(
-                target, QtCore.Qt.MouseButton.LeftButton,
+                target,
+                QtCore.Qt.MouseButton.LeftButton,
                 pos=target.mapFrom(spin, button.center()),
             )
             assert spin.value() == direction * spin.singleStep()
@@ -345,13 +393,19 @@ def test_fusion_chrome_follows_window_theme_with_dark_application_palette(
         ):
             system_palette.setColor(role, QtGui.QColor(color))
         application.setPalette(system_palette)
-        settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
+        settings = QtCore.QSettings(
+            str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat
+        )
         window = _window(tmp_path, DocumentWindowRegistry(), settings)
         window.setAttribute(QtCore.Qt.WidgetAttribute.WA_DontShowOnScreen)
         window.resize(1200, 800)
         window.canvas.add_shape("Rectangle", QtCore.QPointF(0, 0))
-        window.canvas.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
-        window.canvas.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        window.canvas.setHorizontalScrollBarPolicy(
+            QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOn
+        )
+        window.canvas.setVerticalScrollBarPolicy(
+            QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOn
+        )
         window.canvas.scene().setSceneRect(-2000, -2000, 4000, 4000)
         window.show()
         # Context menus created after startup must also inherit the window's theme.
@@ -360,13 +414,23 @@ def test_fusion_chrome_follows_window_theme_with_dark_application_palette(
         if surface == "menus":
             widgets = window.findChildren(QtWidgets.QMenu)
         elif surface == "scrollbars":
-            widgets = [window.canvas.horizontalScrollBar(), window.canvas.verticalScrollBar()]
+            widgets = [
+                window.canvas.horizontalScrollBar(),
+                window.canvas.verticalScrollBar(),
+            ]
         elif surface == "tabs":
             widgets = window.findChildren(QtWidgets.QTabBar)
         elif surface == "panels":
-            widgets = [window.palette.viewport(), window.properties_panel, window.menuBar(), window.statusBar()]
+            widgets = [
+                window.palette.viewport(),
+                window.properties_panel,
+                window.menuBar(),
+                window.statusBar(),
+            ]
         else:
-            spin = window.properties_panel.findChild(QtWidgets.QDoubleSpinBox, "spinZValue")
+            spin = window.properties_panel.findChild(
+                QtWidgets.QDoubleSpinBox, "spinZValue"
+            )
             widgets = [spin.lineEdit()]
         assert widgets
         for theme in ("light", "dark", "light"):
@@ -382,8 +446,10 @@ def test_fusion_chrome_follows_window_theme_with_dark_application_palette(
                     option = QtWidgets.QStyleOptionSlider()
                     widget.initStyleOption(option)
                     thumb = widget.style().subControlRect(
-                        QtWidgets.QStyle.ComplexControl.CC_ScrollBar, option,
-                        QtWidgets.QStyle.SubControl.SC_ScrollBarSlider, widget,
+                        QtWidgets.QStyle.ComplexControl.CC_ScrollBar,
+                        option,
+                        QtWidgets.QStyle.SubControl.SC_ScrollBarSlider,
+                        widget,
                     )
                     # Sample the thumb surface, away from Fusion's dark grip marks.
                     point = thumb.topLeft() + QtCore.QPoint(5, 5)
@@ -391,14 +457,23 @@ def test_fusion_chrome_follows_window_theme_with_dark_application_palette(
                     point = widget.tabRect(0).topLeft() + QtCore.QPoint(5, 5)
                 else:
                     point = QtCore.QPoint(widget.width() - 20, 5)
-                pixel = image.pixelColor(round(point.x() * scale), round(point.y() * scale))
-                assert pixel.lightness() > 180 if theme == "light" else pixel.lightness() < 128, (
-                    surface, theme, widget.objectName(), pixel.name()
+                pixel = image.pixelColor(
+                    round(point.x() * scale), round(point.y() * scale)
                 )
+                assert (
+                    pixel.lightness() > 180
+                    if theme == "light"
+                    else pixel.lightness() < 128
+                ), (surface, theme, widget.objectName(), pixel.name())
                 if surface == "menus":
-                    text_color = widget.palette().color(QtGui.QPalette.ColorRole.WindowText)
+                    text_color = widget.palette().color(
+                        QtGui.QPalette.ColorRole.WindowText
+                    )
                     minimum_contrast = 100 if widget.isEnabled() else 70
-                    assert abs(pixel.lightness() - text_color.lightness()) > minimum_contrast
+                    assert (
+                        abs(pixel.lightness() - text_color.lightness())
+                        > minimum_contrast
+                    )
             assert application.palette() == system_palette
     finally:
         if window is not None:
@@ -485,7 +560,9 @@ raise SystemExit(0 if valid else 1)
 
 def test_theme_does_not_change_export(application, tmp_path) -> None:
     registry = DocumentWindowRegistry()
-    settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
+    settings = QtCore.QSettings(
+        str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat
+    )
     window = _window(tmp_path, registry, settings)
     try:
         window.canvas.add_shape("Rectangle", QtCore.QPointF(80.0, 80.0))
@@ -530,11 +607,19 @@ def test_theme_switch_preserves_widget_geometry_and_page_position(
 
         panel = window.properties_panel
         widgets = [
-            window.menuBar(), window.statusBar(), window.mainSplitter,
-            window.right_panel_tabs, panel, window.canvas.viewport(),
-            window.canvas.horizontalScrollBar(), window.canvas.verticalScrollBar(),
-            *[widget for widget in panel.findChildren(QtWidgets.QWidget)
-              if widget.objectName() and widget.isVisible()],
+            window.menuBar(),
+            window.statusBar(),
+            window.mainSplitter,
+            window.right_panel_tabs,
+            panel,
+            window.canvas.viewport(),
+            window.canvas.horizontalScrollBar(),
+            window.canvas.verticalScrollBar(),
+            *[
+                widget
+                for widget in panel.findChildren(QtWidgets.QWidget)
+                if widget.objectName() and widget.isVisible()
+            ],
         ]
         geometry = [
             (widget.mapTo(window, QtCore.QPoint()), widget.size(), widget.sizeHint())
@@ -550,12 +635,19 @@ def test_theme_switch_preserves_widget_geometry_and_page_position(
                 application.processEvents()
             for widget, expected in zip(widgets, geometry):
                 actual = (
-                    widget.mapTo(window, QtCore.QPoint()), widget.size(), widget.sizeHint()
+                    widget.mapTo(window, QtCore.QPoint()),
+                    widget.size(),
+                    widget.sizeHint(),
                 )
-                assert actual == expected, f"{theme}: {widget.objectName()} changed geometry"
-            assert window.canvas.mapFromScene(
-                window.canvas._page_item.sceneBoundingRect().topLeft()
-            ) == page_origin
+                assert actual == expected, (
+                    f"{theme}: {widget.objectName()} changed geometry"
+                )
+            assert (
+                window.canvas.mapFromScene(
+                    window.canvas._page_item.sceneBoundingRect().topLeft()
+                )
+                == page_origin
+            )
             assert item.sceneTransform() == item_transform
     finally:
         if window is not None:

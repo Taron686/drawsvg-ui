@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "drawsvg-ui"
-version = "0.7.3"
+version = "0.8.0"
 description = "GUI for creating drawsvg scenes with PySide6"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -46,54 +46,13 @@ dev = ["pytest>=8,<10", "ruff>=0.12,<1", "build>=1,<2"]
 drawsvg-ui = "main:main"
 
 [tool.setuptools]
-package-dir = { "" = "src" }
 include-package-data = true
-py-modules = [
-  "app_info",
-  "app_logging",
-  "asset_service",
-  "bitmap_item",
-  "canvas_view",
-  "clipboard_service",
-  "connectors",
-  "constants",
-  "document_controller",
-  "document_format",
-  "document_io",
-  "document_validator",
-  "export_drawsvg",
-  "export_drawsvg_assets",
-  "export_drawsvg_styles",
-  "export_margins",
-  "export_margins_dialog",
-  "snap_geometry",
-  "export_renderer",
-  "hover_preview",
-  "import_drawsvg",
-  "layer_manager",
-  "layers_panel",
-  "main",
-  "main_window",
-  "palette",
-  "png_export_dialog",
-  "properties_panel",
-  "property_command_service",
-  "recovery",
-  "ruler_widget",
-  "scene_codec",
-  "shape_registry",
-  "style_presets",
-]
-
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["items*", "ui*"]
 
 [tool.setuptools.package-data]
 ui = ["*.ui"]
 
 [tool.bumpversion]
-current_version = "0.7.3"
+current_version = "0.8.0"
 commit = true
 tag = true
 
@@ -109,4 +68,16 @@ testpaths = ["tests"]
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E9", "F63", "F7", "F82"]
+select = ["E9", "F", "B", "SIM", "UP"]
+ignore = [
+  "B008",    # Qt value objects as argument defaults
+  "B905",    # zip(strict=...) needs a per-call decision
+  "SIM101",  # style-only rewrites, left to the author
+  "SIM102",
+  "SIM105",
+  "SIM108",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests keep Qt objects alive through otherwise unused locals.
+"tests/**" = ["F841"]

@@ -437,9 +437,7 @@ def test_group_transform_is_flattened_without_moving_children(
         item.setSelected(True)
     source._group_selected_items()
 
-    group = next(
-        item for item in source.scene().items() if isinstance(item, GroupItem)
-    )
+    group = next(item for item in source.scene().items() if isinstance(item, GroupItem))
     group.setPos(group.pos() + QtCore.QPointF(100.0, 50.0))
     group.setRotation(20.0)
     group.setScale(1.5)
@@ -504,9 +502,7 @@ def test_failed_import_preserves_existing_scene(
         lambda _parent, _title, message: errors.append(str(message)),
     )
     view = CanvasView()
-    view.add_shape(
-        "Rectangle", QtCore.QPointF(10.0, 20.0), snap_to_grid=False
-    )
+    view.add_shape("Rectangle", QtCore.QPointF(10.0, 20.0), snap_to_grid=False)
     state_before = view._serialize_scene_state()
 
     import_drawsvg.import_drawsvg_py(view.scene())
@@ -521,7 +517,10 @@ def test_prepared_import_scene_codec_preserves_representative_content(
 ) -> None:
     source = CanvasView()
     shapes = (
-        "Text", "Rectangle", "Split Rounded Rectangle", "Curvy Left Bracket",
+        "Text",
+        "Rectangle",
+        "Split Rounded Rectangle",
+        "Curvy Left Bracket",
         "Folder Tree",
     )
     originals = {}
@@ -540,7 +539,9 @@ def test_prepared_import_scene_codec_preserves_representative_content(
 
     assert set(_shape_items(restored)) == set(shapes)
     assert _shape_items(restored)["Text"].toPlainText() == "Standalone\nsecond line"
-    assert _shape_items(restored)["Rectangle"].label_text() == "First label\nsecond line"
+    assert (
+        _shape_items(restored)["Rectangle"].label_text() == "First label\nsecond line"
+    )
     assert sum(item.data(0) == "Connector" for item in restored.scene().items()) == 1
     assert restored._serialize_scene_state() == prepared_state
     for shape, item in _shape_items(direct).items():

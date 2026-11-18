@@ -183,7 +183,9 @@ def test_obstacle_routing_is_orthogonal_and_avoids_padded_bounds(canvas_view) ->
     assert not _polyline_intersects_rect(points, padded)
 
 
-def test_route_reacts_to_new_obstacle_on_existing_free_path(canvas_view, application) -> None:
+def test_route_reacts_to_new_obstacle_on_existing_free_path(
+    canvas_view, application
+) -> None:
     connector = canvas_view.add_connector(
         QtCore.QPointF(0.0, 20.0), QtCore.QPointF(360.0, 20.0)
     )

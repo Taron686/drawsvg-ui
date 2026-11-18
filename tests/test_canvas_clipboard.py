@@ -46,7 +46,9 @@ def _key(view, key):
 
 def _paste_at(view, monkeypatch, point=QtCore.QPoint(270, 210)):
     # Only the external cursor query is replaced; Qt dispatch and scene edits run.
-    monkeypatch.setattr(QtGui.QCursor, "pos", lambda: view.viewport().mapToGlobal(point))
+    monkeypatch.setattr(
+        QtGui.QCursor, "pos", lambda: view.viewport().mapToGlobal(point)
+    )
     expected = view.mapToScene(point)
     _key(view, QtCore.Qt.Key.Key_V)
     return expected
@@ -102,7 +104,9 @@ def test_ctrl_v_places_selection_at_current_cursor_and_preserves_spacing(
     assert pasted[1].pos() == target + QtCore.QPointF(90, 40)
     pasted_ids = {item.data(KEY_ITEM_ID) for item in pasted}
     assert pasted_ids.isdisjoint(original_ids)
-    assert first.scene() is canvas_view.scene() and second.scene() is canvas_view.scene()
+    assert (
+        first.scene() is canvas_view.scene() and second.scene() is canvas_view.scene()
+    )
     assert len(canvas_view.history()._states) == states_before + 1
 
     canvas_view.undo()
@@ -115,7 +119,9 @@ def test_ctrl_v_places_selection_at_current_cursor_and_preserves_spacing(
     next_copy = sorted(canvas_view.scene().selectedItems(), key=lambda item: item.x())
     assert next_copy[0].pos() == next_target
     assert next_copy[1].pos() == next_target + QtCore.QPointF(90, 40)
-    assert {item.data(KEY_ITEM_ID) for item in next_copy}.isdisjoint(pasted_ids | original_ids)
+    assert {item.data(KEY_ITEM_ID) for item in next_copy}.isdisjoint(
+        pasted_ids | original_ids
+    )
 
 
 def test_group_paste_keeps_children_transforms_and_remaps_all_ids(
@@ -126,7 +132,11 @@ def test_group_paste_keeps_children_transforms_and_remaps_all_ids(
     second = _rect(canvas_view, 100, 60)
     first.setSelected(True)
     canvas_view._group_selected_items()
-    group = next(item for item in canvas_view.scene().selectedItems() if isinstance(item, GroupItem))
+    group = next(
+        item
+        for item in canvas_view.scene().selectedItems()
+        if isinstance(item, GroupItem)
+    )
     group.setRotation(30)
     original = _state(canvas_view)["items"][0]
     old_ids = {original["id"], *(child["id"] for child in original["children"])}
@@ -138,7 +148,9 @@ def test_group_paste_keeps_children_transforms_and_remaps_all_ids(
     assert isinstance(pasted, GroupItem) and pasted is not group
     assert pasted.rotation() == 30
     record = SceneCodec.serialize_items([pasted], canvas_view._serialize_item)[0]
-    assert {record["id"], *(child["id"] for child in record["children"])}.isdisjoint(old_ids)
+    assert {record["id"], *(child["id"] for child in record["children"])}.isdisjoint(
+        old_ids
+    )
     for original_child, child in zip(original["children"], record["children"]):
         assert child["pos"] == original_child["pos"]
         assert child["transform"] == original_child["transform"]
@@ -152,7 +164,9 @@ def test_paste_remaps_connector_targets_and_detaches_uncopied_targets(
     first = _rect(canvas_view, 10, 20)
     second = _rect(canvas_view, 150, 20)
     manager = canvas_view.connector_manager()
-    connector = manager.create_connector(manager.endpoint_for(first), manager.endpoint_for(second))
+    connector = manager.create_connector(
+        manager.endpoint_for(first), manager.endpoint_for(second)
+    )
     canvas_view.scene().clearSelection()
     first.setSelected(True)
     connector.setSelected(True)
@@ -162,18 +176,26 @@ def test_paste_remaps_connector_targets_and_detaches_uncopied_targets(
     _paste_at(canvas_view, monkeypatch)
 
     selection = canvas_view.scene().selectedItems()
-    copied_connector = next(item for item in selection if isinstance(item, ConnectorItem))
-    copied_shape = next(item for item in selection if not isinstance(item, ConnectorItem))
+    copied_connector = next(
+        item for item in selection if isinstance(item, ConnectorItem)
+    )
+    copied_shape = next(
+        item for item in selection if not isinstance(item, ConnectorItem)
+    )
     assert copied_connector.start_endpoint.target_id == copied_shape.data(KEY_ITEM_ID)
     assert copied_connector.end_endpoint.target_id is None
     assert connector.start_endpoint.target_id == first.data(KEY_ITEM_ID)
     assert connector.end_endpoint.target_id == second.data(KEY_ITEM_ID)
-    assert copied_connector.end_endpoint.position == original_free_position + (copied_shape.pos() - first.pos())
+    assert copied_connector.end_endpoint.position == original_free_position + (
+        copied_shape.pos() - first.pos()
+    )
     old_start = QtCore.QPointF(copied_connector.start_endpoint.position)
     canvas_view._grid_size_min = 0
     copied_shape.moveBy(17, 23)
     manager.notify_item_geometry_changed(copied_shape)
-    assert copied_connector.start_endpoint.position == old_start + QtCore.QPointF(17, 23)
+    assert copied_connector.start_endpoint.position == old_start + QtCore.QPointF(
+        17, 23
+    )
 
 
 def test_bitmap_paste_between_canvases_carries_assets(application, monkeypatch):
@@ -212,9 +234,15 @@ def test_bitmap_paste_between_canvases_carries_assets(application, monkeypatch):
         destination.close()
 
 
-@pytest.mark.parametrize("raw", [b"broken", ClipboardService.encode([
-    {"id": str(uuid4()), "type_id": "Unknown", "shape": "Unknown"}
-])])
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"broken",
+        ClipboardService.encode(
+            [{"id": str(uuid4()), "type_id": "Unknown", "shape": "Unknown"}]
+        ),
+    ],
+)
 def test_invalid_paste_leaves_scene_selection_assets_and_history_unchanged(
     canvas_view, application, monkeypatch, raw
 ):
@@ -271,11 +299,15 @@ def test_focused_plain_text_field_does_not_copy_selected_graphics(
         editor.setPlainText("panel text")
         editor.setFocus()
         editor.selectAll()
-        QTest.keyClick(editor, QtCore.Qt.Key.Key_C, QtCore.Qt.KeyboardModifier.ControlModifier)
+        QTest.keyClick(
+            editor, QtCore.Qt.Key.Key_C, QtCore.Qt.KeyboardModifier.ControlModifier
+        )
         assert application.clipboard().text() == "panel text"
         assert not application.clipboard().mimeData().hasFormat(CLIPBOARD_MIME_TYPE)
         application.clipboard().setText("panel paste")
-        QTest.keyClick(editor, QtCore.Qt.Key.Key_V, QtCore.Qt.KeyboardModifier.ControlModifier)
+        QTest.keyClick(
+            editor, QtCore.Qt.Key.Key_V, QtCore.Qt.KeyboardModifier.ControlModifier
+        )
         assert editor.toPlainText() == "panel paste"
         assert len(_state(canvas_view)["items"]) == 1
     finally:
@@ -337,9 +369,12 @@ def test_main_window_copy_paste_updates_document_and_keeps_field_shortcuts(
 ):
     from main_window import MainWindow
 
-    settings = QtCore.QSettings(str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat)
+    settings = QtCore.QSettings(
+        str(tmp_path / "settings.ini"), QtCore.QSettings.Format.IniFormat
+    )
     window = MainWindow(
-        recent_files_path=tmp_path / "recent.json", settings=settings,
+        recent_files_path=tmp_path / "recent.json",
+        settings=settings,
         recovery_enabled=False,
     )
     try:
@@ -350,7 +385,9 @@ def test_main_window_copy_paste_updates_document_and_keeps_field_shortcuts(
         view.history().capture_now()
         _key(view, QtCore.Qt.Key.Key_C)
         target = _paste_at(view, monkeypatch)
-        QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+        QtCore.QCoreApplication.sendPostedEvents(
+            None, QtCore.QEvent.Type.DeferredDelete
+        )
         application.processEvents()
         assert len(_state(view)["items"]) == 2
         assert view.scene().selectedItems()[0].pos() == target
@@ -361,10 +398,14 @@ def test_main_window_copy_paste_updates_document_and_keeps_field_shortcuts(
         field.setFocus()
         field.setText("input text")
         field.selectAll()
-        QTest.keyClick(field, QtCore.Qt.Key.Key_C, QtCore.Qt.KeyboardModifier.ControlModifier)
+        QTest.keyClick(
+            field, QtCore.Qt.Key.Key_C, QtCore.Qt.KeyboardModifier.ControlModifier
+        )
         assert application.clipboard().text() == "input text"
         application.clipboard().setText("input replacement")
-        QTest.keyClick(field, QtCore.Qt.Key.Key_V, QtCore.Qt.KeyboardModifier.ControlModifier)
+        QTest.keyClick(
+            field, QtCore.Qt.Key.Key_V, QtCore.Qt.KeyboardModifier.ControlModifier
+        )
         assert field.text() == "input replacement"
         assert len(_state(view)["items"]) == 2
     finally:

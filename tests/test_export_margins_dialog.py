@@ -85,7 +85,9 @@ def test_ok_accepts_explicit_zero_margins(application, dialog_type):
 
 
 @pytest.mark.parametrize("close_window", (False, True))
-def test_cancel_rejects_edits_without_mutating_input(application, dialog_type, close_window):
+def test_cancel_rejects_edits_without_mutating_input(
+    application, dialog_type, close_window
+):
     from export_margins import ExportMargins
 
     original = ExportMargins(1, 2, 3, 4)
@@ -112,7 +114,12 @@ def test_reset_changes_pending_dialog_without_accepting(application, dialog_type
     assert dialog.result() == QtWidgets.QDialog.DialogCode.Rejected
     assert dialog.margins() is None
     assert dialog.linked()
-    assert [dialog.left.value(), dialog.top.value(), dialog.right.value(), dialog.bottom.value()] == [5, 5, 5, 5]
+    assert [
+        dialog.left.value(),
+        dialog.top.value(),
+        dialog.right.value(),
+        dialog.bottom.value(),
+    ] == [5, 5, 5, 5]
     assert not dialog.left.isEnabled()
     assert not dialog.link_sides.isEnabled()
     assert original == ExportMargins(1, 2, 3, 4)

@@ -1,0 +1,137 @@
+name: Release drawsvg Preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the VSIX as a GitHub Release from main
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: tools/vscode-drawsvg-preview
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: tools/vscode-drawsvg-preview/package-lock.json
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install and test
+        shell: pwsh
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install "drawsvg>=2.4,<3" "pytest>=8,<10"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pytest -q python/tests
+
+      - name: Build and verify VSIX
+        id: package
+        shell: pwsh
+        run: |
+          npm run package
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          @'
+          import json
+          import os
+          import re
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          manifest = json.loads(Path("package.json").read_text(encoding="utf-8"))
+          version = manifest["version"]
+          if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version):
+              raise SystemExit(f"Unsupported plugin release version: {version}")
+          path = Path(f"drawsvg-preview-{version}.vsix")
+          if list(Path.cwd().glob("*.vsix")) != [Path.cwd() / path]:
+              raise SystemExit(f"Expected exactly one VSIX: {path}")
+          with ZipFile(path) as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("VSIX archive is corrupt")
+              packaged = json.loads(archive.read("extension/package.json"))
+              if packaged["name"] != "drawsvg-preview" or packaged["version"] != version:
+                  raise SystemExit("VSIX manifest does not match the plugin")
+              for file in ("dist/extension.js", "python/render_drawsvg.py", "LICENSE.txt"):
+                  if not archive.read(f"extension/{file}"):
+                      raise SystemExit(f"Empty VSIX entry: {file}")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              print(f"version={version}", file=output)
+          '@ | python -
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: drawsvg-preview-${{ steps.package.outputs.version }}
+          path: tools/vscode-drawsvg-preview/drawsvg-preview-${{ steps.package.outputs.version }}.vsix
+          if-no-files-found: error
+
+  publish:
+    if: inputs.publish && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    concurrency:
+      group: drawsvg-preview-release-${{ needs.build.outputs.version }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: drawsvg-preview-${{ needs.build.outputs.version }}
+
+      - name: Publish tagged GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.build.outputs.version }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          tag="drawsvg-preview-v${VERSION}"
+          asset="drawsvg-preview-${VERSION}.vsix"
+
+          releases=$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[].tag_name')
+          if grep -Fxq -- "$tag" <<< "$releases"; then
+            echo "::error::A release or draft already exists for $tag."
+            exit 1
+          fi
+
+          ref="refs/tags/$tag"
+          remote="https://github.com/${GH_REPO}.git"
+          tags=$(git ls-remote "$remote" "$ref" "$ref^{}")
+          tagged_commit=$(awk -v ref="$ref" '$2 == ref "^{}" { peeled=$1 } $2 == ref { direct=$1 } END { print peeled ? peeled : direct }' <<< "$tags")
+          tag_args=(--target "$RELEASE_SHA")
+          if [ -n "$tagged_commit" ]; then
+            if [ "$tagged_commit" != "$RELEASE_SHA" ]; then
+              echo "::error::$tag already points to $tagged_commit."
+              exit 1
+            fi
+            tag_args=(--verify-tag)
+          fi
+
+          gh release create "$tag" "$asset" "${tag_args[@]}" \
+            --title "drawsvg Preview $VERSION" --latest=false \
+            --notes "VS Code SVG preview extension. Download $asset and use Extensions → Install from VSIX in VS Code. The selected Python interpreter needs drawsvg."

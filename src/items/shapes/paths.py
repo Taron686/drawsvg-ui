@@ -28,15 +28,19 @@ def _point(value: Sequence[float] | QtCore.QPointF) -> QtCore.QPointF:
 class PathHandle(QtWidgets.QGraphicsEllipseItem):
     """A movable endpoint or Bezier control point belonging to a free path."""
 
-    def __init__(self, parent: "FreePathItem", segment: int, role: str) -> None:
-        super().__init__(-HANDLE_SIZE / 2, -HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE, parent)
+    def __init__(self, parent: FreePathItem, segment: int, role: str) -> None:
+        super().__init__(
+            -HANDLE_SIZE / 2, -HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE, parent
+        )
         self.segment = segment
         self.role = role
         self.setBrush(HANDLE_COLOR)
         self.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
         self.setCursor(QtCore.Qt.CursorShape.SizeAllCursor)
-        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+        self.setFlag(
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
+        )
         self._parent_was_movable = False
 
     def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
@@ -45,7 +49,9 @@ class PathHandle(QtWidgets.QGraphicsEllipseItem):
             parent.flags() & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
         )
         if self._parent_was_movable:
-            parent.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+            parent.setFlag(
+                QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False
+            )
         event.accept()
 
     def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
@@ -194,7 +200,12 @@ class FreePathItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         for handle in self._handles:
             handle.hide()
 
-    def paint(self, painter, option, widget=None):  # type: ignore[override]
+    def paint(
+        self,
+        painter: QtGui.QPainter,
+        option: QtWidgets.QStyleOptionGraphicsItem,
+        widget: QtWidgets.QWidget | None = None,
+    ) -> None:  # type: ignore[override]
         opt = QtWidgets.QStyleOptionGraphicsItem(option)
         opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
         super().paint(painter, opt, widget)
@@ -217,7 +228,14 @@ class FreePathItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
 class BezierPathItem(FreePathItem):
     """A free path with one cubic segment as its initial geometry."""
 
-    def __init__(self, x: float, y: float, width: float = 150.0, height: float = 100.0, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        x: float,
+        y: float,
+        width: float = 150.0,
+        height: float = 100.0,
+        **kwargs: Any,
+    ) -> None:
         if "segments" not in kwargs:
             kwargs["segments"] = [
                 {

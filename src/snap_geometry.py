@@ -92,10 +92,12 @@ def item_snap_bounds(
         return None
 
     if isinstance(item, GroupItem):
-        return _union_bounds(item_snap_bounds(child, view) for child in item.childItems())
+        return _union_bounds(
+            item_snap_bounds(child, view) for child in item.childItems()
+        )
 
     if isinstance(item, LineItem):
-        shaft, heads = item._paint_geometry()
+        shaft, heads = item.paint_geometry()
         rectangles = [_path_bounds(shaft, item.pen(), item.brush(), item, view)]
         arrow_pen = QtGui.QPen(item.pen())
         arrow_pen.setStyle(QtCore.Qt.PenStyle.SolidLine)
@@ -105,7 +107,9 @@ def item_snap_bounds(
             outline.addPolygon(polygon)
             outline.closeSubpath()
             rectangles.append(
-                _path_bounds(outline, arrow_pen, QtGui.QBrush(item.pen().color()), item, view)
+                _path_bounds(
+                    outline, arrow_pen, QtGui.QBrush(item.pen().color()), item, view
+                )
             )
         return _union_bounds(rectangles)
 
@@ -160,9 +164,22 @@ def item_grid_anchor(item: QtWidgets.QGraphicsItem) -> QtCore.QPointF | None:
             spacing = float(getattr(view, "_grid_size_min", 10.0))
             origin = getattr(view, "_master_origin", QtCore.QPointF())
             if spacing > 0:
-                return min(tips, key=lambda tip: (
-                    (round((tip.x() - origin.x()) / spacing) * spacing + origin.x() - tip.x()) ** 2
-                    + (round((tip.y() - origin.y()) / spacing) * spacing + origin.y() - tip.y()) ** 2
-                ))
+                return min(
+                    tips,
+                    key=lambda tip: (
+                        (
+                            round((tip.x() - origin.x()) / spacing) * spacing
+                            + origin.x()
+                            - tip.x()
+                        )
+                        ** 2
+                        + (
+                            round((tip.y() - origin.y()) / spacing) * spacing
+                            + origin.y()
+                            - tip.y()
+                        )
+                        ** 2
+                    ),
+                )
         return tips[0]
     return bounds.topLeft()

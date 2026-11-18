@@ -6,17 +6,26 @@
 # the Free Software Foundation, either version 2 of the License, or
 # (at your option) any later version.
 
-import json
 import logging
 import math
-from collections.abc import Callable, Iterable, Iterator, Mapping
-from contextlib import contextmanager
+from bisect import bisect_left as bisect_left
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import replace
 from functools import wraps
 from typing import Any
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+import canvas_alignment
+import canvas_context_menu
+import canvas_interaction
+import canvas_pages
+import canvas_snapping
+from canvas_history import (
+    SceneHistory as SceneHistory,
+    UndoTransactionManager as UndoTransactionManager,
+)
+from canvas_page import A4PageItem as A4PageItem, mm_to_px as mm_to_px
 from connectors import (
     AnchorName,
     ConnectorItem,
@@ -31,31 +40,28 @@ from bitmap_item import (
     serialize_bitmap_item,
 )
 from clipboard_service import CLIPBOARD_MIME_TYPE, ClipboardService
+from constants import PALETTE_MIME
 from hover_preview import draw_hover_preview
-from constants import DEFAULTS, PALETTE_MIME, SHAPES
 from document_format import ProjectAsset
 from items import (
-    BlockArrowItem,
-    CurvyBracketItem,
-    DiamondItem,
-    EllipseItem,
-    FolderTreeItem,
+    DiamondItem as DiamondItem,
     GroupItem,
     HandleAwareItemMixin,
-    LineItem,
-    RectItem,
+    LineItem as LineItem,
+    RectItem as RectItem,
     ResizableItem,
     ResizeHandle,
     RotationHandle,
     ShapeLabelMixin,
-    SplitRoundedRectItem,
+    SplitRoundedRectItem as SplitRoundedRectItem,
     TextItem,
-    TriangleItem,
+    TriangleItem as TriangleItem,
 )
 from layer_manager import LayerManager
 from scene_codec import KEY_ITEM_ID, KEY_LAYER_ID, SceneCodec
-from shape_registry import SHAPE_REGISTRY
-from snap_geometry import item_grid_anchor, item_snap_bounds, scene_root_items
+from shape_registry import SHAPE_REGISTRY, _color_from_data
+from snap_geometry import item_grid_anchor as item_grid_anchor
+from snap_geometry import item_snap_bounds, scene_root_items as scene_root_items
 
 A4_WIDTH_MM = 210
 A4_HEIGHT_MM = 297
@@ -64,136 +70,14 @@ KEY_OWNER_PAGE = 1006
 SNAP_THRESHOLD_PIXELS = 6.0
 
 
-def _enum_to_int(value: Any) -> int:
-    """Return an integer value for Qt enum instances."""
-    if hasattr(value, "value"):
-        value = value.value
-    return int(value)
-
-
-def mm_to_px(mm: float, dpi: float = SCREEN_DPI) -> float:
-    return mm / 25.4 * dpi
-
-
 def _snap_coordinate(value: float, spacing: float, origin: float) -> float:
     if spacing <= 0.0:
         return value
     return round((value - origin) / spacing) * spacing + origin
 
 
-def _color_to_data(color: QtGui.QColor) -> dict[str, float | str]:
-    return {"name": color.name(), "alpha": float(color.alphaF())}
-
-
-def _color_from_data(data: Mapping[str, Any] | None) -> QtGui.QColor:
-    name = "#000000"
-    alpha = 1.0
-    if data:
-        name = str(data.get("name", name))
-        alpha = float(data.get("alpha", alpha))
-    color = QtGui.QColor(name)
-    color.setAlphaF(alpha)
-    return color
-
-
-def _brush_to_data(brush: QtGui.QBrush) -> dict[str, Any]:
-    style = _enum_to_int(brush.style())
-    data: dict[str, Any] = {"style": style}
-    if style != _enum_to_int(QtCore.Qt.BrushStyle.NoBrush):
-        data["color"] = _color_to_data(brush.color())
-    return data
-
-
-def _brush_from_data(data: Mapping[str, Any] | None) -> QtGui.QBrush:
-    default_style = _enum_to_int(QtCore.Qt.BrushStyle.NoBrush)
-    style_val = int(data.get("style", default_style)) if data else default_style
-    brush = QtGui.QBrush(QtCore.Qt.BrushStyle(style_val))
-    if style_val != _enum_to_int(QtCore.Qt.BrushStyle.NoBrush) and data is not None:
-        color_data = data.get("color")
-        if isinstance(color_data, Mapping):
-            brush.setColor(_color_from_data(color_data))
-    return brush
-
-
-def _pen_to_data(pen: QtGui.QPen) -> dict[str, Any]:
-    data: dict[str, Any] = {
-        "color": _color_to_data(pen.color()),
-        "width": float(pen.widthF()),
-        "style": _enum_to_int(pen.style()),
-        "cap": _enum_to_int(pen.capStyle()),
-        "join": _enum_to_int(pen.joinStyle()),
-        "cosmetic": bool(pen.isCosmetic()),
-    }
-    pattern = pen.dashPattern()
-    if pattern:
-        data["dash"] = [float(value) for value in pattern]
-    return data
-
-
-def _pen_from_data(data: Mapping[str, Any] | None) -> QtGui.QPen:
-    pen = QtGui.QPen()
-    if not data:
-        return pen
-    color_data = data.get("color")
-    if isinstance(color_data, Mapping):
-        pen.setColor(_color_from_data(color_data))
-    if "width" in data:
-        pen.setWidthF(float(data["width"]))
-    if "style" in data:
-        try:
-            pen.setStyle(QtCore.Qt.PenStyle(int(data["style"])))
-        except ValueError:
-            pass
-    if "cap" in data:
-        try:
-            pen.setCapStyle(QtCore.Qt.PenCapStyle(int(data["cap"])))
-        except ValueError:
-            pass
-    if "join" in data:
-        try:
-            pen.setJoinStyle(QtCore.Qt.PenJoinStyle(int(data["join"])))
-        except ValueError:
-            pass
-    if "cosmetic" in data:
-        pen.setCosmetic(bool(data["cosmetic"]))
-    if pen.style() == QtCore.Qt.PenStyle.CustomDashLine and "dash" in data:
-        pattern = data.get("dash")
-        if isinstance(pattern, (list, tuple)):
-            pen.setDashPattern([float(value) for value in pattern])
-    return pen
-
-
-def _describe_font_size(font: QtGui.QFont) -> str | None:
-    pixel_size = font.pixelSize()
-    if pixel_size and pixel_size > 0:
-        return f"{pixel_size:g} px"
-    point_size_f = font.pointSizeF()
-    if point_size_f and point_size_f > 0:
-        if abs(point_size_f - round(point_size_f)) < 0.01:
-            return f"{int(round(point_size_f))} pt"
-        return f"{point_size_f:.1f} pt"
-    point_size = font.pointSize()
-    if point_size and point_size > 0:
-        return f"{point_size:g} pt"
-    return None
-
-
-def _serialize_shape_label(item: ShapeLabelMixin) -> dict[str, Any] | None:
-    if not isinstance(item, ShapeLabelMixin):
-        return None
-    label = item.label_item()
-    data: dict[str, Any] = {
-        "text": item.label_text(),
-        "alignment": list(item.label_alignment()),
-        "font": label.font().toString(),
-        "color": _color_to_data(label.defaultTextColor()),
-    }
-    font_size = _describe_font_size(label.font())
-    if font_size:
-        data["font_size"] = font_size
-    if item.label_has_custom_color():
-        data["color_override"] = True
-    return data
+def snap_coordinate(value: float, spacing: float, origin: float) -> float:
+    return _snap_coordinate(value, spacing, origin)
 
 
 def _apply_shape_label(item: ShapeLabelMixin, data: Mapping[str, Any] | None) -> None:
@@ -221,226 +105,6 @@ def _apply_shape_label(item: ShapeLabelMixin, data: Mapping[str, Any] | None) ->
             item.reset_label_color(update=True, base_color=color)
 
 
-class UndoTransactionManager:
-    """Run one callback when the outermost undo transaction completes."""
-
-    def __init__(
-        self,
-        on_outer_begin: Callable[[], None],
-        on_outer_end: Callable[[], None],
-    ) -> None:
-        self._depth = 0
-        self._on_outer_begin = on_outer_begin
-        self._on_outer_end = on_outer_end
-
-    def begin(self) -> None:
-        if self._depth == 0:
-            self._on_outer_begin()
-        self._depth += 1
-
-    def end(self) -> None:
-        if self._depth == 0:
-            raise RuntimeError("Undo transaction ended without a matching begin")
-        self._depth -= 1
-        if self._depth == 0:
-            self._on_outer_end()
-
-    @property
-    def active(self) -> bool:
-        return self._depth > 0
-
-    @contextmanager
-    def transaction(self):
-        self.begin()
-        try:
-            yield
-        finally:
-            self.end()
-
-
-class SceneHistory(QtCore.QObject):
-    historyChanged = QtCore.Signal(bool, bool)
-
-    def __init__(
-        self,
-        view: "CanvasView",
-        *,
-        max_states: int = 50,
-        max_bytes: int = 64 * 1024 * 1024,
-    ) -> None:
-        super().__init__(view)
-        self._view = view
-        self._max_states = max(1, int(max_states))
-        self._max_bytes = max(1, int(max_bytes))
-        self._states: list[str] = []
-        self._history_bytes = 0
-        self._index = -1
-        self._ignore_changes = False
-        self._timer = QtCore.QTimer(self)
-        self._timer.setSingleShot(True)
-        self._timer.setInterval(250)
-        self._timer.timeout.connect(self._capture_snapshot)
-        self._transactions = UndoTransactionManager(
-            self._begin_transaction,
-            self._end_transaction,
-        )
-        scene = view.scene()
-        if scene is not None:
-            scene.changed.connect(self._on_scene_changed)
-
-    def capture_initial_state(self) -> None:
-        if self._ignore_changes:
-            return
-        # Serialize before replacing history so a failure retains Undo and Redo.
-        state_str = self._serialize_state()
-        state_bytes = len(state_str.encode("utf-8"))
-        self._timer.stop()
-        self._states = [state_str] if state_bytes <= self._max_bytes else []
-        self._history_bytes = state_bytes if self._states else 0
-        self._index = len(self._states) - 1
-        self._notify()
-
-    @contextmanager
-    def suspended(self) -> Iterator[None]:
-        """Pause recording across scene replacement and any necessary rollback."""
-        previous = self._ignore_changes
-        self._ignore_changes = True
-        self._timer.stop()
-        try:
-            yield
-        finally:
-            self._ignore_changes = previous
-
-    @property
-    def history_bytes(self) -> int:
-        """Current UTF-8 size of retained serialized history snapshots."""
-        return self._history_bytes
-
-    def mark_dirty(self) -> None:
-        if self._ignore_changes:
-            return
-        if self.transaction_active:
-            return
-        self._timer.start()
-
-    def capture_now(self) -> None:
-        self._capture_snapshot()
-
-    def begin_transaction(self) -> None:
-        self._transactions.begin()
-
-    def end_transaction(self) -> None:
-        self._transactions.end()
-
-    @property
-    def transaction_active(self) -> bool:
-        return self._transactions.active
-
-    @contextmanager
-    def transaction(self):
-        with self._transactions.transaction():
-            yield
-
-    def _flush_pending_snapshot(self) -> None:
-        # Do not capture while navigating an older state: that would discard redo.
-        if (not self._ignore_changes and not self.transaction_active
-                and self._timer.isActive() and self._index == len(self._states) - 1):
-            self._timer.stop()
-            self._capture_snapshot()
-
-    def undo(self) -> None:
-        self._flush_pending_snapshot()
-        if not self.can_undo():
-            return
-        self._index -= 1
-        self._apply_current_state()
-        self._notify()
-
-    def redo(self) -> None:
-        if not self.can_redo():
-            return
-        self._index += 1
-        self._apply_current_state()
-        self._notify()
-
-    def can_undo(self) -> bool:
-        return self._index > 0
-
-    def can_redo(self) -> bool:
-        return 0 <= self._index < len(self._states) - 1
-
-    def _notify(self) -> None:
-        self.historyChanged.emit(self.can_undo(), self.can_redo())
-
-    def _on_scene_changed(self, _region: list[QtCore.QRectF]) -> None:  # type: ignore[override]
-        if self._ignore_changes:
-            return
-        if self.transaction_active:
-            return
-        self._timer.start()
-
-    def _begin_transaction(self) -> None:
-        if self._ignore_changes:
-            return
-        if self._timer.isActive():
-            self._timer.stop()
-            self._capture_snapshot()
-
-    def _end_transaction(self) -> None:
-        if self._ignore_changes:
-            return
-        self._timer.stop()
-        self._capture_snapshot()
-
-    def _serialize_state(self) -> str:
-        state = self._view._serialize_scene_state()
-        return json.dumps(state, sort_keys=True, separators=(",", ":"))
-
-    def _capture_snapshot(self, force: bool = False) -> None:
-        if self._ignore_changes:
-            return
-        try:
-            state_str = self._serialize_state()
-        except Exception:
-            logging.getLogger(__name__).exception("Could not capture scene history")
-            return
-        if not force and self._index >= 0 and self._states[self._index] == state_str:
-            return
-        state_bytes = len(state_str.encode("utf-8"))
-        if state_bytes > self._max_bytes:
-            return
-        if self._index < len(self._states) - 1:
-            self._history_bytes -= sum(
-                len(snapshot.encode("utf-8")) for snapshot in self._states[self._index + 1 :]
-            )
-            self._states = self._states[: self._index + 1]
-        self._states.append(state_str)
-        self._history_bytes += state_bytes
-        if len(self._states) > self._max_states:
-            overflow = len(self._states) - self._max_states
-            self._history_bytes -= sum(
-                len(snapshot.encode("utf-8")) for snapshot in self._states[:overflow]
-            )
-            self._states = self._states[overflow:]
-            self._index = len(self._states) - 1
-        while self._history_bytes > self._max_bytes and len(self._states) > 1:
-            self._history_bytes -= len(self._states[0].encode("utf-8"))
-            self._states.pop(0)
-        self._index = len(self._states) - 1
-        self._notify()
-
-    def _apply_current_state(self) -> None:
-        if not (0 <= self._index < len(self._states)):
-            return
-        state_str = self._states[self._index]
-        state = json.loads(state_str)
-        self._ignore_changes = True
-        self._timer.stop()
-        try:
-            self._view._restore_scene_state(state)
-        finally:
-            self._ignore_changes = False
-
 # Minimum mouse movement (in scene coordinates) required before
 # showing duplicates when Ctrl+dragging selected items.
 DUPLICATE_DRAG_THRESHOLD = 10.0
@@ -449,7 +113,7 @@ DUPLICATE_DRAG_THRESHOLD = 10.0
 class CornerRadiusDialog(QtWidgets.QDialog):
     valueChanged = QtCore.Signal(int)
 
-    def __init__(self, radius: float, parent=None):
+    def __init__(self, radius: float, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Corner radius")
 
@@ -486,7 +150,7 @@ class CornerRadiusDialog(QtWidgets.QDialog):
 class OpacityDialog(QtWidgets.QDialog):
     valueChanged = QtCore.Signal(float)
 
-    def __init__(self, value: float, parent=None):
+    def __init__(self, value: float, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Fill opacity")
 
@@ -532,7 +196,7 @@ class TrackingScene(QtWidgets.QGraphicsScene):
 
     itemRemoved = QtCore.Signal(object)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: QtCore.QObject | None = None) -> None:
         super().__init__(parent)
         self._owned_items: set[QtWidgets.QGraphicsItem] = set()
 
@@ -548,256 +212,6 @@ class TrackingScene(QtWidgets.QGraphicsScene):
     def clear(self) -> None:  # type: ignore[override]
         super().clear()
         self._owned_items.clear()
-
-
-class A4PageItem(QtWidgets.QGraphicsRectItem):
-    """QGraphicsRectItem representing a single A4 page with a grid."""
-
-    def __init__(
-        self,
-        width: float,
-        height: float,
-        *,
-        margin_mm: float = 12.0,
-        grid_px: int = 50,
-        subgrid_px: int = 10,
-        index: tuple[int, int] = (0, 0),
-        master_origin: QtCore.QPointF = QtCore.QPointF(),
-    ):
-        super().__init__(0.0, 0.0, width, height)
-        self.setBrush(QtGui.QBrush(QtCore.Qt.GlobalColor.white))
-        self.setPen(QtCore.Qt.PenStyle.NoPen)
-        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
-        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
-        self.setZValue(-100)
-
-        margin_px = mm_to_px(margin_mm)
-        self._margins = QtCore.QMarginsF(margin_px, margin_px, margin_px, margin_px)
-        self._grid_visible = True
-        self._grid_px = max(1, grid_px)
-        self._subgrid_px = max(1, subgrid_px)
-        self.index: tuple[int, int] = index
-        self._master_origin = QtCore.QPointF(master_origin)
-        self._transition_edges: set[str] = set()
-        self._neighbors: dict[str, bool] = {
-            "left": False,
-            "right": False,
-            "top": False,
-            "bottom": False,
-        }
-        self._outline_pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 120))
-        self._outline_pen.setStyle(QtCore.Qt.PenStyle.DashLine)
-        self._outline_pen.setWidthF(0)
-        self._outline_pen.setCapStyle(QtCore.Qt.PenCapStyle.FlatCap)
-        self._outline_pen.setJoinStyle(QtCore.Qt.PenJoinStyle.MiterJoin)
-
-    def set_grid_spacing(self, grid_px: int, subgrid_px: int) -> None:
-        self._grid_px = max(1, grid_px)
-        self._subgrid_px = max(1, subgrid_px)
-        self.update()
-
-    def set_grid_visible(self, visible: bool) -> None:
-        self._grid_visible = visible
-        self.update()
-
-    def set_master_origin(self, origin: QtCore.QPointF) -> None:
-        if self._master_origin == origin:
-            return
-        self._master_origin = QtCore.QPointF(origin)
-        self.update()
-
-    def set_transition_edges(self, edges: set[str]) -> None:
-        if self._transition_edges == edges:
-            return
-        self._transition_edges = set(edges)
-        self.update()
-
-    def set_outline_neighbors(
-        self, *, left: bool, right: bool, top: bool, bottom: bool
-    ) -> None:
-        if (
-            self._neighbors["left"] == left
-            and self._neighbors["right"] == right
-            and self._neighbors["top"] == top
-            and self._neighbors["bottom"] == bottom
-        ):
-            return
-        self._neighbors["left"] = left
-        self._neighbors["right"] = right
-        self._neighbors["top"] = top
-        self._neighbors["bottom"] = bottom
-        self.update()
-
-    def paint(
-        self,
-        painter: QtGui.QPainter,
-        option: QtWidgets.QStyleOptionGraphicsItem,
-        widget=None,
-    ) -> None:
-        super().paint(painter, option, widget)
-
-        page_rect = self.rect()
-
-        painter.save()
-        painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-
-        outline_vertical = QtGui.QPen(self._outline_pen)
-        outline_horizontal = QtGui.QPen(self._outline_pen)
-
-        dash_pattern = outline_vertical.dashPattern()
-        dash_period = sum(dash_pattern) if dash_pattern else 0.0
-        scene_pos = self.scenePos()
-
-        if dash_period > 0.0:
-            vertical_offset = math.fmod(
-                scene_pos.y() - self._master_origin.y(), dash_period
-            )
-            horizontal_offset = math.fmod(
-                scene_pos.x() - self._master_origin.x(), dash_period
-            )
-            if vertical_offset < 0.0:
-                vertical_offset += dash_period
-            if horizontal_offset < 0.0:
-                horizontal_offset += dash_period
-            outline_vertical.setDashOffset(vertical_offset)
-            outline_horizontal.setDashOffset(horizontal_offset)
-
-        transition_vertical = QtGui.QPen(outline_vertical)
-        transition_horizontal = QtGui.QPen(outline_horizontal)
-        transition_vertical.setColor(QtGui.QColor(0, 0, 0, 160))
-        transition_horizontal.setColor(QtGui.QColor(0, 0, 0, 160))
-
-        has_left_neighbor = self._neighbors["left"]
-        has_right_neighbor = self._neighbors["right"]
-        has_top_neighbor = self._neighbors["top"]
-        has_bottom_neighbor = self._neighbors["bottom"]
-
-        edge_segments: list[tuple[str, QtCore.QPointF, QtCore.QPointF]] = []
-        if not has_left_neighbor:
-            edge_segments.append(
-                (
-                    "left",
-                    QtCore.QPointF(page_rect.left(), page_rect.top()),
-                    QtCore.QPointF(page_rect.left(), page_rect.bottom()),
-                )
-            )
-        edge_segments.append(
-            (
-                "right",
-                QtCore.QPointF(page_rect.right(), page_rect.top()),
-                QtCore.QPointF(page_rect.right(), page_rect.bottom()),
-            )
-        )
-        if not has_top_neighbor:
-            edge_segments.append(
-                (
-                    "top",
-                    QtCore.QPointF(page_rect.left(), page_rect.top()),
-                    QtCore.QPointF(page_rect.right(), page_rect.top()),
-                )
-            )
-        edge_segments.append(
-            (
-                "bottom",
-                QtCore.QPointF(page_rect.left(), page_rect.bottom()),
-                QtCore.QPointF(page_rect.right(), page_rect.bottom()),
-            )
-        )
-
-        for edge, start, end in edge_segments:
-            if edge in ("left", "right"):
-                pen = (
-                    transition_vertical
-                    if edge in self._transition_edges
-                    else outline_vertical
-                )
-            else:
-                pen = (
-                    transition_horizontal
-                    if edge in self._transition_edges
-                    else outline_horizontal
-                )
-            painter.setPen(pen)
-            painter.drawLine(start, end)
-
-        painter.restore()
-
-        if not self._grid_visible:
-            return
-
-        painter.save()
-        painter.setClipRect(page_rect)
-
-        origin_scene = self.scenePos()
-        master_origin = self._master_origin
-
-        def _first_position(
-            spacing: float,
-            orientation: str,
-        ) -> float:
-            if spacing <= 0:
-                return 0.0
-            if orientation == "vertical":
-                start = page_rect.left()
-                offset = (origin_scene.x() - master_origin.x()) % spacing
-            else:
-                start = page_rect.top()
-                offset = (origin_scene.y() - master_origin.y()) % spacing
-            if math.isclose(offset, spacing, abs_tol=1e-6) or math.isclose(offset, 0.0, abs_tol=1e-6):
-                offset = 0.0
-            return start + (spacing - offset) % spacing
-
-        def _draw_lines(spacing: float, orientation: str, skip_main: bool) -> None:
-            if spacing <= 0:
-                return
-            if orientation == "vertical":
-                start = page_rect.left()
-                end = page_rect.right()
-                origin_value = origin_scene.x()
-                first = _first_position(spacing, orientation)
-                pos = first
-                while pos <= end + 0.5:
-                    if skip_main:
-                        scene_value = origin_value + (pos - start)
-                        distance = scene_value - master_origin.x()
-                        nearest = round(distance / self._grid_px) * self._grid_px
-                        if math.isclose(distance, nearest, abs_tol=0.3):
-                            pos += spacing
-                            continue
-                    painter.drawLine(pos, page_rect.top(), pos, page_rect.bottom())
-                    pos += spacing
-            else:
-                start = page_rect.top()
-                end = page_rect.bottom()
-                origin_value = origin_scene.y()
-                first = _first_position(spacing, orientation)
-                pos = first
-                while pos <= end + 0.5:
-                    if skip_main:
-                        scene_value = origin_value + (pos - start)
-                        distance = scene_value - master_origin.y()
-                        nearest = round(distance / self._grid_px) * self._grid_px
-                        if math.isclose(distance, nearest, abs_tol=0.3):
-                            pos += spacing
-                            continue
-                    painter.drawLine(page_rect.left(), pos, page_rect.right(), pos)
-                    pos += spacing
-
-        subgrid_pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 30))
-        subgrid_pen.setWidthF(0)
-        painter.setPen(subgrid_pen)
-
-        _draw_lines(self._subgrid_px, "vertical", True)
-        _draw_lines(self._subgrid_px, "horizontal", True)
-
-        grid_pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 80))
-        grid_pen.setWidthF(0)
-        painter.setPen(grid_pen)
-
-        _draw_lines(self._grid_px, "vertical", False)
-        _draw_lines(self._grid_px, "horizontal", False)
-
-        painter.restore()
 
 
 def _undo_transaction(method: Callable[..., Any]) -> Callable[..., Any]:
@@ -817,15 +231,13 @@ class CanvasView(QtWidgets.QGraphicsView):
     viewChanged = QtCore.Signal()
     selectionSnapshotChanged = QtCore.Signal(dict)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
         super().__init__(parent)
         self._hover_preview_item: QtWidgets.QGraphicsItem | None = None
         self.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
         self.setDragMode(QtWidgets.QGraphicsView.DragMode.RubberBandDrag)
         # Style the selection rubber band with a blue dashed outline
-        self.viewport().setStyleSheet(
-            "QRubberBand { border: 1px dashed #14b5ff; }"
-        )
+        self.viewport().setStyleSheet("QRubberBand { border: 1px dashed #14b5ff; }")
         self.setAcceptDrops(True)
         self.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
         # Keep the view centered when splitter widths change so the canvas does not drift.
@@ -842,7 +254,12 @@ class CanvasView(QtWidgets.QGraphicsView):
             self._scene_padding * 2,
             self._scene_padding * 2,
         )
-        scene.changed.connect(self._update_scene_rect)
+        # Growth is applied at once; shrinking waits for a pause in the edits.
+        self._scene_rect_timer = QtCore.QTimer(self)
+        self._scene_rect_timer.setSingleShot(True)
+        self._scene_rect_timer.setInterval(250)
+        self._scene_rect_timer.timeout.connect(lambda: self._update_scene_rect())
+        scene.changed.connect(self._on_scene_rect_changed)
         self.setScene(scene)
         self.setBackgroundBrush(QtGui.QColor("#f0f0f0"))
         self._grid_size = 50
@@ -857,6 +274,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._guides: list[tuple[str, float]] = []
         self._guides_visible = True
         self._active_snap_guides: dict[str, float] = {}
+        self._snap_drag_cache = None
         self._master_origin = self._page_top_left_for_index(self._master_index)
         self._page_item = self._create_page_item(self._master_index)
         self._pages[self._master_index] = self._page_item
@@ -875,7 +293,10 @@ class CanvasView(QtWidgets.QGraphicsView):
         self._connector_preview_position: QtCore.QPointF | None = None
 
         self._layer_manager = LayerManager(self)
+        self._layer_manager.changed.connect(self._invalidate_snap_drag)
         self._connector_manager = ConnectorManager(scene, self)
+        # A rerouted connector is a snap candidate whose cached bounds are stale.
+        self._connector_manager.routeChanged.connect(self._invalidate_snap_drag)
         self._layer_manager.changed.connect(self._connector_manager.refresh_visibility)
         # Project archives own the binary data. History snapshots retain only
         # item-to-asset references and resolve them through this service.
@@ -897,6 +318,25 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     def connector_manager(self) -> ConnectorManager:
         return self._connector_manager
+
+    # Public entry points for collaborators (window, controller, panels, export).
+    def page_items(self) -> tuple[A4PageItem, ...]:
+        return tuple(self._pages.values())
+
+    def is_serializable_item(self, item: QtWidgets.QGraphicsItem) -> bool:
+        return self._is_serializable_item(item)
+
+    def serialize_scene_state(self) -> dict[str, Any]:
+        return self._serialize_scene_state()
+
+    def restore_scene_state(self, state: Mapping[str, Any]) -> None:
+        self._restore_scene_state(state)
+
+    def validate_scene_state(self, state: Mapping[str, Any]) -> dict[str, Any]:
+        return self._validate_scene_state(state)
+
+    def notify_selection_snapshot(self) -> None:
+        self._notify_selection_snapshot()
 
     def bitmap_assets(self) -> tuple[ProjectAsset, ...]:
         """Return the project asset source used by bitmap scene items."""
@@ -1006,20 +446,13 @@ class CanvasView(QtWidgets.QGraphicsView):
         name = item.__class__.__name__
         if name.endswith("Handle"):
             return False
-        if isinstance(item, QtWidgets.QGraphicsItemGroup) and name == "QGraphicsItemGroup":
+        if (
+            isinstance(item, QtWidgets.QGraphicsItemGroup)
+            and name == "QGraphicsItemGroup"
+        ):
             return False
         return isinstance(item, (BitmapItem, ConnectorItem, GroupItem)) or (
             SHAPE_REGISTRY.definition_for_item(item) is not None
-        )
-
-    def _item_sort_key(self, item: QtWidgets.QGraphicsItem) -> tuple[float, str, float, float]:
-        shape = str(item.data(0)) if item.data(0) else item.__class__.__name__
-        pos = item.pos()
-        return (
-            round(float(item.zValue()), 6),
-            shape,
-            round(float(pos.x()), 6),
-            round(float(pos.y()), 6),
         )
 
     def _serialize_scene_state(self) -> dict[str, Any]:
@@ -1035,9 +468,9 @@ class CanvasView(QtWidgets.QGraphicsView):
             item
             for item in scene.items(QtCore.Qt.SortOrder.AscendingOrder)
             if (
-                self._is_serializable_item(item)
+                item.parentItem() is None
+                and self._is_serializable_item(item)
                 and not SceneCodec.is_transient(item)
-                and item.parentItem() is None
             )
         ]
         state = SceneCodec.serialize_state(
@@ -1139,9 +572,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         if scene is None:
             return {"selection_type": "none"}
         selected = [
-            item
-            for item in scene.selectedItems()
-            if self._is_serializable_item(item)
+            item for item in scene.selectedItems() if self._is_serializable_item(item)
         ]
         if len(selected) == 1:
             item = selected[0]
@@ -1154,7 +585,11 @@ class CanvasView(QtWidgets.QGraphicsView):
                 "text_data": text_data,
             }
         if selected:
-            return {"selection_type": "multi", "count": len(selected), "items": selected}
+            return {
+                "selection_type": "multi",
+                "count": len(selected),
+                "items": selected,
+            }
         return {"selection_type": "none"}
 
     @staticmethod
@@ -1167,7 +602,9 @@ class CanvasView(QtWidgets.QGraphicsView):
             return float(rect.width()), float(rect.height())
         width_attr = getattr(item, "_w", None)
         height_attr = getattr(item, "_h", None)
-        if isinstance(width_attr, (int, float)) and isinstance(height_attr, (int, float)):
+        if isinstance(width_attr, (int, float)) and isinstance(
+            height_attr, (int, float)
+        ):
             return float(width_attr), float(height_attr)
         bounds = item.boundingRect()
         return float(bounds.width()), float(bounds.height())
@@ -1213,14 +650,16 @@ class CanvasView(QtWidgets.QGraphicsView):
         payload = self._build_selection_snapshot()
         self.selectionSnapshotChanged.emit(payload)
 
-    def _on_scene_contents_changed(self, _changes) -> None:
+    def _on_scene_contents_changed(self, _changes: list[QtCore.QRectF]) -> None:
         scene = self.scene()
         if scene is None:
             return
         if any(self._is_serializable_item(item) for item in scene.selectedItems()):
             self._notify_selection_snapshot()
 
-    def _apply_item_transform(self, item: QtWidgets.QGraphicsItem, data: Mapping[str, Any]) -> None:
+    def _apply_item_transform(
+        self, item: QtWidgets.QGraphicsItem, data: Mapping[str, Any]
+    ) -> None:
         if isinstance(item, GroupItem):
             origin = data.get("transform_origin")
             if isinstance(origin, (list, tuple)) and len(origin) == 2:
@@ -1248,7 +687,9 @@ class CanvasView(QtWidgets.QGraphicsView):
         if z_val is not None:
             item.setZValue(float(z_val))
 
-    def _instantiate_item(self, data: Mapping[str, Any]) -> QtWidgets.QGraphicsItem | None:
+    def _instantiate_item(
+        self, data: Mapping[str, Any]
+    ) -> QtWidgets.QGraphicsItem | None:
         shape = str(data.get("shape", ""))
         if data.get("type_id") == "Bitmap" or shape == "Bitmap":
             return restore_bitmap_item(data, self._bitmap_assets.assets())
@@ -1275,6 +716,9 @@ class CanvasView(QtWidgets.QGraphicsView):
             if not isinstance(child, GroupItem):
                 self._apply_item_transform(child, child_data)
             SceneCodec.restore_item_metadata(child, child_data)
+            # Without this the restored scene serializes differently from its
+            # snapshot and every undo records a new, identical-looking state.
+            self._restore_owner_page(child, child_data.get("owner_page"))
             self._layer_manager.restore_item_state(child, child_data)
             child.setSelected(False)
             child.setFlag(
@@ -1304,7 +748,11 @@ class CanvasView(QtWidgets.QGraphicsView):
                 if not isinstance(data, Mapping):
                     continue
                 shape = str(data.get("shape", ""))
-                if is_connector_data(data) or data.get("type_id") == "Bitmap" or shape == "Bitmap":
+                if (
+                    is_connector_data(data)
+                    or data.get("type_id") == "Bitmap"
+                    or shape == "Bitmap"
+                ):
                     continue
                 if shape == "Group":
                     children = data.get("children")
@@ -1373,227 +821,57 @@ class CanvasView(QtWidgets.QGraphicsView):
         self.gridVisibilityChanged.emit(self._show_grid)
 
     def _page_top_left_for_index(self, index: tuple[int, int]) -> QtCore.QPointF:
-        row, col = index
-        base_x = -self._page_width / 2.0
-        base_y = -self._page_height / 2.0
-        return QtCore.QPointF(
-            base_x + col * self._page_width,
-            base_y + row * self._page_height,
-        )
+        return canvas_pages.page_top_left_for_index(self, index)
 
     @staticmethod
     def _normalized_page_index(value: Any) -> tuple[int, int] | None:
-        if not isinstance(value, (list, tuple)) or len(value) != 2:
-            return None
-        row, col = value
-        if isinstance(row, bool) or isinstance(col, bool):
-            return None
-        if not isinstance(row, int) or not isinstance(col, int):
-            return None
-        return row, col
+        return canvas_pages.normalized_page_index(value)
 
-    def _owner_page_index(self, item: QtWidgets.QGraphicsItem) -> tuple[int, int] | None:
-        return self._normalized_page_index(item.data(KEY_OWNER_PAGE))
+    def _owner_page_index(
+        self, item: QtWidgets.QGraphicsItem
+    ) -> tuple[int, int] | None:
+        return canvas_pages.owner_page_index(self, item)
 
     @staticmethod
     def _set_owner_page(item: QtWidgets.QGraphicsItem, index: tuple[int, int]) -> None:
-        item.setData(KEY_OWNER_PAGE, [index[0], index[1]])
+        canvas_pages.set_owner_page(item, index)
 
     def _restore_owner_page(self, item: QtWidgets.QGraphicsItem, value: Any) -> None:
-        index = self._normalized_page_index(value)
-        if index is not None:
-            self._set_owner_page(item, index)
+        canvas_pages.restore_owner_page(self, item, value)
 
     def _page_index_for_point(self, point: QtCore.QPointF) -> tuple[int, int]:
-        base_x = -self._page_width / 2.0
-        base_y = -self._page_height / 2.0
-        col = math.floor((point.x() - base_x) / self._page_width)
-        row = math.floor((point.y() - base_y) / self._page_height)
-        return (row, col)
+        return canvas_pages.page_index_for_point(self, point)
 
     def _create_page_item(self, index: tuple[int, int]) -> A4PageItem:
-        page = A4PageItem(
-            self._page_width,
-            self._page_height,
-            margin_mm=12.0,
-            grid_px=self._grid_size,
-            subgrid_px=self._grid_size_min,
-            index=index,
-            master_origin=self._master_origin,
-        )
-        top_left = self._page_top_left_for_index(index)
-        page.setPos(top_left)
-        page.set_grid_visible(self._show_grid)
-        return page
+        return canvas_pages.create_page_item(self, index)
 
     def _add_page(
         self, index: tuple[int, int], *, update_edges: bool = True
     ) -> A4PageItem:
-        existing = self._pages.get(index)
-        if existing is not None:
-            existing.set_master_origin(self._master_origin)
-            return existing
-        page = self._create_page_item(index)
-        self.scene().addItem(page)
-        self._pages[index] = page
-        if update_edges:
-            self._update_transition_edges()
-        return page
+        return canvas_pages.add_page(self, index, update_edges=update_edges)
 
     def _ensure_pages_between_master(self, target_index: tuple[int, int]) -> None:
-        master_row, master_col = self._master_index
-        target_row, target_col = target_index
-        min_row = min(master_row, target_row)
-        max_row = max(master_row, target_row)
-        min_col = min(master_col, target_col)
-        max_col = max(master_col, target_col)
-
-        added_any = False
-        for row in range(min_row, max_row + 1):
-            for col in range(min_col, max_col + 1):
-                index = (row, col)
-                if index not in self._pages:
-                    added_any = True
-                self._add_page(index, update_edges=False)
-        if added_any:
-            self._update_transition_edges()
+        canvas_pages.ensure_pages_between_master(self, target_index)
 
     def _update_transition_edges(self) -> None:
-        master_page = self._pages.get(self._master_index)
-        if master_page is None:
-            return
-        for (row, col), page in self._pages.items():
-            page.set_outline_neighbors(
-                left=(row, col - 1) in self._pages,
-                right=(row, col + 1) in self._pages,
-                top=(row - 1, col) in self._pages,
-                bottom=(row + 1, col) in self._pages,
-            )
-        master_edges: set[str] = set()
-        master_row, master_col = self._master_index
-        for (row, col), page in self._pages.items():
-            if (row, col) == self._master_index:
-                continue
-            edges: set[str] = set()
-            if row == master_row:
-                if col == master_col + 1:
-                    edges.add("left")
-                    master_edges.add("right")
-                elif col == master_col - 1:
-                    edges.add("right")
-                    master_edges.add("left")
-            if col == master_col:
-                if row == master_row + 1:
-                    edges.add("top")
-                    master_edges.add("bottom")
-                elif row == master_row - 1:
-                    edges.add("bottom")
-                    master_edges.add("top")
-            page.set_transition_edges(edges)
-        master_page.set_transition_edges(master_edges)
+        canvas_pages.update_transition_edges(self)
 
     def _ensure_page_for_item(
         self, item: QtWidgets.QGraphicsItem, drop_reference: QtCore.QPointF | None
     ) -> A4PageItem:
-        rect = item.sceneBoundingRect()
-        owner_index = self._owner_page_index(item)
-        if drop_reference is not None or owner_index is None:
-            reference = drop_reference if drop_reference is not None else rect.center()
-            owner_index = self._page_index_for_point(reference)
-            self._set_owner_page(item, owner_index)
-
-        assert owner_index is not None
-        page = self._add_page(owner_index, update_edges=False)
-        for index in self._page_indices_for_rect(rect):
-            self._add_page(index, update_edges=False)
-        self._ensure_pages_between_master(owner_index)
-        self._update_transition_edges()
-        self._prune_empty_pages()
-        if owner_index not in self._pages:
-            page = self._add_page(owner_index, update_edges=False)
-            self._ensure_pages_between_master(owner_index)
-            self._update_transition_edges()
-        self._update_scene_rect()
-        return page
+        return canvas_pages.ensure_page_for_item(self, item, drop_reference)
 
     def _page_indices_for_rect(self, rect: QtCore.QRectF) -> set[tuple[int, int]]:
-        """Return every page touched by ``rect``, including oversized items."""
-
-        if rect.isNull() or not rect.isValid():
-            return {self._page_index_for_point(rect.center())}
-        right = math.nextafter(rect.right(), -math.inf)
-        bottom = math.nextafter(rect.bottom(), -math.inf)
-        first = self._page_index_for_point(rect.topLeft())
-        last = self._page_index_for_point(QtCore.QPointF(right, bottom))
-        return {
-            (row, col)
-            for row in range(first[0], last[0] + 1)
-            for col in range(first[1], last[1] + 1)
-        }
+        return canvas_pages.page_indices_for_rect(self, rect)
 
     def _collect_canvas_content_items(self) -> list[QtWidgets.QGraphicsItem]:
-        scene = self.scene()
-        if scene is None:
-            return []
-        items: list[QtWidgets.QGraphicsItem] = []
-        for item in scene.items():
-            if isinstance(item, A4PageItem):
-                continue
-            if item.__class__.__name__.endswith("Handle"):
-                continue
-            items.append(item)
-        return items
+        return canvas_pages.collect_canvas_content_items(self)
 
     def _prune_empty_pages(self) -> bool:
-        scene = self.scene()
-        if scene is None:
-            return False
-        content_items = self._collect_canvas_content_items()
-        master_row, master_col = self._master_index
+        return canvas_pages.prune_empty_pages(self)
 
-        content_indices: set[tuple[int, int]] = set()
-        for index, page in self._pages.items():
-            page_rect = page.mapRectToScene(page.rect())
-            has_item = any(
-                item.sceneBoundingRect().intersects(page_rect)
-                for item in content_items
-                if item.scene() is scene
-            )
-            if has_item:
-                content_indices.add(index)
-
-        required_indices: set[tuple[int, int]] = {self._master_index}
-        for row, col in content_indices:
-            min_row = min(master_row, row)
-            max_row = max(master_row, row)
-            min_col = min(master_col, col)
-            max_col = max(master_col, col)
-            for r in range(min_row, max_row + 1):
-                for c in range(min_col, max_col + 1):
-                    required_indices.add((r, c))
-
-        removed = False
-        for index, page in list(self._pages.items()):
-            if index in required_indices:
-                continue
-            self._pages.pop(index, None)
-            scene.removeItem(page)
-            removed = True
-        if removed:
-            self._update_transition_edges()
-        return removed
-
-    def _ensure_pages_for_items(
-        self, items: list[QtWidgets.QGraphicsItem]
-    ) -> None:
-        for item in items:
-            if isinstance(item, A4PageItem):
-                continue
-            if item.__class__.__name__.endswith("Handle"):
-                continue
-            if item.parentItem() is not None:
-                continue
-            self._ensure_page_for_item(item, item.sceneBoundingRect().center())
+    def _ensure_pages_for_items(self, items: list[QtWidgets.QGraphicsItem]) -> None:
+        canvas_pages.ensure_pages_for_items(self, items)
 
     def fit_to_page(self) -> None:
         """Fit the master page after switching documents in an existing view."""
@@ -1609,7 +887,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         self.centerOn(self._page_item)
 
     @_undo_transaction
-    def clear_canvas(self):
+    def clear_canvas(self) -> None:
         """Remove all items from the scene."""
         self._clear_hover_preview()
         scene = self.scene()
@@ -1633,10 +911,10 @@ class CanvasView(QtWidgets.QGraphicsView):
             return
         self._ensure_pages_for_items(scene.items())
 
-    def drawBackground(self, painter: QtGui.QPainter, rect: QtCore.QRectF):
+    def drawBackground(self, painter: QtGui.QPainter, rect: QtCore.QRectF) -> None:
         super().drawBackground(painter, rect)
 
-    def drawForeground(self, painter: QtGui.QPainter, rect: QtCore.QRectF):
+    def drawForeground(self, painter: QtGui.QPainter, rect: QtCore.QRectF) -> None:
         super().drawForeground(painter, rect)
         hover_item = self._valid_hover_preview()
         if hover_item is not None:
@@ -1693,7 +971,9 @@ class CanvasView(QtWidgets.QGraphicsView):
             self.viewport().update()
             self._history.mark_dirty()
 
-    def move_guide(self, orientation: str, old_position: float, new_position: float) -> bool:
+    def move_guide(
+        self, orientation: str, old_position: float, new_position: float
+    ) -> bool:
         old_guide = (orientation, float(old_position))
         try:
             index = self._guides.index(old_guide)
@@ -1729,9 +1009,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         self.viewport().update()
         self.guidesVisibilityChanged.emit(visible)
 
-    def guide_near(
-        self, orientation: str, position: float
-    ) -> tuple[str, float] | None:
+    def guide_near(self, orientation: str, position: float) -> tuple[str, float] | None:
         if orientation not in ("vertical", "horizontal"):
             return None
         threshold_x, threshold_y = self._snap_threshold_scene_units()
@@ -1753,7 +1031,9 @@ class CanvasView(QtWidgets.QGraphicsView):
         spacing = mm_to_px(major_mm)
         first = math.ceil(scene_start / spacing)
         last = math.floor(scene_end / spacing)
-        return tuple((step * spacing, step * major_mm) for step in range(first, last + 1))
+        return tuple(
+            (step * spacing, step * major_mm) for step in range(first, last + 1)
+        )
 
     def _serialize_guides(self) -> list[dict[str, float | str]]:
         return [
@@ -1779,29 +1059,30 @@ class CanvasView(QtWidgets.QGraphicsView):
         return sorted(set(guides), key=lambda entry: (entry[0], entry[1]))
 
     def _snap_threshold_scene_units(self) -> tuple[float, float]:
-        transform = self.transform()
-        scale_x = abs(transform.m11())
-        scale_y = abs(transform.m22())
-        return (
-            SNAP_THRESHOLD_PIXELS / scale_x if scale_x > 0.0 else SNAP_THRESHOLD_PIXELS,
-            SNAP_THRESHOLD_PIXELS / scale_y if scale_y > 0.0 else SNAP_THRESHOLD_PIXELS,
-        )
+        return canvas_snapping.snap_threshold_scene_units(self)
 
     @staticmethod
     def _nearest_snap(
         values: tuple[float, ...], candidates: tuple[float, ...], threshold: float
     ) -> tuple[float, float] | None:
-        choices = (
-            (abs(candidate - value), candidate - value, candidate)
-            for value in values
-            for candidate in candidates
-            if abs(candidate - value) <= threshold
-        )
-        try:
-            _distance, offset, guide = min(choices, key=lambda choice: choice[0])
-        except ValueError:
-            return None
-        return offset, guide
+        return canvas_snapping.nearest_snap(values, candidates, threshold)
+
+    def _begin_snap_drag(self) -> None:
+        canvas_snapping.begin_snap_drag(self)
+
+    def _end_snap_drag(self) -> None:
+        canvas_snapping.end_snap_drag(self)
+
+    def _invalidate_snap_drag(self) -> None:
+        canvas_snapping.invalidate_snap_drag(self)
+
+    @staticmethod
+    def _nearest_sorted_snap(
+        values: tuple[float, ...],
+        candidates: Sequence[tuple[float, int]],
+        threshold: float,
+    ) -> tuple[float, float] | None:
+        return canvas_snapping.nearest_sorted_snap(values, candidates, threshold)
 
     def snap_scene_position(
         self,
@@ -1812,68 +1093,14 @@ class CanvasView(QtWidgets.QGraphicsView):
         grid_spacing: float | None = None,
         grid_anchor: QtCore.QPointF | None = None,
     ) -> tuple[QtCore.QPointF, dict[str, float]]:
-        """Translate by the geometry grid anchor, then report reached alignment.
-
-        With grid snapping disabled, guides and objects may translate freely.
-        ``position`` and ``size`` describe the alignment envelope independently
-        of the geometry reference supplied by ``grid_anchor``.
-        """
-
-        position = QtCore.QPointF(position)
-        grid_enabled = getattr(self, "_grid_snap_enabled", True)
-        alignment_enabled = getattr(self, "_alignment_snap_enabled", True)
-        if grid_enabled:
-            anchor = grid_anchor if grid_anchor is not None else position
-            spacing = float(grid_spacing if grid_spacing is not None else self._grid_size_min)
-            snapped_anchor = QtCore.QPointF(
-                _snap_coordinate(anchor.x(), spacing, self._master_origin.x()),
-                _snap_coordinate(anchor.y(), spacing, self._master_origin.y()),
-            )
-            position += snapped_anchor - anchor
-        if not alignment_enabled:
-            return position, {}
-
-        width = max(0.0, float(size.width())) if size is not None else 0.0
-        height = max(0.0, float(size.height())) if size is not None else 0.0
-        x_values = (position.x(), position.x() + width / 2.0, position.x() + width)
-        y_values = (position.y(), position.y() + height / 2.0, position.y() + height)
-        threshold_x, threshold_y = self._snap_threshold_scene_units()
-        if grid_enabled:
-            # Near misses must not be advertised as alignment after grid snap.
-            threshold_x = threshold_y = 1e-6
-        guide_x = tuple(value for axis, value in self._guides if axis == "vertical")
-        guide_y = tuple(value for axis, value in self._guides if axis == "horizontal")
-        snapped_x = self._nearest_snap(x_values, guide_x, threshold_x)
-        snapped_y = self._nearest_snap(y_values, guide_y, threshold_y)
-        scene = self.scene()
-        if scene is not None:
-            excluded = set(exclude)
-            smart_x: list[float] = []
-            smart_y: list[float] = []
-            for item in scene_root_items(scene.items()):
-                if item in excluded or isinstance(item, A4PageItem):
-                    continue
-                bounds = item_snap_bounds(item, self)
-                if bounds is None:
-                    continue
-                smart_x.extend((bounds.left(), bounds.center().x(), bounds.right()))
-                smart_y.extend((bounds.top(), bounds.center().y(), bounds.bottom()))
-            if snapped_x is None:
-                snapped_x = self._nearest_snap(x_values, tuple(smart_x), threshold_x)
-            if snapped_y is None:
-                snapped_y = self._nearest_snap(y_values, tuple(smart_y), threshold_y)
-
-        active: dict[str, float] = {}
-        x, y = position.x(), position.y()
-        if snapped_x is not None:
-            if not grid_enabled:
-                x += snapped_x[0]
-            active["vertical"] = snapped_x[1]
-        if snapped_y is not None:
-            if not grid_enabled:
-                y += snapped_y[0]
-            active["horizontal"] = snapped_y[1]
-        return QtCore.QPointF(x, y), active
+        return canvas_snapping.snap_scene_position(
+            self,
+            position,
+            size,
+            exclude=exclude,
+            grid_spacing=grid_spacing,
+            grid_anchor=grid_anchor,
+        )
 
     def set_grid_snap_enabled(self, enabled: bool) -> None:
         self._grid_snap_enabled = bool(enabled)
@@ -1891,7 +1118,7 @@ class CanvasView(QtWidgets.QGraphicsView):
     def alignment_snap_enabled(self) -> bool:
         return self._alignment_snap_enabled
 
-    def set_grid_visible(self, visible: bool):
+    def set_grid_visible(self, visible: bool) -> None:
         self._show_grid = visible
         for page in self._pages.values():
             page.set_grid_visible(visible)
@@ -1900,7 +1127,18 @@ class CanvasView(QtWidgets.QGraphicsView):
             self._history.mark_dirty()
         self.gridVisibilityChanged.emit(self._show_grid)
 
-    def _update_scene_rect(self):
+    def _on_scene_rect_changed(self, regions: list[QtCore.QRectF]) -> None:
+        scene = self.scene()
+        if not regions or any(
+            not scene.sceneRect().contains(region) for region in regions
+        ):
+            self._scene_rect_timer.stop()
+            self._update_scene_rect()
+        else:
+            # Contained edits can still shrink the content, e.g. a resized item.
+            self._scene_rect_timer.start()
+
+    def _update_scene_rect(self) -> None:
         scene = self.scene()
         padding = self._scene_padding
         items_rect = scene.itemsBoundingRect()
@@ -1930,7 +1168,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             # File dialogs can process timers before a new window is laid out.
             QtCore.QTimer.singleShot(0, self, self._fit_view_to_page)
 
-    def resizeEvent(self, event: QtGui.QResizeEvent):
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
         """Ensure scene rect grows with the view."""
         super().resizeEvent(event)
         self._update_scene_rect()
@@ -1939,20 +1177,7 @@ class CanvasView(QtWidgets.QGraphicsView):
     def _snap_new_item(
         self, item: QtWidgets.QGraphicsItem, *, grid_spacing: float
     ) -> dict[str, float]:
-        """Snap a prospective scene root using its constructed geometry."""
-        bounds = item_snap_bounds(item, self)
-        anchor = item_grid_anchor(item)
-        if bounds is None or anchor is None:
-            return {}
-        snapped, active = self.snap_scene_position(
-            bounds.topLeft(), bounds.size(),
-            grid_spacing=grid_spacing, grid_anchor=anchor,
-        )
-        delta = snapped - bounds.topLeft()
-        # Prospective items are not in the scene, so item-local grid hooks do
-        # not interfere with this single central geometry translation.
-        item.moveBy(delta.x(), delta.y())
-        return active
+        return canvas_snapping.snap_new_item(self, item, grid_spacing=grid_spacing)
 
     @_undo_transaction
     def add_shape(
@@ -1972,8 +1197,11 @@ class CanvasView(QtWidgets.QGraphicsView):
 
         if snap_to_grid:
             size = self._grid_size
-            if (normalized in ("Line", "Arrow")
-                    and getattr(self, "_grid_snap_enabled", True) and size > 0):
+            if (
+                normalized in ("Line", "Arrow")
+                and getattr(self, "_grid_snap_enabled", True)
+                and size > 0
+            ):
                 w = round(w / size) * size
         item = SHAPE_REGISTRY.create(normalized, x, y, w, h)
         if item is None:
@@ -2023,7 +1251,8 @@ class CanvasView(QtWidgets.QGraphicsView):
             return None
 
         snap = not (
-            QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.KeyboardModifier.AltModifier
+            QtWidgets.QApplication.keyboardModifiers()
+            & QtCore.Qt.KeyboardModifier.AltModifier
         )
         if not snap:
             self._active_snap_guides.clear()
@@ -2033,8 +1262,12 @@ class CanvasView(QtWidgets.QGraphicsView):
             pos = QtCore.QPointF(center.x() - w / 2.0, center.y())
         else:
             pos = QtCore.QPointF(center.x() - w / 2.0, center.y() - h / 2.0)
-        if (snap and normalized in ("Line", "Arrow")
-                and getattr(self, "_grid_snap_enabled", True) and self._grid_size > 0):
+        if (
+            snap
+            and normalized in ("Line", "Arrow")
+            and getattr(self, "_grid_snap_enabled", True)
+            and self._grid_size > 0
+        ):
             w = round(w / self._grid_size) * self._grid_size
         preview = SHAPE_REGISTRY.create(normalized, pos.x(), pos.y(), w, h)
         assert preview is not None
@@ -2053,20 +1286,20 @@ class CanvasView(QtWidgets.QGraphicsView):
         return self.add_shape(normalized, pos, snap_to_grid=snap)
 
     # --- Drag and drop from the palette ---
-    def dragEnterEvent(self, event: QtGui.QDragEnterEvent):
+    def dragEnterEvent(self, event: QtGui.QDragEnterEvent) -> None:
         md = event.mimeData()
         if md.hasFormat(PALETTE_MIME) or md.hasText():
             event.acceptProposedAction()
         else:
             super().dragEnterEvent(event)
 
-    def dragMoveEvent(self, event: QtGui.QDragMoveEvent):
+    def dragMoveEvent(self, event: QtGui.QDragMoveEvent) -> None:
         if event.mimeData().hasFormat(PALETTE_MIME) or event.mimeData().hasText():
             event.acceptProposedAction()
         else:
             super().dragMoveEvent(event)
 
-    def dropEvent(self, event: QtGui.QDropEvent):
+    def dropEvent(self, event: QtGui.QDropEvent) -> None:
         md = event.mimeData()
         text = ""
         if md.hasFormat(PALETTE_MIME):
@@ -2080,9 +1313,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             return
 
         scene_pos = self.mapToScene(event.position().toPoint())
-        snap = not (
-            event.keyboardModifiers() & QtCore.Qt.KeyboardModifier.AltModifier
-        )
+        snap = not (event.keyboardModifiers() & QtCore.Qt.KeyboardModifier.AltModifier)
         item = self.add_shape(shape, scene_pos, snap_to_grid=snap)
         if item is not None:
             event.acceptProposedAction()
@@ -2090,7 +1321,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             super().dropEvent(event)
 
     # --- Duplicate selected items with Ctrl+drag ---
-    def mousePressEvent(self, event: QtGui.QMouseEvent):
+    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
         if (
             self._connector_creation_enabled
             and event.button() == QtCore.Qt.MouseButton.LeftButton
@@ -2099,6 +1330,7 @@ class CanvasView(QtWidgets.QGraphicsView):
             event.accept()
             return
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            self._begin_snap_drag()
             self._history.begin_transaction()
         if event.button() == QtCore.Qt.MouseButton.MiddleButton:
             self._panning = True
@@ -2145,102 +1377,16 @@ class CanvasView(QtWidgets.QGraphicsView):
                         return
         super().mousePressEvent(event)
 
-    def mouseMoveEvent(self, event: QtGui.QMouseEvent):
+    def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:
         hover_item = None
         if not event.buttons() and not self._connector_creation_enabled:
             hover_item = self._hover_preview_target_at(event.position().toPoint())
         self._set_hover_preview_item(hover_item)
-        if self._connector_creation_enabled and not event.buttons() & (
-            QtCore.Qt.MouseButton.MiddleButton | QtCore.Qt.MouseButton.RightButton
-        ):
-            if self._connector_start is not None:
-                self._connector_preview_position = self.mapToScene(
-                    event.position().toPoint()
-                )
-                self.viewport().update()
-            self.viewport().setCursor(QtCore.Qt.CursorShape.CrossCursor)
-            event.accept()
-            return
+        canvas_interaction.mouse_move_event(self, event)
 
-        item = self.itemAt(event.position().toPoint())
-        if item and item.flags() & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable:
-            self.viewport().setCursor(QtCore.Qt.CursorShape.SizeAllCursor)
-        else:
-            self.viewport().setCursor(QtCore.Qt.CursorShape.ArrowCursor)
-
-        if self._panning or self._right_button_pressed:
-            delta = event.position() - self._pan_start
-            if (
-                self._right_button_pressed
-                and not self._panning
-                and delta.manhattanLength() > 0
-            ):
-                self._panning = True
-                self.setDragMode(QtWidgets.QGraphicsView.DragMode.NoDrag)
-                self.viewport().setCursor(
-                    QtCore.Qt.CursorShape.ClosedHandCursor
-                )
-            if self._panning:
-                self._pan_start = event.position()
-                hbar = self.horizontalScrollBar()
-                vbar = self.verticalScrollBar()
-                hbar.setValue(hbar.value() - int(delta.x()))
-                vbar.setValue(vbar.value() - int(delta.y()))
-                event.accept()
-                return
-        if getattr(self, "_dup_source", None):
-            pos = self.mapToScene(event.position().toPoint())
-            delta = pos - self._dup_start
-            if self._dup_items is None:
-                # Only create clones after surpassing the threshold.
-                if delta.manhattanLength() < DUPLICATE_DRAG_THRESHOLD:
-                    event.accept()
-                    return
-                self._dup_items = []
-                self._dup_orig = []
-                for it in self._dup_source:
-                    clone = self._clone_item(it)
-                    if clone:
-                        self.scene().addItem(clone)
-                        self._dup_items.append(clone)
-                        self._dup_orig.append(clone.pos())
-                self.scene().clearSelection()
-                for it in self._dup_items:
-                    it.setSelected(True)
-            for it, start in zip(self._dup_items, self._dup_orig):
-                it.setPos(start + delta)
-            event.accept()
-            return
-        grabber = self.scene().mouseGrabberItem()
-        moving_selection = (
-            event.buttons() & QtCore.Qt.MouseButton.LeftButton
-            and grabber is not None
-            and not grabber.__class__.__name__.endswith("Handle")
-        )
-        original_spacing = self._grid_size_min
-        if moving_selection:
-            # Item-local position snapping cannot know the geometry reference.
-            # Let Qt translate freely, then snap the dragged root as a whole.
-            self._grid_size_min = 0
-        try:
-            super().mouseMoveEvent(event)
-        finally:
-            self._grid_size_min = original_spacing
-        if event.modifiers() & QtCore.Qt.KeyboardModifier.AltModifier:
-            self._active_snap_guides.clear()
-            self.viewport().update()
-            return
-        if event.buttons() & QtCore.Qt.MouseButton.LeftButton:
-            grabber = self.scene().mouseGrabberItem()
-            if grabber is None or grabber.__class__.__name__.endswith("Handle"):
-                if self._active_snap_guides:
-                    self._active_snap_guides.clear()
-                    self.viewport().update()
-                return
-            self._snap_selected_items()
-
-    def mouseReleaseEvent(self, event: QtGui.QMouseEvent):
+    def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            self._end_snap_drag()
             self._active_snap_guides.clear()
             self.viewport().update()
         if event.button() == QtCore.Qt.MouseButton.RightButton:
@@ -2248,9 +1394,7 @@ class CanvasView(QtWidgets.QGraphicsView):
                 self._panning = False
                 self._right_button_pressed = False
                 self.setDragMode(self._prev_drag_mode)
-                self.viewport().setCursor(
-                    QtCore.Qt.CursorShape.ArrowCursor
-                )
+                self.viewport().setCursor(QtCore.Qt.CursorShape.ArrowCursor)
                 self._suppress_context_menu = True
                 event.accept()
                 return
@@ -2258,9 +1402,7 @@ class CanvasView(QtWidgets.QGraphicsView):
                 self._right_button_pressed = False
                 event.accept()
                 return
-        if (
-            event.button() == QtCore.Qt.MouseButton.MiddleButton and self._panning
-        ):
+        if event.button() == QtCore.Qt.MouseButton.MiddleButton and self._panning:
             self._panning = False
             self.setDragMode(self._prev_drag_mode)
             self.viewport().setCursor(QtCore.Qt.CursorShape.ArrowCursor)
@@ -2290,55 +1432,11 @@ class CanvasView(QtWidgets.QGraphicsView):
                 self._history.end_transaction()
 
     def _snap_selected_items(self) -> None:
-        roots = set(scene_root_items(self.scene().items()))
-        selected = [
-            item
-            for item in self.scene().selectedItems()
-            if not isinstance(item, A4PageItem)
-            and not item.__class__.__name__.endswith("Handle")
-            and item in roots
-        ]
-        if not selected:
-            if self._active_snap_guides:
-                self._active_snap_guides.clear()
-                self.viewport().update()
-            return
-        primary = self.scene().mouseGrabberItem()
-        while primary is not None and primary.parentItem() is not None:
-            primary = primary.parentItem()
-        if primary not in selected:
-            selected.sort(key=lambda item: (
-                item.scenePos().x(), item.scenePos().y(),
-                str(item.data(KEY_ITEM_ID) or ""), type(item).__name__,
-            ))
-            primary = selected[0]
-        bounds = item_snap_bounds(primary, self)
-        anchor = item_grid_anchor(primary)
-        if bounds is None or anchor is None:
-            self._active_snap_guides.clear()
-            self.viewport().update()
-            return
-        snapped, active_guides = self.snap_scene_position(
-            bounds.topLeft(),
-            bounds.size(),
-            exclude=tuple(selected),
-            grid_anchor=anchor,
-        )
-        delta = snapped - bounds.topLeft()
-        self._active_snap_guides = active_guides
-        if delta.isNull():
-            self.viewport().update()
-            return
-        original_spacing = self._grid_size_min
-        self._grid_size_min = 0
-        try:
-            for item in selected:
-                item.moveBy(delta.x(), delta.y())
-        finally:
-            self._grid_size_min = original_spacing
-        self.viewport().update()
+        canvas_snapping.snap_selected_items(self)
 
-    def _clone_item(self, item: QtWidgets.QGraphicsItem):
+    def _clone_item(
+        self, item: QtWidgets.QGraphicsItem
+    ) -> QtWidgets.QGraphicsItem | None:
         registry_data = SHAPE_REGISTRY.serialize(item)
         if registry_data is not None:
             clone = SHAPE_REGISTRY.restore(registry_data)
@@ -2369,7 +1467,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         return clone
 
     # --- Mouse wheel zooming and scrolling ---
-    def wheelEvent(self, event: QtGui.QWheelEvent):
+    def wheelEvent(self, event: QtGui.QWheelEvent) -> None:
         mods = event.modifiers()
         if mods & (
             QtCore.Qt.KeyboardModifier.ControlModifier
@@ -2384,6 +1482,9 @@ class CanvasView(QtWidgets.QGraphicsView):
                 delta = event.angleDelta().x()
             factor = 1.2 if delta > 0 else 1 / 1.2
             self.scale(factor, factor)
+            # Cosmetic pens are measured in device pixels, so cached snap
+            # envelopes are stale once the view transform changes mid-drag.
+            self._invalidate_snap_drag()
             self.setTransformationAnchor(anchor)
             self._update_scene_rect()
             self.viewChanged.emit()
@@ -2392,7 +1493,7 @@ class CanvasView(QtWidgets.QGraphicsView):
         super().wheelEvent(event)
 
     @_undo_transaction
-    def _group_selected_items(self):
+    def _group_selected_items(self) -> None:
         selected = [
             item
             for item in self.scene().selectedItems()
@@ -2412,24 +1513,24 @@ class CanvasView(QtWidgets.QGraphicsView):
         for it in selected:
             group.addToGroup(it)
             it.setSelected(False)
-            it.setFlag(
-                QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False
-            )
-            it.setFlag(
-                QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False
-            )
+            it.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+            it.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
             if isinstance(it, HandleAwareItemMixin):
                 it.hide_handles()
 
         group.setTransformOriginPoint(group.boundingRect().center())
         group.setSelected(True)
         group.update_handles()
+        # Restoring a snapshot assigns a page to every item; assign it here too
+        # so the snapshot taken right after grouping matches its restored scene.
+        self._ensure_page_for_item(group, group.sceneBoundingRect().center())
         self._update_scene_rect()
 
     @_undo_transaction
-    def _ungroup_selected_items(self):
+    def _ungroup_selected_items(self) -> None:
         groups = [
-            item for item in self.scene().selectedItems()
+            item
+            for item in self.scene().selectedItems()
             if item.parentItem() is None and isinstance(item, GroupItem)
         ]
         changed = bool(groups)
@@ -2437,7 +1538,8 @@ class CanvasView(QtWidgets.QGraphicsView):
             group = groups.pop()
             group.setSelected(False)
             children = [
-                child for child in group.childItems()
+                child
+                for child in group.childItems()
                 if not isinstance(child, (ResizeHandle, RotationHandle))
             ]
             for child in children:
@@ -2511,11 +1613,13 @@ class CanvasView(QtWidgets.QGraphicsView):
                 if not paste.items:
                     return False
                 staging.set_bitmap_assets((*self.bitmap_assets(), *paste.assets_to_add))
-                staging._restore_scene_state({
-                    "items": list(paste.items),
-                    "layers": self._layer_manager.serialize_state(),
-                    "grid_visible": self._show_grid,
-                })
+                staging._restore_scene_state(
+                    {
+                        "items": list(paste.items),
+                        "layers": self._layer_manager.serialize_state(),
+                        "grid_visible": self._show_grid,
+                    }
+                )
             except (ValueError, TypeError, KeyError, OverflowError) as error:
                 logging.getLogger(__name__).warning(
                     "Cannot paste scene items (%s)", type(error).__name__
@@ -2542,7 +1646,8 @@ class CanvasView(QtWidgets.QGraphicsView):
             for item in items:
                 if isinstance(item, ConnectorItem):
                     item.start_endpoint = replace(
-                        item.start_endpoint, position=item.start_endpoint.position + delta
+                        item.start_endpoint,
+                        position=item.start_endpoint.position + delta,
                     )
                     item.end_endpoint = replace(
                         item.end_endpoint, position=item.end_endpoint.position + delta
@@ -2572,13 +1677,14 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     # --- Canvas keyboard commands; active text editors keep Qt copy/paste. ---
     @_undo_transaction
-    def keyPressEvent(self, event: QtGui.QKeyEvent):
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
         copy = event.matches(QtGui.QKeySequence.StandardKey.Copy)
         paste = event.matches(QtGui.QKeySequence.StandardKey.Paste)
         if copy or paste:
             focus = self.scene().focusItem()
             if isinstance(focus, QtWidgets.QGraphicsTextItem) and (
-                focus.textInteractionFlags() & QtCore.Qt.TextInteractionFlag.TextEditable
+                focus.textInteractionFlags()
+                & QtCore.Qt.TextInteractionFlag.TextEditable
             ):
                 super().keyPressEvent(event)
                 return
@@ -2590,10 +1696,7 @@ class CanvasView(QtWidgets.QGraphicsView):
                     self._paste_clipboard_items(self.mapToScene(position))
             event.accept()
             return
-        if (
-            self._connector_creation_enabled
-            and event.key() == QtCore.Qt.Key.Key_Escape
-        ):
+        if self._connector_creation_enabled and event.key() == QtCore.Qt.Key.Key_Escape:
             self.set_connector_creation_enabled(False)
             event.accept()
             return
@@ -2626,13 +1729,9 @@ class CanvasView(QtWidgets.QGraphicsView):
             self._group_selected_items()
             event.accept()
             return
-        if (
-            event.key() == QtCore.Qt.Key.Key_G
-            and mods
-            == (
-                QtCore.Qt.KeyboardModifier.ControlModifier
-                | QtCore.Qt.KeyboardModifier.ShiftModifier
-            )
+        if event.key() == QtCore.Qt.Key.Key_G and mods == (
+            QtCore.Qt.KeyboardModifier.ControlModifier
+            | QtCore.Qt.KeyboardModifier.ShiftModifier
         ):
             self._ungroup_selected_items()
             event.accept()
@@ -2641,42 +1740,8 @@ class CanvasView(QtWidgets.QGraphicsView):
 
     # --- Alignment helpers ---
     @_undo_transaction
-    def _align_items(self, items, mode: str):
-        items = [item for item in items if not isinstance(item, ConnectorItem)]
-        if not items:
-            return
-        brs = [it.sceneBoundingRect() for it in items]
-        if mode == "grid":
-            size = self._grid_size
-            for it, br in zip(items, brs):
-                new_x = round(br.left() / size) * size
-                new_y = round(br.top() / size) * size
-                it.moveBy(new_x - br.left(), new_y - br.top())
-            return
-        if mode == "left":
-            target = min(br.left() for br in brs)
-            for it, br in zip(items, brs):
-                it.moveBy(target - br.left(), 0)
-        elif mode == "hcenter":
-            target = sum(br.center().x() for br in brs) / len(brs)
-            for it, br in zip(items, brs):
-                it.moveBy(target - br.center().x(), 0)
-        elif mode == "right":
-            target = max(br.right() for br in brs)
-            for it, br in zip(items, brs):
-                it.moveBy(target - br.right(), 0)
-        elif mode == "top":
-            target = min(br.top() for br in brs)
-            for it, br in zip(items, brs):
-                it.moveBy(0, target - br.top())
-        elif mode == "vcenter":
-            target = sum(br.center().y() for br in brs) / len(brs)
-            for it, br in zip(items, brs):
-                it.moveBy(0, target - br.center().y())
-        elif mode == "bottom":
-            target = max(br.bottom() for br in brs)
-            for it, br in zip(items, brs):
-                it.moveBy(0, target - br.bottom())
+    def _align_items(self, items: Iterable[QtWidgets.QGraphicsItem], mode: str) -> None:
+        canvas_alignment.align_items(items, mode, self._grid_size)
 
     def _create_color_action(
         self,
@@ -2686,14 +1751,9 @@ class CanvasView(QtWidgets.QGraphicsView):
         color_getter: Callable[[], QtGui.QColor],
         color_setter: Callable[[QtGui.QColor], None],
     ) -> tuple[QtGui.QAction, Callable[[], None]]:
-        action = menu.addAction(text)
-
-        def callback() -> None:
-            color = QtWidgets.QColorDialog.getColor(color_getter(), self, title)
-            if color.isValid():
-                color_setter(color)
-
-        return action, callback
+        return canvas_context_menu.create_color_action(
+            self, menu, text, title, color_getter, color_setter
+        )
 
     def _create_double_action(
         self,
@@ -2707,536 +1767,30 @@ class CanvasView(QtWidgets.QGraphicsView):
         maximum: float,
         decimals: int,
     ) -> tuple[QtGui.QAction, Callable[[], None]]:
-        action = menu.addAction(text)
-
-        def callback() -> None:
-            value, ok = QtWidgets.QInputDialog.getDouble(
-                self,
-                dialog_title,
-                label,
-                value_getter(),
-                minimum,
-                maximum,
-                decimals,
-            )
-            if ok:
-                value_setter(value)
-
-        return action, callback
+        return canvas_context_menu.create_double_action(
+            self,
+            menu,
+            text,
+            dialog_title,
+            label,
+            value_getter,
+            value_setter,
+            minimum,
+            maximum,
+            decimals,
+        )
 
     def _add_shape_label_actions(
         self, menu: QtWidgets.QMenu, item: ShapeLabelMixin
     ) -> dict[QtGui.QAction, Callable[[], None]]:
-        actions: dict[QtGui.QAction, Callable[[], None]] = {}
-        label_menu = menu.addMenu("Label")
-        edit_action = label_menu.addAction("Edit text")
-        actions[edit_action] = lambda item=item: item.edit_label()
+        return canvas_context_menu.add_shape_label_actions(self, menu, item)
 
-        has_label = item.has_label()
-
-        color_action, color_callback = self._create_color_action(
-            label_menu,
-            "Set font color...",
-            "Label font color",
-            lambda item=item: item.label_color(),
-            lambda color, item=item: item.set_label_color(color),
-        )
-        color_action.setEnabled(has_label)
-        actions[color_action] = color_callback
-
-        font_action = label_menu.addAction("Set font size...")
-        font_action.setEnabled(has_label)
-
-        def font_callback(item=item) -> None:
-            label_item = item.label_item()
-            if label_item is None:
-                return
-            font = QtGui.QFont(label_item.font())
-            pixel_size = float(font.pixelSize())
-            if pixel_size <= 0.0:
-                point_size = font.pointSizeF()
-                if point_size > 0.0:
-                    pixel_size = point_size
-            if pixel_size <= 0.0:
-                pixel_size = QtGui.QFontMetricsF(font).height()
-            value, ok = QtWidgets.QInputDialog.getDouble(
-                self,
-                "Label font size",
-                "Font size (px):",
-                max(1.0, pixel_size),
-                1.0,
-                500.0,
-                1,
-            )
-            if ok:
-                item.set_label_font_pixel_size(value)
-
-        actions[font_action] = font_callback
-
-        label_menu.addSeparator()
-        h_menu = label_menu.addMenu("Horizontal")
-        v_menu = label_menu.addMenu("Vertical")
-        h_menu.setEnabled(has_label)
-        v_menu.setEnabled(has_label)
-        h_align, v_align = item.label_alignment()
-        for title, key in (("Left", "left"), ("Center", "center"), ("Right", "right")):
-            action = h_menu.addAction(title)
-            action.setCheckable(True)
-            action.setChecked(h_align == key)
-            actions[action] = lambda item=item, key=key: item.set_label_alignment(horizontal=key)
-        for title, key in (("Top", "top"), ("Middle", "middle"), ("Bottom", "bottom")):
-            action = v_menu.addAction(title)
-            action.setCheckable(True)
-            action.setChecked(v_align == key)
-            actions[action] = lambda item=item, key=key: item.set_label_alignment(vertical=key)
-        return actions
     def _create_shape_style_actions(
         self, menu: QtWidgets.QMenu, item: QtWidgets.QGraphicsItem
     ) -> dict[QtGui.QAction, Callable[[], None]]:
-        actions: dict[QtGui.QAction, Callable[[], None]] = {}
-
-        if isinstance(item, ShapeLabelMixin):
-            label_actions = self._add_shape_label_actions(menu, item)
-            actions.update(label_actions)
-            menu.addSeparator()
-
-        def add_fill_actions() -> None:
-            fill_action, fill_callback = self._create_color_action(
-                menu,
-                "Set fill color…",
-                "Fill color",
-                lambda item=item: item.brush().color(),
-                lambda color, item=item: item.setBrush(color),
-            )
-            actions[fill_action] = fill_callback
-
-            def opacity_getter(item=item) -> float:
-                brush = item.brush()
-                if brush.style() == QtCore.Qt.BrushStyle.NoBrush:
-                    return 1.0
-                return brush.color().alphaF()
-
-            def opacity_setter(value: float, item=item) -> None:
-                brush = item.brush()
-                color = brush.color()
-                color.setAlphaF(value)
-                item.setBrush(color)
-
-            opacity_action = menu.addAction("Set fill opacity…")
-
-            def opacity_callback(item=item) -> None:
-                initial_opacity = opacity_getter()
-                dialog = OpacityDialog(initial_opacity, self)
-
-                def handle_value_changed(value: float, item=item) -> None:
-                    opacity_setter(value, item)
-
-                dialog.valueChanged.connect(handle_value_changed)
-                result = dialog.exec()
-                if result == QtWidgets.QDialog.DialogCode.Accepted:
-                    opacity_setter(dialog.value(), item)
-                else:
-                    opacity_setter(initial_opacity, item)
-
-            actions[opacity_action] = opacity_callback
-
-        def add_stroke_actions() -> None:
-            def stroke_color_setter(color: QtGui.QColor, item=item) -> None:
-                pen = item.pen()
-                pen.setColor(color)
-                item.setPen(pen)
-                item.update()
-
-            stroke_action, stroke_callback = self._create_color_action(
-                menu,
-                "Set stroke color…",
-                "Stroke color",
-                lambda item=item: item.pen().color(),
-                stroke_color_setter,
-            )
-            actions[stroke_action] = stroke_callback
-
-            def width_setter(value: float, item=item) -> None:
-                pen = item.pen()
-                pen.setWidthF(value)
-                item.setPen(pen)
-                item.update()
-
-            width_action, width_callback = self._create_double_action(
-                menu,
-                "Set stroke width…",
-                "Stroke width",
-                "Width:",
-                lambda item=item: item.pen().widthF(),
-                width_setter,
-                0.1,
-                50.0,
-                1,
-            )
-            actions[width_action] = width_callback
-
-        def add_corner_action() -> None:
-            corner_action = menu.addAction("Set corner radius…")
-
-            def corner_callback(item=item) -> None:
-                initial_rx = item.rx
-                initial_ry = item.ry
-                dlg = CornerRadiusDialog(item.rx, self)
-
-                def handle_value_changed(value: int, item=item) -> None:
-                    radius = min(float(value), 50.0)
-                    item.rx = item.ry = radius
-                    item.update()
-
-                dlg.valueChanged.connect(handle_value_changed)
-                result = dlg.exec()
-                if result == QtWidgets.QDialog.DialogCode.Accepted:
-                    handle_value_changed(dlg.value())
-                else:
-                    item.rx = initial_rx
-                    item.ry = initial_ry
-                    item.update()
-
-            actions[corner_action] = corner_callback
-
-        def add_arrow_actions() -> None:
-            start_action = menu.addAction("Show start arrowhead")
-            start_action.setCheckable(True)
-            start_action.setChecked(getattr(item, "arrow_start", False))
-
-            def start_callback(action=start_action, item=item) -> None:
-                item.set_arrow_start(action.isChecked())
-
-            actions[start_action] = start_callback
-
-            end_action = menu.addAction("Show end arrowhead")
-            end_action.setCheckable(True)
-            end_action.setChecked(getattr(item, "arrow_end", False))
-
-            def end_callback(action=end_action, item=item) -> None:
-                item.set_arrow_end(action.isChecked())
-
-            actions[end_action] = end_callback
-
-            length_getter = getattr(item, "arrow_head_length", None)
-            width_getter = getattr(item, "arrow_head_width", None)
-            length_setter = getattr(item, "set_arrow_head_length", None)
-            width_setter = getattr(item, "set_arrow_head_width", None)
-            if all(callable(fn) for fn in (length_getter, width_getter, length_setter, width_setter)):
-                style_menu = menu.addMenu("Arrowhead style")
-                height_action, height_callback = self._create_double_action(
-                    style_menu,
-                    "Set arrowhead height...",
-                    "Arrowhead height",
-                    "Height:",
-                    lambda item=item, getter=length_getter: getter(),
-                    lambda value, item=item, setter=length_setter: setter(value),
-                    1.0,
-                    500.0,
-                    1,
-                )
-                actions[height_action] = height_callback
-
-                width_action, width_callback = self._create_double_action(
-                    style_menu,
-                    "Set arrowhead width...",
-                    "Arrowhead width",
-                    "Width:",
-                    lambda item=item, getter=width_getter: getter(),
-                    lambda value, item=item, setter=width_setter: setter(value),
-                    1.0,
-                    500.0,
-                    1,
-                )
-                actions[width_action] = width_callback
-
-        def add_line_style_actions() -> None:
-            style_menu = menu.addMenu("Line style")
-            action_group = QtGui.QActionGroup(menu)
-            action_group.setExclusive(True)
-            current_style = item.pen().style()
-
-            def make_action(text: str, style: QtCore.Qt.PenStyle) -> None:
-                act = style_menu.addAction(text)
-                act.setCheckable(True)
-                act.setChecked(current_style == style)
-                action_group.addAction(act)
-
-                def callback(item=item, style=style) -> None:
-                    setter = getattr(item, "set_pen_style", None)
-                    if callable(setter):
-                        setter(style)
-                    else:
-                        pen = QtGui.QPen(item.pen())
-                        pen.setStyle(style)
-                        item.setPen(pen)
-                        item.update()
-
-                actions[act] = callback
-
-            make_action("Solid", QtCore.Qt.PenStyle.SolidLine)
-            make_action("Dashed", QtCore.Qt.PenStyle.DashLine)
-            make_action("Dotted", QtCore.Qt.PenStyle.DotLine)
-
-        def add_text_actions() -> None:
-            fit_action = menu.addAction("Fit to text")
-            actions[fit_action] = lambda item=item: item.fit_to_text()
-            text_color_action, text_color_callback = self._create_color_action(
-                menu,
-                "Set text color...",
-                "Text color",
-                lambda item=item: item.defaultTextColor(),
-                lambda color, item=item: item.setDefaultTextColor(color),
-            )
-            actions[text_color_action] = text_color_callback
-
-            def font_size_setter(value: float, item=item) -> None:
-                font = item.font()
-                font.setPointSizeF(value)
-                item.setFont(font)
-
-            font_size_action, font_size_callback = self._create_double_action(
-                menu,
-                "Set font size...",
-                "Font size",
-                "Size:",
-                lambda item=item: item.font().pointSizeF(),
-                font_size_setter,
-                1.0,
-                500.0,
-                1,
-            )
-            actions[font_size_action] = font_size_callback
-
-            align_menu = menu.addMenu("Alignment")
-            h_menu = align_menu.addMenu("Horizontal")
-            v_menu = align_menu.addMenu("Vertical")
-            h_align, v_align = item.text_alignment()
-            for title, key in (("Left", "left"), ("Center", "center"), ("Right", "right")):
-                action = h_menu.addAction(title)
-                action.setCheckable(True)
-                action.setChecked(h_align == key)
-                actions[action] = lambda item=item, key=key: item.set_text_alignment(horizontal=key)
-            for title, key in (("Top", "top"), ("Middle", "middle"), ("Bottom", "bottom")):
-                action = v_menu.addAction(title)
-                action.setCheckable(True)
-                action.setChecked(v_align == key)
-                actions[action] = lambda item=item, key=key: item.set_text_alignment(vertical=key)
-
-            dir_menu = align_menu.addMenu("Direction")
-            current_dir = item.text_direction()
-            for title, key in (("Left to right", "ltr"), ("Right to left", "rtl")):
-                action = dir_menu.addAction(title)
-                action.setCheckable(True)
-                action.setChecked(current_dir == key)
-                actions[action] = lambda item=item, key=key: item.set_text_direction(key)
-
-        def add_split_rect_fill_actions() -> None:
-            split_item: SplitRoundedRectItem = item  # type: ignore[assignment]
-
-            top_action, top_callback = self._create_color_action(
-                menu,
-                "Set top fill color…",
-                "Top fill color",
-                lambda item=split_item: item.topBrush().color(),
-                lambda color, item=split_item: item.setTopBrush(color),
-            )
-            actions[top_action] = top_callback
-
-            def top_opacity_getter(item=split_item) -> float:
-                brush = item.topBrush()
-                if brush.style() == QtCore.Qt.BrushStyle.NoBrush:
-                    return 1.0
-                return brush.color().alphaF()
-
-            def top_opacity_setter(value: float, item=split_item) -> None:
-                brush = item.topBrush()
-                color = brush.color()
-                color.setAlphaF(value)
-                item.setTopBrush(color)
-
-            top_opacity_action = menu.addAction("Set top fill opacity…")
-
-            def top_opacity_callback(item=split_item) -> None:
-                initial_opacity = top_opacity_getter()
-                dialog = OpacityDialog(initial_opacity, self)
-
-                def handle_value_changed(value: float, item=item) -> None:
-                    top_opacity_setter(value, item)
-
-                dialog.valueChanged.connect(handle_value_changed)
-                result = dialog.exec()
-                if result == QtWidgets.QDialog.DialogCode.Accepted:
-                    top_opacity_setter(dialog.value(), item)
-                else:
-                    top_opacity_setter(initial_opacity, item)
-
-            actions[top_opacity_action] = top_opacity_callback
-
-            bottom_action, bottom_callback = self._create_color_action(
-                menu,
-                "Set bottom fill color…",
-                "Bottom fill color",
-                lambda item=split_item: item.bottomBrush().color(),
-                lambda color, item=split_item: item.setBottomBrush(color),
-            )
-            actions[bottom_action] = bottom_callback
-
-            def bottom_opacity_getter(item=split_item) -> float:
-                brush = item.bottomBrush()
-                if brush.style() == QtCore.Qt.BrushStyle.NoBrush:
-                    return 1.0
-                return brush.color().alphaF()
-
-            def bottom_opacity_setter(value: float, item=split_item) -> None:
-                brush = item.bottomBrush()
-                color = brush.color()
-                color.setAlphaF(value)
-                item.setBottomBrush(color)
-
-            bottom_opacity_action = menu.addAction("Set bottom fill opacity…")
-
-            def bottom_opacity_callback(item=split_item) -> None:
-                initial_opacity = bottom_opacity_getter()
-                dialog = OpacityDialog(initial_opacity, self)
-
-                def handle_value_changed(value: float, item=item) -> None:
-                    bottom_opacity_setter(value, item)
-
-                dialog.valueChanged.connect(handle_value_changed)
-                result = dialog.exec()
-                if result == QtWidgets.QDialog.DialogCode.Accepted:
-                    bottom_opacity_setter(dialog.value(), item)
-                else:
-                    bottom_opacity_setter(initial_opacity, item)
-
-            actions[bottom_opacity_action] = bottom_opacity_callback
-
-        if isinstance(item, RectItem):
-            add_fill_actions()
-            add_corner_action()
-            menu.addSeparator()
-            add_stroke_actions()
-        elif isinstance(item, SplitRoundedRectItem):
-            add_split_rect_fill_actions()
-            add_corner_action()
-            menu.addSeparator()
-            add_stroke_actions()
-        elif isinstance(item, (QtWidgets.QGraphicsEllipseItem, TriangleItem, DiamondItem)):
-            add_fill_actions()
-            menu.addSeparator()
-            add_stroke_actions()
-        elif isinstance(item, LineItem):
-            add_arrow_actions()
-            add_line_style_actions()
-            menu.addSeparator()
-            add_stroke_actions()
-        elif isinstance(item, TextItem):
-            add_text_actions()
-        else:
-            add_stroke_actions()
-
-        return actions
+        return canvas_context_menu.create_shape_style_actions(self, menu, item)
 
     # --- Context menu for adjusting colors and line width ---
     @_undo_transaction
-    def contextMenuEvent(self, event: QtGui.QContextMenuEvent):
-        if self._suppress_context_menu:
-            self._suppress_context_menu = False
-            event.accept()
-            return
-        pos = event.pos()
-        item = self.itemAt(pos)
-        if isinstance(item, QtWidgets.QGraphicsTextItem):
-            parent = item.parentItem()
-            if isinstance(parent, ShapeLabelMixin) and getattr(parent, 'label_item', lambda: None)() is item:
-                item = parent
-        if not item:
-            menu = QtWidgets.QMenu(self)
-            reset_act = menu.addAction("Reset zoom")
-            action = menu.exec(event.globalPos())
-            if action is reset_act:
-                self.resetTransform()
-            else:
-                super().contextMenuEvent(event)
-            return
-
-        menu = QtWidgets.QMenu(self)
-
-        # Qt also reports children of selected groups as selected.
-        selected = [
-            item for item in self.scene().selectedItems() if item.parentItem() is None
-        ]
-        group_act = ungroup_act = None
-        if len(selected) >= 2:
-            group_act = menu.addAction("Group")
-        if any(isinstance(it, GroupItem) for it in selected):
-            ungroup_act = menu.addAction("Ungroup")
-        if group_act or ungroup_act:
-            menu.addSeparator()
-
-        align_actions = {}
-        if len(selected) >= 2:
-            align_menu = menu.addMenu("Align")
-            align_actions[align_menu.addAction("Left")] = "left"
-            align_actions[align_menu.addAction("Center")] = "hcenter"
-            align_actions[align_menu.addAction("Right")] = "right"
-            align_menu.addSeparator()
-            align_actions[align_menu.addAction("Top")] = "top"
-            align_actions[align_menu.addAction("Middle")] = "vcenter"
-            align_actions[align_menu.addAction("Bottom")] = "bottom"
-            align_menu.addSeparator()
-            align_actions[align_menu.addAction("Snap to grid")] = "grid"
-            menu.addSeparator()
-
-        style_actions = self._create_shape_style_actions(menu, item)
-        if style_actions:
-            menu.addSeparator()
-
-        back1_act = menu.addAction("Send backward")
-        front1_act = menu.addAction("Bring forward")
-        menu.addSeparator()
-        back_act = menu.addAction("Send to back")
-        front_act = menu.addAction("Bring to front")
-
-        action = menu.exec(event.globalPos())
-        if not action:
-            super().contextMenuEvent(event)
-            return
-
-        if action in align_actions:
-            self._align_items(selected, align_actions[action])
-        elif action is group_act:
-            self._group_selected_items()
-        elif action is ungroup_act:
-            self._ungroup_selected_items()
-        else:
-            style_callback = style_actions.get(action)
-            if style_callback:
-                style_callback()
-            elif action in (back1_act, front1_act, back_act, front_act):
-                scene = self.scene()
-                items = [
-                    it
-                    for it in scene.items()
-                    if (
-                        SHAPE_REGISTRY.definition_for_item(it) is not None
-                        or isinstance(it, GroupItem)
-                        or isinstance(it, ConnectorItem)
-                        or isinstance(it, BitmapItem)
-                    )
-                ]
-                items.sort(key=lambda it: it.zValue())
-                idx = items.index(item)
-                if action == back1_act and idx > 0:
-                    items[idx - 1], items[idx] = items[idx], items[idx - 1]
-                elif action == front1_act and idx < len(items) - 1:
-                    items[idx + 1], items[idx] = items[idx], items[idx + 1]
-                elif action == back_act:
-                    items.insert(0, items.pop(idx))
-                elif action == front_act:
-                    items.append(items.pop(idx))
-                for z, it in enumerate(items):
-                    it.setZValue(z)
-            else:
-                super().contextMenuEvent(event)
+    def contextMenuEvent(self, event: QtGui.QContextMenuEvent) -> None:
+        canvas_context_menu.contextMenuEvent(self, event)

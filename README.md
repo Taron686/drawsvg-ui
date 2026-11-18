@@ -32,7 +32,7 @@ drawsvg-ui  # on Windows this is available as drawsvg-ui.exe
 ## Install all via dependencies with:
 
 ```bash
-python -m pip install -r requirements.txt
+python -m pip install -e .
 ```
 
 ## Running the Application
@@ -45,7 +45,7 @@ python src/main.py
 ## UI Features
 
 ### Canvas and navigation
-* A4 canvas with grid/subgrid preview; toggle visibility via `Edit → Show grid`.
+* A4 canvas with grid/subgrid preview; toggle visibility via `View → Show grid`.
 * Snap-to-grid movement and resizing; hold `Alt` to place/drag/resize freely.
 * Automatic extra A4 pages when objects cross page borders; empty pages are cleaned up again.
 * Zoom with `Ctrl`/`Alt` + mouse wheel; pan with middle button or right-button drag (right click on empty space resets zoom).
@@ -82,6 +82,19 @@ Text boxes now fit their content automatically until manually resized, with a
 Fit to text action and preserved sizing mode in native and Python files. Group
 selection bounds exclude temporary child handles. Light and dark themes use
 consistent Fusion styling, readable controls and stable widget geometry.
+
+## Version 0.8.0
+
+- Set solid, dashed, or dotted strokes on shapes and arrows. Line styles are
+  preserved when loading drawings.
+- Use the Windows 11 style when available and toggle the grid in the View menu.
+- Export Python scripts that save SVGs with the same base name as the script.
+- Preserve layer tree selection and scroll position, apply visibility and
+  locking consistently, and keep undo working after group moves.
+- Speed up scene updates, line hit testing, and snapping during drags.
+
+The separate [drawsvg Preview extension](tools/vscode-drawsvg-preview/README.md)
+can show an exported drawing beside its Python source in VS Code.
 
 ## Version 0.7.1
 

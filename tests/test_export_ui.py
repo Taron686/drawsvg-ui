@@ -4,7 +4,7 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 import pytest
-from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6 import QtGui, QtWidgets
 
 from items import RectItem
 from main_window import MainWindow
@@ -29,7 +29,8 @@ def test_file_menu_exposes_all_shared_renderer_exports(
     assert [
         action.text()
         for action in file_menu.actions()
-        if action in {
+        if action
+        in {
             window.actionExport_svg,
             window.actionExport_png,
             window.actionExport_pdf,
@@ -60,10 +61,14 @@ def test_file_menu_export_writes_format_without_mutating_scene_or_history(
     states_before = list(history._states)
     index_before = history._index
     selected_before = tuple(scene.selectedItems())
-    visibility_before = tuple((scene_item, scene_item.isVisible()) for scene_item in scene.items())
+    visibility_before = tuple(
+        (scene_item, scene_item.isVisible()) for scene_item in scene.items()
+    )
 
     selected_path = tmp_path / f"review-{export_format}"
-    monkeypatch.setattr(PngExportDialog, "exec", lambda dialog: _accept_png(dialog, selected_path))
+    monkeypatch.setattr(
+        PngExportDialog, "exec", lambda dialog: _accept_png(dialog, selected_path)
+    )
     monkeypatch.setattr(
         QtWidgets.QFileDialog,
         "getSaveFileName",
@@ -85,7 +90,10 @@ def test_file_menu_export_writes_format_without_mutating_scene_or_history(
     assert list(history._states) == states_before
     assert history._index == index_before
     assert tuple(scene.selectedItems()) == selected_before
-    assert tuple((scene_item, scene_item.isVisible()) for scene_item in scene.items()) == visibility_before
+    assert (
+        tuple((scene_item, scene_item.isVisible()) for scene_item in scene.items())
+        == visibility_before
+    )
 
     window.close()
 
@@ -100,7 +108,9 @@ def test_file_menu_png_export_crops_to_content_instead_of_page(
     window.canvas.scene().addItem(item)
     item.setSelected(True)
     output_path = tmp_path / "content.png"
-    monkeypatch.setattr(PngExportDialog, "exec", lambda dialog: _accept_png(dialog, output_path))
+    monkeypatch.setattr(
+        PngExportDialog, "exec", lambda dialog: _accept_png(dialog, output_path)
+    )
     monkeypatch.setattr(
         QtWidgets.QFileDialog,
         "getSaveFileName",

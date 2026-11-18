@@ -27,7 +27,7 @@ from ..base import (
 class LineHandle(QtWidgets.QGraphicsEllipseItem):
     """Handle for line vertices and midpoints."""
 
-    def __init__(self, parent: "LineItem", index: int, is_mid: bool = False):
+    def __init__(self, parent: LineItem, index: int, is_mid: bool = False) -> None:
         super().__init__(
             -HANDLE_SIZE / 2.0,
             -HANDLE_SIZE / 2.0,
@@ -39,38 +39,42 @@ class LineHandle(QtWidgets.QGraphicsEllipseItem):
         self.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
         self.setCursor(QtCore.Qt.CursorShape.SizeAllCursor)
-        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+        self.setFlag(
+            QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
+        )
         self.index = index
         self.is_mid = is_mid
         self._parent_was_movable = False
 
-    def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
-        parent: "LineItem" = self.parentItem()  # type: ignore[assignment]
+    def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
+        parent: LineItem = self.parentItem()  # type: ignore[assignment]
         if self.is_mid:
             parent.insert_point(self.index + 1, self.pos())
-            parent._mid_handles.pop(self.index)
+            parent._mid_handles.pop(self.index)  # noqa: SLF001 - paired helper and item
             self.is_mid = False
-            parent._handles.insert(self.index + 1, self)
+            parent._handles.insert(self.index + 1, self)  # noqa: SLF001 - paired helper and item
             parent.update_handles()
         flags = parent.flags()
         self._parent_was_movable = bool(
             flags & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
         )
         if self._parent_was_movable:
-            parent.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
-        parent._moving_index = self.index
+            parent.setFlag(
+                QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False
+            )
+        parent._moving_index = self.index  # noqa: SLF001 - paired helper and item
         event.accept()
 
-    def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
-        parent: "LineItem" = self.parentItem()  # type: ignore[assignment]
-        parent._handle_move(event)
+    def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
+        parent: LineItem = self.parentItem()  # type: ignore[assignment]
+        parent._handle_move(event)  # noqa: SLF001 - paired helper and item
 
-    def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
-        parent: "LineItem" = self.parentItem()  # type: ignore[assignment]
+    def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
+        parent: LineItem = self.parentItem()  # type: ignore[assignment]
         if self._parent_was_movable:
             parent.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
             self._parent_was_movable = False
-        parent._moving_index = None
+        parent._moving_index = None  # noqa: SLF001 - paired helper and item
         event.accept()
 
 
@@ -85,7 +89,7 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         points: list[QtCore.QPointF] | None = None,
         arrow_head_length: float | None = None,
         arrow_head_width: float | None = None,
-    ):
+    ) -> None:
         super().__init__()
         self.setPos(x, y)
         self.setFlags(
@@ -120,6 +124,12 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         self.update_handles()
         self.hide_handles()
 
+    def points(self) -> list[QtCore.QPointF]:
+        return [QtCore.QPointF(point) for point in self._points]
+
+    def paint_geometry(self) -> tuple[QtGui.QPainterPath, tuple[QtGui.QPolygonF, ...]]:
+        return self._paint_geometry()
+
     def _update_length(self) -> None:
         total = 0.0
         for i in range(len(self._points) - 1):
@@ -152,7 +162,7 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         self._points.insert(index, QtCore.QPointF(pos))
         self._update_path()
 
-    def _snap_position_value(self, value):  # type: ignore[override]
+    def _snap_position_value(self, value: object) -> object:  # type: ignore[override]
         if not isinstance(value, QtCore.QPointF):
             return value
 
@@ -228,14 +238,18 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
 
     def set_arrow_head_length(self, value: float) -> None:
         new_value = max(0.1, float(value))
-        if not math.isclose(self._arrow_head_length, new_value, rel_tol=1e-6, abs_tol=1e-6):
+        if not math.isclose(
+            self._arrow_head_length, new_value, rel_tol=1e-6, abs_tol=1e-6
+        ):
             self.prepareGeometryChange()
             self._arrow_head_length = new_value
             self.update()
 
     def set_arrow_head_width(self, value: float) -> None:
         new_value = max(0.1, float(value))
-        if not math.isclose(self._arrow_head_width, new_value, rel_tol=1e-6, abs_tol=1e-6):
+        if not math.isclose(
+            self._arrow_head_width, new_value, rel_tol=1e-6, abs_tol=1e-6
+        ):
             self.prepareGeometryChange()
             self._arrow_head_width = new_value
             self.update()
@@ -251,10 +265,34 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
         self.setPen(pen)
         self.update()
 
-    def boundingRect(self):  # type: ignore[override]
-        return self.shape().boundingRect()
+    # Qt asks for boundingRect()/shape() many times per frame; building the
+    # hit area is expensive, so it is cached and keyed by everything it
+    # depends on. A key (rather than explicit invalidation) stays correct for
+    # callers that use setPen() or mutate the points directly.
+    _shape_cache_key: tuple | None = None
+
+    def _cached_shape(self) -> tuple[QtGui.QPainterPath, QtCore.QRectF]:
+        key = (
+            self.pen().widthF(),
+            self.arrow_start,
+            self.arrow_end,
+            self._arrow_head_length,
+            self._arrow_head_width,
+            tuple((point.x(), point.y()) for point in self._points),
+        )
+        if key != self._shape_cache_key:
+            path = self._build_shape()
+            self._shape_cache = (path, path.boundingRect())
+            self._shape_cache_key = key
+        return self._shape_cache
+
+    def boundingRect(self) -> QtCore.QRectF:  # type: ignore[override]
+        return QtCore.QRectF(self._cached_shape()[1])
 
     def shape(self) -> QtGui.QPainterPath:  # type: ignore[override]
+        return QtGui.QPainterPath(self._cached_shape()[0])
+
+    def _build_shape(self) -> QtGui.QPainterPath:
         stroker = QtGui.QPainterPathStroker()
         stroker.setWidth(max(8.0, self.pen().widthF() + 6.0))
         selection_path = stroker.createStroke(self.path())
@@ -374,7 +412,12 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
 
         return shaft_path, tuple(arrow_polygons)
 
-    def paint(self, painter, option, widget=None):
+    def paint(
+        self,
+        painter: QtGui.QPainter,
+        option: QtWidgets.QStyleOptionGraphicsItem,
+        widget: QtWidgets.QWidget | None = None,
+    ) -> None:
         shaft_path, arrow_polygons = self._paint_geometry()
         painter.save()
         painter.setPen(self.pen())
@@ -413,7 +456,6 @@ class LineItem(HandleAwareItemMixin, QtWidgets.QGraphicsPathItem):
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
             painter.drawPath(self.shape())
             painter.restore()
-
 
 
 __all__ = ["LineHandle", "LineItem"]

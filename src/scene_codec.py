@@ -80,7 +80,9 @@ class SceneCodec:
         layer_id = data.get("layer_id")
         item.setData(
             KEY_LAYER_ID,
-            str(layer_id) if isinstance(layer_id, str) and layer_id else DEFAULT_LAYER_ID,
+            str(layer_id)
+            if isinstance(layer_id, str) and layer_id
+            else DEFAULT_LAYER_ID,
         )
 
     @classmethod
@@ -127,4 +129,8 @@ class SceneCodec:
     @staticmethod
     def _layer_id(item: QtWidgets.QGraphicsItem) -> str:
         layer_id = item.data(KEY_LAYER_ID)
-        return str(layer_id) if isinstance(layer_id, str) and layer_id else DEFAULT_LAYER_ID
+        return (
+            str(layer_id)
+            if isinstance(layer_id, str) and layer_id
+            else DEFAULT_LAYER_ID
+        )

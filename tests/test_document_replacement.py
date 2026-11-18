@@ -23,8 +23,12 @@ def controller(canvas_view, tmp_path):
 
 @pytest.mark.parametrize(
     ("baseline", "dirty", "revision"),
-    [("saved", False, 0), ("blank", False, 0), ("unsaved", True, 1),
-     ("recovered", True, 7)],
+    [
+        ("saved", False, 0),
+        ("blank", False, 0),
+        ("unsaved", True, 1),
+        ("recovered", True, 7),
+    ],
 )
 def test_replacement_establishes_identity_assets_and_single_history_baseline(
     controller, canvas_view, tmp_path, application, baseline, dirty, revision
@@ -73,15 +77,26 @@ def test_failed_replacement_restores_scene_view_metadata_and_redo(
     canvas_view.set_bitmap_assets((ProjectAsset("old.bin", b"original"),))
     controller.save(tmp_path / "original.drawsvg")
     canvas_view.scale(1.7, 1.7)
-    selected = next(item for item in canvas_view.scene().items()
-                    if canvas_view._is_serializable_item(item))
+    selected = next(
+        item
+        for item in canvas_view.scene().items()
+        if canvas_view._is_serializable_item(item)
+    )
     selected.setSelected(True)
     before = controller.project_document()
     history = canvas_view.history()
     history_before = (list(history._states), history._index, history.history_bytes)
     transform = canvas_view.transform()
-    scroll = (canvas_view.horizontalScrollBar().value(), canvas_view.verticalScrollBar().value())
-    metadata = (controller.path, controller.document_id, controller.dirty, controller.revision)
+    scroll = (
+        canvas_view.horizontalScrollBar().value(),
+        canvas_view.verticalScrollBar().value(),
+    )
+    metadata = (
+        controller.path,
+        controller.document_id,
+        controller.dirty,
+        controller.revision,
+    )
     original_restore = canvas_view._restore_scene_state
 
     def fail_target(state):
@@ -94,17 +109,26 @@ def test_failed_replacement_restores_scene_view_metadata_and_redo(
     with pytest.raises(RuntimeError, match="target restore failed"):
         controller.replace_document(
             ProjectDocument(scene={"items": [], "grid_visible": False}),
-            source_path=None, baseline="unsaved",
+            source_path=None,
+            baseline="unsaved",
         )
     application.processEvents()
     QtTest.QTest.qWait(280)
 
     assert controller.project_document() == before
-    assert (controller.path, controller.document_id, controller.dirty, controller.revision) == metadata
+    assert (
+        controller.path,
+        controller.document_id,
+        controller.dirty,
+        controller.revision,
+    ) == metadata
     assert (history._states, history._index, history.history_bytes) == history_before
     assert history.can_redo()
     assert canvas_view.transform() == transform
-    assert (canvas_view.horizontalScrollBar().value(), canvas_view.verticalScrollBar().value()) == scroll
+    assert (
+        canvas_view.horizontalScrollBar().value(),
+        canvas_view.verticalScrollBar().value(),
+    ) == scroll
     assert canvas_view.scene().selectedItems() == []
     canvas_view.redo()
     assert len(canvas_view._serialize_scene_state()["items"]) == 2
@@ -121,7 +145,8 @@ def test_validation_failure_keeps_existing_item_selection_and_assets(
     with pytest.raises(ValueError, match="Unknown shape"):
         controller.replace_document(
             ProjectDocument(scene={"items": [{"shape": "Unknown Shape"}]}),
-            source_path=None, baseline="unsaved",
+            source_path=None,
+            baseline="unsaved",
         )
     assert canvas_view.scene().selectedItems() == [item]
     assert canvas_view.bitmap_assets() == (asset,)
@@ -140,9 +165,10 @@ def test_double_failure_detaches_and_preserves_original_archives(
     assert controller.write_recovery_if_needed()
     original_id = controller.document_id
     candidate = controller.recovery_store.candidates()[0]
-    archives = {path: path.read_bytes() for path in (
-        original_path, candidate.archive_path, candidate.metadata_path
-    )}
+    archives = {
+        path: path.read_bytes()
+        for path in (original_path, candidate.archive_path, candidate.metadata_path)
+    }
 
     def cannot_serialize():
         raise ValueError("damaged scene cannot serialize")
@@ -213,7 +239,8 @@ def test_repeated_replacement_clears_connector_preview(controller, canvas_view):
         canvas_view._handle_connector_click(QtCore.QPoint(10, 10))
         controller.replace_document(
             ProjectDocument(scene={"items": [], "grid_visible": True}),
-            source_path=None, baseline=baseline,
+            source_path=None,
+            baseline=baseline,
         )
         assert not canvas_view.connector_creation_enabled()
         assert canvas_view._connector_start is None
@@ -231,20 +258,31 @@ def test_public_fit_restores_master_page_zoom(canvas_view):
     assert canvas_view.transform() == fitted
 
 
-@pytest.mark.parametrize(("baseline", "source"), [
-    ("saved", None), ("saved", Path("relative.drawsvg")),
-    ("blank", Path("unexpected.drawsvg")), ("unsaved", Path("unexpected.drawsvg")),
-    ("unknown", None),
-])
-def test_invalid_baseline_contract_does_not_replace_selection(controller, canvas_view, baseline, source):
+@pytest.mark.parametrize(
+    ("baseline", "source"),
+    [
+        ("saved", None),
+        ("saved", Path("relative.drawsvg")),
+        ("blank", Path("unexpected.drawsvg")),
+        ("unsaved", Path("unexpected.drawsvg")),
+        ("unknown", None),
+    ],
+)
+def test_invalid_baseline_contract_does_not_replace_selection(
+    controller, canvas_view, baseline, source
+):
     item = canvas_view.add_shape_at_view_center("Rectangle")
     item.setSelected(True)
     with pytest.raises(ValueError):
-        controller.replace_document(ProjectDocument(scene={"items": []}), source_path=source, baseline=baseline)
+        controller.replace_document(
+            ProjectDocument(scene={"items": []}), source_path=source, baseline=baseline
+        )
     assert canvas_view.scene().selectedItems() == [item]
 
 
-def test_history_baseline_serialization_failure_preserves_redo(canvas_view, monkeypatch):
+def test_history_baseline_serialization_failure_preserves_redo(
+    canvas_view, monkeypatch
+):
     # A failed initial snapshot must not clear history before it can serialize.
     canvas_view.add_shape_at_view_center("Rectangle")
     canvas_view.add_shape_at_view_center("Ellipse")
@@ -294,12 +332,16 @@ def test_suspension_preserves_existing_recording_suppression(canvas_view):
         history._ignore_changes = False
 
 
-def test_controller_load_uses_saved_replacement_baseline(controller, canvas_view, tmp_path):
+def test_controller_load_uses_saved_replacement_baseline(
+    controller, canvas_view, tmp_path
+):
     from document_io import save_project
 
     canvas_view.add_shape_at_view_center("Rectangle")
     source = tmp_path / "source.drawsvg"
-    document = ProjectDocument(scene={"schema_version": 1, "items": [], "grid_visible": True})
+    document = ProjectDocument(
+        scene={"schema_version": 1, "items": [], "grid_visible": True}
+    )
     save_project(source, document)
     assert controller.load(source) == source
     assert controller.document_id == document.document_id
@@ -314,7 +356,11 @@ def test_invalid_target_assets_preserve_selected_item(controller, canvas_view):
     item.setSelected(True)
     with pytest.raises(ValueError):
         controller.replace_document(
-            ProjectDocument(scene={"items": []}, assets=(ProjectAsset("bad.png", b"invalid", "image/png"),)),
-            source_path=None, baseline="unsaved",
+            ProjectDocument(
+                scene={"items": []},
+                assets=(ProjectAsset("bad.png", b"invalid", "image/png"),),
+            ),
+            source_path=None,
+            baseline="unsaved",
         )
     assert canvas_view.scene().selectedItems() == [item]

@@ -445,6 +445,16 @@
                 </property>
                </widget>
               </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="labelStrokeStyle">
+                <property name="text">
+                 <string>Line Style</string>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="1">
+               <widget class="QComboBox" name="comboStrokeStyle"/>
+              </item>
              </layout>
             </widget>
            </item>
@@ -609,19 +619,31 @@
               <string>Arrows</string>
              </property>
              <layout class="QFormLayout" name="formLineArrows">
-              <item row="0" column="1">
-               <widget class="QCheckBox" name="checkArrowStart">
+              <item row="0" column="0">
+               <widget class="QLabel" name="labelArrowStart">
                 <property name="text">
                  <string>Arrow at Start</string>
+                </property>
+                <property name="buddy">
+                 <cstring>checkArrowStart</cstring>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QCheckBox" name="checkArrowStart"/>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="labelArrowEnd">
+                <property name="text">
+                 <string>Arrow at End</string>
+                </property>
+                <property name="buddy">
+                 <cstring>checkArrowEnd</cstring>
                 </property>
                </widget>
               </item>
               <item row="1" column="1">
-               <widget class="QCheckBox" name="checkArrowEnd">
-                <property name="text">
-                 <string>Arrow at End</string>
-                </property>
-               </widget>
+               <widget class="QCheckBox" name="checkArrowEnd"/>
               </item>
               <item row="2" column="0">
                <widget class="QLabel" name="labelArrowLength">

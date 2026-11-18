@@ -28,11 +28,25 @@ def test_text_snaps_to_visible_stroke_edge(canvas_view, kind):
     _setup(canvas_view)
     canvas_view._grid_snap_enabled = False
     if kind == "line":
-        target = LineItem(0, 0, points=[
-            QtCore.QPointF(65, -250), QtCore.QPointF(65, 170), QtCore.QPointF(350, 170)])
+        target = LineItem(
+            0,
+            0,
+            points=[
+                QtCore.QPointF(65, -250),
+                QtCore.QPointF(65, 170),
+                QtCore.QPointF(350, 170),
+            ],
+        )
     else:
-        target = FreePathItem(0, 0, start=(65, -250), segments=[
-            {"kind": "line", "end": (65, 170)}, {"kind": "line", "end": (350, 170)}])
+        target = FreePathItem(
+            0,
+            0,
+            start=(65, -250),
+            segments=[
+                {"kind": "line", "end": (65, 170)},
+                {"kind": "line", "end": (350, 170)},
+            ],
+        )
     target.setPen(QtGui.QPen(QtCore.Qt.GlobalColor.black, 8))
     canvas_view.scene().addItem(target)
     text = _text(canvas_view)
@@ -41,7 +55,9 @@ def test_text_snaps_to_visible_stroke_edge(canvas_view, kind):
     assert canvas_view._active_snap_guides["horizontal"] == pytest.approx(174)
 
 
-@pytest.mark.parametrize("kind", ["hidden", "zero_opacity", "transient", "hidden_layer"])
+@pytest.mark.parametrize(
+    "kind", ["hidden", "zero_opacity", "transient", "hidden_layer"]
+)
 def test_invisible_targets_do_not_override_grid(canvas_view, kind):
     _setup(canvas_view)
     target = RectItem(0, 0, 250, 170)
@@ -112,9 +128,17 @@ def test_group_source_snaps_by_content_not_handles(canvas_view):
 
 def test_line_source_uses_same_visible_envelope_as_targets(canvas_view):
     from snap_geometry import item_grid_anchor
+
     _setup(canvas_view)
-    item = LineItem(0, 0, points=[
-        QtCore.QPointF(65, -250), QtCore.QPointF(65, 170), QtCore.QPointF(350, 170)])
+    item = LineItem(
+        0,
+        0,
+        points=[
+            QtCore.QPointF(65, -250),
+            QtCore.QPointF(65, 170),
+            QtCore.QPointF(350, 170),
+        ],
+    )
     item.setPen(QtGui.QPen(QtCore.Qt.GlobalColor.black, 2))
     canvas_view.scene().addItem(item)
     item.setSelected(True)
@@ -140,14 +164,20 @@ def test_group_children_do_not_supply_invisible_bounds(canvas_view, child_state)
 def test_snap_preserves_cpp_items_after_gc(canvas_view):
     _setup(canvas_view)
     canvas_view._grid_snap_enabled = False
+
     def add_target():
         item = RectItem(0, 0, 250, 170)
         item.setPen(QtGui.QPen(QtCore.Qt.PenStyle.NoPen))
         canvas_view.scene().addItem(item)
+
     add_target()
     text = _text(canvas_view)
+
     def identities():
-        return sorted(shiboken6.getCppPointer(item)[0] for item in canvas_view.scene().items())
+        return sorted(
+            shiboken6.getCppPointer(item)[0] for item in canvas_view.scene().items()
+        )
+
     before = identities()
     canvas_view._snap_selected_items()
     gc.collect()

@@ -149,8 +149,7 @@ def test_recent_file_action_loads_selected_path(
 def test_import_accepts_explicit_recent_file_path(tmp_path: Path) -> None:
     drawing_path = tmp_path / "drawing.py"
     drawing_path.write_text(
-        "import drawsvg as draw\n"
-        "d = draw.Drawing(320, 240, origin=(0, 0))\n",
+        "import drawsvg as draw\nd = draw.Drawing(320, 240, origin=(0, 0))\n",
         encoding="utf-8",
     )
     view = CanvasView()

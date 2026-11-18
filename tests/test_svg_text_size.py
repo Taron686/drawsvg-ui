@@ -39,7 +39,9 @@ def _ink_bounds(image: QtGui.QImage) -> QtCore.QRect:
 @pytest.mark.parametrize("font_unit", ["pt", "px"])
 @pytest.mark.parametrize("strategy", list(TextStrategy))
 @pytest.mark.parametrize("scale", [1, 2])
-def test_svg_text_size_matches_editor(application, tmp_path, font_unit, strategy, scale):
+def test_svg_text_size_matches_editor(
+    application, tmp_path, font_unit, strategy, scale
+):
     scene = QtWidgets.QGraphicsScene()
     item = TextItem(10, 10, 200, 50)
     item.setPlainText("Service Not Seen")

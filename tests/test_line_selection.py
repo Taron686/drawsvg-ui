@@ -31,7 +31,8 @@ def _has_selection_near(image, transform, point, radius=15):
 
 @pytest.mark.parametrize("rotation", (0.0, 35.0))
 @pytest.mark.parametrize(
-    "arrow_start, arrow_end", ((False, False), (True, False), (False, True), (True, True))
+    "arrow_start, arrow_end",
+    ((False, False), (True, False), (False, True), (True, True)),
 )
 @pytest.mark.parametrize(
     "points, shaft_midpoint, empty_corner",
@@ -45,10 +46,13 @@ def test_selected_line_outline_follows_shaft_instead_of_empty_bounding_area(
     application, rotation, arrow_start, arrow_end, points, shaft_midpoint, empty_corner
 ):
     item = LineItem(
-        0.0, 0.0,
+        0.0,
+        0.0,
         points=[QtCore.QPointF(x, y) for x, y in points],
-        arrow_start=arrow_start, arrow_end=arrow_end,
-        arrow_head_length=30.0, arrow_head_width=30.0,
+        arrow_start=arrow_start,
+        arrow_end=arrow_end,
+        arrow_head_length=30.0,
+        arrow_head_width=30.0,
     )
     item.setSelected(True)
 
@@ -67,9 +71,12 @@ def test_selected_line_outline_follows_shaft_instead_of_empty_bounding_area(
 @pytest.mark.parametrize("rotation", (0.0, 35.0))
 def test_selected_arrow_outline_includes_wide_arrowhead_edges(application, rotation):
     item = LineItem(
-        0.0, 0.0,
+        0.0,
+        0.0,
         points=[QtCore.QPointF(40, 40), QtCore.QPointF(200, 40)],
-        arrow_end=True, arrow_head_length=40.0, arrow_head_width=50.0,
+        arrow_end=True,
+        arrow_head_length=40.0,
+        arrow_head_width=50.0,
     )
     item.setSelected(True)
 

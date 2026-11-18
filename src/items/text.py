@@ -27,7 +27,9 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
         "rtl": QtCore.Qt.LayoutDirection.RightToLeft,
     }
 
-    def __init__(self, x, y, w, h, *, auto_size: bool = True):
+    def __init__(
+        self, x: float, y: float, w: float, h: float, *, auto_size: bool = True
+    ) -> None:
         QtWidgets.QGraphicsTextItem.__init__(self, "Text")
         self._box_size = QtCore.QSizeF(1.0, 1.0)
         self._auto_size = auto_size
@@ -79,7 +81,12 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
             self.update_handles()
         self.update()
 
-    def paint(self, painter, option, widget=None):
+    def paint(
+        self,
+        painter: QtGui.QPainter,
+        option: QtWidgets.QStyleOptionGraphicsItem,
+        widget: QtWidgets.QWidget | None = None,
+    ) -> None:
         rect = self.boundingRect()
         painter.save()
         painter.setClipRect(rect)
@@ -95,12 +102,14 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
             painter.drawRect(rect)
             painter.restore()
 
-    def mouseDoubleClickEvent(self, event):
-        self.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextEditorInteraction)
+    def mouseDoubleClickEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent) -> None:
+        self.setTextInteractionFlags(
+            QtCore.Qt.TextInteractionFlag.TextEditorInteraction
+        )
         self.setFocus()
         super().mouseDoubleClickEvent(event)
 
-    def focusOutEvent(self, event):
+    def focusOutEvent(self, event: QtGui.QFocusEvent) -> None:
         super().focusOutEvent(event)
         self.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.NoTextInteraction)
         self.setPlainText(self.toPlainText())
@@ -327,7 +336,7 @@ class TextItem(ResizableItem, QtWidgets.QGraphicsTextItem):
 class GroupItem(ResizableItem, QtWidgets.QGraphicsItemGroup):
     """Group of multiple items with shared handles."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         QtWidgets.QGraphicsItemGroup.__init__(self)
         ResizableItem.__init__(self)
         self.setFlags(
@@ -363,7 +372,7 @@ class GroupItem(ResizableItem, QtWidgets.QGraphicsItemGroup):
             first = False
         return rect if not first else QtCore.QRectF()
 
-    def update_handles(self):  # type: ignore[override]
+    def update_handles(self) -> None:  # type: ignore[override]
         rect = self._handle_rect()
         if not rect.isNull():
             self.setTransformOriginPoint(rect.center())
@@ -371,7 +380,12 @@ class GroupItem(ResizableItem, QtWidgets.QGraphicsItemGroup):
             self.setTransformOriginPoint(QtCore.QPointF())
         super().update_handles()
 
-    def paint(self, painter, option, widget=None):
+    def paint(
+        self,
+        painter: QtGui.QPainter,
+        option: QtWidgets.QStyleOptionGraphicsItem,
+        widget: QtWidgets.QWidget | None = None,
+    ) -> None:
         if _should_draw_selection(self):
             painter.save()
             painter.setPen(PEN_SELECTED)

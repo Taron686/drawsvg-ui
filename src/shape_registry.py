@@ -77,11 +77,26 @@ def _brush_from_data(data: Mapping[str, Any] | None) -> QtGui.QBrush:
     if isinstance(gradient_data, Mapping):
         start = gradient_data.get("start")
         end = gradient_data.get("end")
-        if isinstance(start, (list, tuple)) and isinstance(end, (list, tuple)) and len(start) == 2 and len(end) == 2:
-            gradient = QtGui.QLinearGradient(float(start[0]), float(start[1]), float(end[0]), float(end[1]))
-            gradient.setCoordinateMode(QtGui.QGradient.CoordinateMode(int(gradient_data.get("coordinate_mode", 2))))
+        if (
+            isinstance(start, (list, tuple))
+            and isinstance(end, (list, tuple))
+            and len(start) == 2
+            and len(end) == 2
+        ):
+            gradient = QtGui.QLinearGradient(
+                float(start[0]), float(start[1]), float(end[0]), float(end[1])
+            )
+            gradient.setCoordinateMode(
+                QtGui.QGradient.CoordinateMode(
+                    int(gradient_data.get("coordinate_mode", 2))
+                )
+            )
             for stop in gradient_data.get("stops", []):
-                if isinstance(stop, (list, tuple)) and len(stop) == 2 and isinstance(stop[1], Mapping):
+                if (
+                    isinstance(stop, (list, tuple))
+                    and len(stop) == 2
+                    and isinstance(stop[1], Mapping)
+                ):
                     gradient.setColorAt(float(stop[0]), _color_from_data(stop[1]))
             brush = QtGui.QBrush(gradient)
     return brush
@@ -118,8 +133,10 @@ def _pen_from_data(data: Mapping[str, Any] | None) -> QtGui.QPen:
         QtCore.Qt.PenJoinStyle(int(data.get("join", _enum_to_int(pen.joinStyle()))))
     )
     pen.setCosmetic(bool(data.get("cosmetic", pen.isCosmetic())))
+    # setDashPattern() forces CustomDashLine, so only apply it for custom
+    # patterns; built-in styles (Dash, Dot, ...) carry their own pattern.
     dash = data.get("dash")
-    if isinstance(dash, list):
+    if isinstance(dash, list) and pen.style() == QtCore.Qt.PenStyle.CustomDashLine:
         pen.setDashPattern([float(value) for value in dash])
     return pen
 
@@ -342,7 +359,7 @@ def _serialize_block_arrow(item: QtWidgets.QGraphicsItem) -> dict[str, Any]:
 def _serialize_line(item: QtWidgets.QGraphicsItem) -> dict[str, Any]:
     assert isinstance(item, LineItem)
     data: dict[str, Any] = {
-        "points": [[float(point.x()), float(point.y())] for point in item._points],
+        "points": [[float(point.x()), float(point.y())] for point in item.points()],
         "arrow_start": bool(item.arrow_start),
         "arrow_end": bool(item.arrow_end),
         "pen": _pen_to_data(item.pen()),
@@ -412,8 +429,16 @@ def _restore_free_path(type_id: str, data: Mapping[str, Any]) -> FreePathItem:
             "Bezier Path": "bezier",
         }[type_id],
     )
-    item.setPen(_pen_from_data(data.get("pen") if isinstance(data.get("pen"), Mapping) else None))
-    item.setBrush(_brush_from_data(data.get("brush") if isinstance(data.get("brush"), Mapping) else None))
+    item.setPen(
+        _pen_from_data(
+            data.get("pen") if isinstance(data.get("pen"), Mapping) else None
+        )
+    )
+    item.setBrush(
+        _brush_from_data(
+            data.get("brush") if isinstance(data.get("brush"), Mapping) else None
+        )
+    )
     return item
 
 
@@ -533,7 +558,7 @@ _DIAGRAM_KINDS = {
 def _serialize_diagram(item: QtWidgets.QGraphicsItem) -> dict[str, Any]:
     assert isinstance(item, DiagramItem)
     data: dict[str, Any] = {
-        "size": [float(item._w), float(item._h)],
+        "size": [float(value) for value in item.size()],
         "parameters": item.parameters(),
         "pen": _pen_to_data(item.pen()),
         "brush": _brush_to_data(item.brush()),

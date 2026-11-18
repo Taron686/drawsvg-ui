@@ -11,13 +11,15 @@ def test_imported_box_labels_keep_position_through_undo(
 ):
     lines = ["import drawsvg as draw", "d = draw.Drawing(1200, 1000)"]
     for index in range(20):
-        lines.extend([
-            f"_rect = draw.Rectangle({index % 5 * 200}, {index // 5 * 150}, "
-            f"160, 100, data_label_id='label{index}')",
-            f"_label = draw.Text('First line\\nSecond line\\nThird line\\nFourth line\\nFifth line', "
-            f"{font_px}, 0, 0, data_shape_label='true', data_label_id='label{index}', "
-            f"data_label_h='center', data_label_v='middle', data_font_px={font_px})",
-        ])
+        lines.extend(
+            [
+                f"_rect = draw.Rectangle({index % 5 * 200}, {index // 5 * 150}, "
+                f"160, 100, data_label_id='label{index}')",
+                f"_label = draw.Text('First line\\nSecond line\\nThird line\\nFourth line\\nFifth line', "
+                f"{font_px}, 0, 0, data_shape_label='true', data_label_id='label{index}', "
+                f"data_label_h='center', data_label_v='middle', data_font_px={font_px})",
+            ]
+        )
     lines.append("_text = draw.Text('Standalone', 16, 100, 800)")
     path = tmp_path / "legacy_labels.py"
     path.write_text("\n".join(lines), encoding="utf-8")
@@ -26,9 +28,13 @@ def test_imported_box_labels_keep_position_through_undo(
     def label_state():
         return sorted(
             (
-                item.pos().x(), item.pos().y(), item.label_alignment(),
-                item.label_text(), item.label_item().font().toString(),
-                item.label_item().pos().x(), item.label_item().pos().y(),
+                item.pos().x(),
+                item.pos().y(),
+                item.label_alignment(),
+                item.label_text(),
+                item.label_item().font().toString(),
+                item.label_item().pos().x(),
+                item.label_item().pos().y(),
             )
             for item in canvas_view.scene().items()
             if isinstance(item, ShapeLabelMixin) and item.has_label()

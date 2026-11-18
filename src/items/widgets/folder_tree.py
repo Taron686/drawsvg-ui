@@ -10,7 +10,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any
+from collections.abc import Mapping
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -25,19 +26,19 @@ class FolderTreeNode:
         self,
         name: str,
         is_folder: bool = True,
-        parent: "FolderTreeNode | None" = None,
+        parent: FolderTreeNode | None = None,
     ) -> None:
         self.name = name
         self.is_folder = is_folder
         self.parent = parent
-        self.children: list["FolderTreeNode"] = []
+        self.children: list[FolderTreeNode] = []
 
-    def add_child(self, child: "FolderTreeNode") -> "FolderTreeNode":
+    def add_child(self, child: FolderTreeNode) -> FolderTreeNode:
         child.parent = self
         self.children.append(child)
         return child
 
-    def remove_child(self, child: "FolderTreeNode") -> None:
+    def remove_child(self, child: FolderTreeNode) -> None:
         try:
             self.children.remove(child)
             child.parent = None
@@ -54,8 +55,8 @@ class FolderTreeNode:
     @staticmethod
     def from_dict(
         data: Mapping[str, Any],
-        parent: "FolderTreeNode | None" = None,
-    ) -> "FolderTreeNode":
+        parent: FolderTreeNode | None = None,
+    ) -> FolderTreeNode:
         name = str(data.get("name", "node"))
         is_folder = bool(data.get("folder", True))
         node = FolderTreeNode(name, is_folder, parent)
@@ -66,7 +67,9 @@ class FolderTreeNode:
 
 
 class FolderTreeBranchDot(QtWidgets.QGraphicsEllipseItem):
-    def __init__(self, tree: "FolderTreeItem", node: FolderTreeNode, radius: float):
+    def __init__(
+        self, tree: FolderTreeItem, node: FolderTreeNode, radius: float
+    ) -> None:
         super().__init__(-radius, -radius, radius * 2.0, radius * 2.0, tree)
         self._tree = tree
         self._node = node
@@ -154,10 +157,10 @@ class FolderTreeItem(HandleAwareItemMixin, QtWidgets.QGraphicsItem):
 
         return
 
-    def show_handles(self):
+    def show_handles(self) -> None:
         return
 
-    def hide_handles(self):
+    def hide_handles(self) -> None:
         return
 
     def boundingRect(self) -> QtCore.QRectF:  # type: ignore[override]
@@ -207,9 +210,13 @@ class FolderTreeItem(HandleAwareItemMixin, QtWidgets.QGraphicsItem):
             painter.setPen(self._folder_pen if node.is_folder else self._file_pen)
             painter.drawText(
                 text_rect,
-                QtCore.Qt.AlignmentFlag.AlignVCenter | QtCore.Qt.AlignmentFlag.AlignLeft,
+                QtCore.Qt.AlignmentFlag.AlignVCenter
+                | QtCore.Qt.AlignmentFlag.AlignLeft,
                 label,
             )
+
+    def node_label(self, node: FolderTreeNode) -> str:
+        return self._node_label(node)
 
     def _node_label(self, node: FolderTreeNode) -> str:
         return f"{node.name}/" if node.is_folder else node.name

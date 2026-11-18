@@ -309,23 +309,7 @@ def _validate_payload(
     _validate_scene(migrated["scene"], limits)
     _validate_json_tree(migrated, limits)
 
-    raw_assets = migrated["assets"]
-    if not isinstance(raw_assets, list) or len(raw_assets) > limits.max_assets:
-        raise DocumentValidationError("Project asset manifest is invalid")
-
-    expected_members = {PROJECT_JSON_PATH}
-    seen_names: set[str] = set()
-    total_asset_size = 0
-    for descriptor in raw_assets:
-        _validate_asset_descriptor(descriptor, limits)
-        name = descriptor["name"]
-        if name.casefold() in seen_names:
-            raise DocumentValidationError("Project contains duplicate asset names")
-        seen_names.add(name.casefold())
-        expected_members.add(descriptor["path"])
-        total_asset_size += descriptor["size"]
-    if total_asset_size > limits.max_total_uncompressed_bytes:
-        raise DocumentValidationError("Project assets exceed the total size limit")
+    expected_members = _validate_asset_manifest(migrated["assets"], limits)
 
     thumbnail = migrated["thumbnail"]
     if thumbnail is not None:
@@ -348,6 +332,27 @@ def _validate_payload(
             "Project archive members do not match the asset manifest"
         )
     return dict(migrated)
+
+
+def _validate_asset_manifest(raw_assets: Any, limits: ValidationLimits) -> set[str]:
+    if not isinstance(raw_assets, list) or len(raw_assets) > limits.max_assets:
+        raise DocumentValidationError("Project asset manifest is invalid")
+
+    expected_members = {PROJECT_JSON_PATH}
+    seen_names: set[str] = set()
+    total_asset_size = 0
+    for descriptor in raw_assets:
+        _validate_asset_descriptor(descriptor, limits)
+        name = descriptor["name"]
+        if name.casefold() in seen_names:
+            raise DocumentValidationError("Project contains duplicate asset names")
+        seen_names.add(name.casefold())
+        expected_members.add(descriptor["path"])
+        total_asset_size += descriptor["size"]
+    if total_asset_size > limits.max_total_uncompressed_bytes:
+        raise DocumentValidationError("Project assets exceed the total size limit")
+
+    return expected_members
 
 
 def _validate_scene(scene: Any, limits: ValidationLimits) -> None:

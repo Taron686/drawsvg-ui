@@ -9,9 +9,7 @@ from scene_codec import KEY_ITEM_ID, KEY_LAYER_ID
 
 
 def _add(canvas_view, shape: str, x: float):
-    item = canvas_view.add_shape(
-        shape, QtCore.QPointF(x, 25.0), snap_to_grid=False
-    )
+    item = canvas_view.add_shape(shape, QtCore.QPointF(x, 25.0), snap_to_grid=False)
     assert item is not None
     return item
 
@@ -47,7 +45,9 @@ def test_legacy_snapshot_restores_a_visible_unlocked_default_layer(canvas_view) 
     assert restored.data(KEY_LAYER_ID) == DEFAULT_LAYER_ID
 
 
-def test_layer_state_roundtrips_and_undo_restores_visibility_and_lock(canvas_view) -> None:
+def test_layer_state_roundtrips_and_undo_restores_visibility_and_lock(
+    canvas_view,
+) -> None:
     first = _add(canvas_view, "Rectangle", 10.0)
     second = _add(canvas_view, "Ellipse", 180.0)
     manager = canvas_view.layer_manager()
@@ -123,7 +123,9 @@ def test_layer_lock_disables_direct_item_interaction(canvas_view) -> None:
     assert not item.flags() & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
 
 
-def test_layer_panel_lock_checkbox_refreshes_without_invalidating_row(canvas_view) -> None:
+def test_layer_panel_lock_checkbox_refreshes_without_invalidating_row(
+    canvas_view,
+) -> None:
     panel = LayersPanel(canvas_view)
     row = panel._tree.topLevelItem(0)
     assert row is not None
@@ -154,7 +156,9 @@ def test_layer_state_reaches_group_children(canvas_view) -> None:
     for item in (group, first, second):
         assert item.locked
         assert not item.flags() & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-        assert not item.flags() & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+        assert (
+            not item.flags() & QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+        )
 
 
 def test_ungroup_keeps_locked_children_non_interactive(canvas_view) -> None:

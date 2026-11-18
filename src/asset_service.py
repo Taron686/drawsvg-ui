@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from hashlib import sha256
-from pathlib import Path
 
 from PySide6 import QtCore, QtGui
 
@@ -74,16 +73,6 @@ class BitmapAssetService:
 
     def assets(self) -> tuple[ProjectAsset, ...]:
         return tuple(self._assets)
-
-    def import_file(
-        self, path: str | Path, *, media_type: str | None = None
-    ) -> BitmapImport:
-        try:
-            with Path(path).open("rb") as stream:
-                data = stream.read(self._limits.max_asset_bytes + 1)
-        except OSError as error:
-            raise BitmapAssetError(f"Bitmap file could not be read: {error}") from error
-        return self.import_bytes(data, media_type=media_type)
 
     def import_bytes(
         self, data: bytes, *, media_type: str | None = None

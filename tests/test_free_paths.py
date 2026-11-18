@@ -57,7 +57,9 @@ def test_bezier_path_exposes_node_and_control_handles(
     assert all(handle.isVisible() for handle in item._handles)
 
 
-def test_free_polygon_closes_its_painter_path(application: QtWidgets.QApplication) -> None:
+def test_free_polygon_closes_its_painter_path(
+    application: QtWidgets.QApplication,
+) -> None:
     item = FreePathItem(
         0.0,
         0.0,
